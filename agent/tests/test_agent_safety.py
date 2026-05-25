@@ -108,10 +108,43 @@ def remote_payload(media_enabled=True, cash_enabled=True):
             },
             "cash_monitoring": {
                 "enabled": cash_enabled,
+                "atm_cash_mode": "DISPENSE_ONLY",
                 "provider": "mock",
                 "read_interval_seconds": 30,
-                "low_threshold_default": 300,
-                "critical_threshold_default": 100,
+                "cash_layout": [
+                    {
+                        "cassette_no": 1,
+                        "currency": "YER",
+                        "denomination": 1000,
+                        "max_capacity": 2000,
+                        "low_threshold": 300,
+                        "critical_threshold": 100,
+                    },
+                    {
+                        "cassette_no": 2,
+                        "currency": "YER",
+                        "denomination": 1000,
+                        "max_capacity": 2000,
+                        "low_threshold": 300,
+                        "critical_threshold": 100,
+                    },
+                    {
+                        "cassette_no": 3,
+                        "currency": "USD",
+                        "denomination": 100,
+                        "max_capacity": 2000,
+                        "low_threshold": 100,
+                        "critical_threshold": 30,
+                    },
+                    {
+                        "cassette_no": 4,
+                        "currency": "SAR",
+                        "denomination": 100,
+                        "max_capacity": 2000,
+                        "low_threshold": 100,
+                        "critical_threshold": 30,
+                    },
+                ],
                 "stale_after_minutes": 10,
             },
         },
@@ -123,7 +156,9 @@ def test_core_parse_remote_config_modules():
 
     assert config.media_update.enabled is True
     assert config.cash_monitoring.enabled is True
+    assert config.cash_monitoring.atm_cash_mode == "DISPENSE_ONLY"
     assert config.cash_monitoring.provider == "mock"
+    assert config.cash_monitoring.cash_layout[2].currency == "USD"
     assert "gif" in config.media_update.allowed_extensions
 
 
@@ -204,4 +239,7 @@ def test_cash_monitoring_module_mock_provider_sends_snapshot():
     assert len(api.snapshots) == 1
     assert api.snapshots[0]["atm_id"] == "ATM001"
     assert api.snapshots[0]["source"] == "mock"
-    assert api.snapshots[0]["cash_units"][0]["unit_no"] == 1
+    assert api.snapshots[0]["atm_cash_mode"] == "DISPENSE_ONLY"
+    assert api.snapshots[0]["cash_units"][0]["cassette_no"] == 1
+    assert api.snapshots[0]["cash_units"][2]["reported_currency"] == "USD"
+    assert api.snapshots[0]["reject_retract"]["retract_count"] == 1

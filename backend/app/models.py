@@ -65,6 +65,8 @@ class ATM(Base):
     cash_monitoring_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     module_status_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     cash_provider: Mapped[str] = mapped_column(String(40), default="mock", nullable=False)
+    atm_cash_mode: Mapped[str] = mapped_column(String(40), default="DISPENSE_ONLY", nullable=False)
+    cash_layout_json: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
     cash_read_interval_seconds: Mapped[int] = mapped_column(Integer, default=120, nullable=False)
     cash_low_threshold_default: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
     cash_critical_threshold_default: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
@@ -83,6 +85,7 @@ class ATM(Base):
     cash_snapshots: Mapped[list["AtmCashSnapshot"]] = relationship(back_populates="atm")
     cash_alerts: Mapped[list["AtmCashAlert"]] = relationship(back_populates="atm")
     cash_thresholds: Mapped[list["AtmCashThreshold"]] = relationship(back_populates="atm")
+    reject_retract_statuses: Mapped[list["AtmRejectRetractStatus"]] = relationship(back_populates="atm")
 
     @property
     def seconds_since_last_seen(self) -> int | None:
@@ -212,6 +215,8 @@ class AtmAgentConfig(Base):
     media_check_interval_seconds: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
     cash_monitoring_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     cash_provider: Mapped[str] = mapped_column(String(40), default="mock", nullable=False)
+    atm_cash_mode: Mapped[str] = mapped_column(String(40), default="DISPENSE_ONLY", nullable=False)
+    cash_layout_json: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
     cash_read_interval_seconds: Mapped[int] = mapped_column(Integer, default=120, nullable=False)
     cash_stale_after_minutes: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
@@ -228,26 +233,54 @@ class AtmCashUnit(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     atm_id: Mapped[int] = mapped_column(ForeignKey("atms.id"), nullable=False)
     unit_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    cassette_no: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     cassette_id: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
     cassette_name: Mapped[Optional[str]] = mapped_column(String(160), nullable=True)
+    expected_currency: Mapped[str] = mapped_column(String(10), default="YER", nullable=False)
+    expected_denomination: Mapped[int] = mapped_column(Integer, default=1000, nullable=False)
+    reported_currency: Mapped[str] = mapped_column(String(10), default="YER", nullable=False)
+    reported_denomination: Mapped[int] = mapped_column(Integer, default=1000, nullable=False)
     currency: Mapped[str] = mapped_column(String(10), default="YER", nullable=False)
     denomination: Mapped[int] = mapped_column(Integer, nullable=False)
     initial_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     current_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     reject_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    retract_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     dispensed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     presented_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     retracted_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     min_threshold: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
+    low_threshold: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
+    critical_threshold: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     max_capacity: Mapped[int] = mapped_column(Integer, default=2000, nullable=False)
     status: Mapped[str] = mapped_column(String(30), default="OK", nullable=False)
     physical_status: Mapped[str] = mapped_column(String(40), default="PRESENT", nullable=False)
+    layout_match_status: Mapped[str] = mapped_column(String(40), default="MATCH", nullable=False)
     source: Mapped[str] = mapped_column(String(40), default="mock", nullable=False)
     read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
     atm: Mapped[ATM] = relationship(back_populates="cash_units")
+
+
+class AtmRejectRetractStatus(Base):
+    __tablename__ = "atm_reject_retract_status"
+    __table_args__ = (UniqueConstraint("atm_id", name="uq_reject_retract_atm"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    atm_id: Mapped[int] = mapped_column(ForeignKey("atms.id"), nullable=False)
+    reject_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    retract_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    reject_status: Mapped[str] = mapped_column(String(30), default="OK", nullable=False)
+    retract_status: Mapped[str] = mapped_column(String(30), default="OK", nullable=False)
+    reject_max_capacity: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    retract_max_capacity: Mapped[int] = mapped_column(Integer, default=50, nullable=False)
+    read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    atm: Mapped[ATM] = relationship(back_populates="reject_retract_statuses")
 
 
 class AtmCashSnapshot(Base):

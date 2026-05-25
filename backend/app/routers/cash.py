@@ -1,11 +1,13 @@
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from ..auth import get_agent_atm, get_current_user
+from ..cash_layout import normalized_cash_layout
 from ..database import get_db
-from ..models import ATM, AtmCashAlert, AtmCashSnapshot, AtmCashThreshold, AtmCashUnit, User
+from ..models import ATM, AtmCashAlert, AtmCashSnapshot, AtmCashThreshold, AtmCashUnit, AtmRejectRetractStatus, User
 from ..schemas import (
     CashAlertRead,
     CashAtmDetails,
@@ -19,58 +21,49 @@ from ..services.audit_service import write_audit
 
 router = APIRouter(tags=["cash"])
 
+CASSETTE_ALERT_TYPES = {
+    "CASH_LOW",
+    "CASH_CRITICAL",
+    "CASH_EMPTY",
+    "CASSETTE_MISSING",
+    "CASSETTE_INOP",
+    "CURRENCY_MISMATCH",
+    "DENOMINATION_MISMATCH",
+}
+REJECT_RETRACT_ALERT_TYPES = {"REJECT_BIN_HIGH", "REJECT_BIN_FULL", "RETRACT_OCCURRED"}
+
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def threshold_for_unit(db: Session, atm: ATM, denomination: int) -> tuple[int, int, int]:
-    threshold = (
-        db.query(AtmCashThreshold)
-        .filter(AtmCashThreshold.atm_id == atm.id, AtmCashThreshold.denomination == denomination)
-        .first()
-    )
-    if threshold:
-        return threshold.low_threshold_count, threshold.critical_threshold_count, threshold.max_capacity
-    return atm.cash_low_threshold_default, atm.cash_critical_threshold_default, 2000
+def layout_by_cassette(atm: ATM) -> dict[int, dict[str, Any]]:
+    return {int(item["cassette_no"]): item for item in normalized_cash_layout(atm.cash_layout_json)}
 
 
-def classify_cash_alert(current_count: int, low_threshold: int, critical_threshold: int) -> tuple[str | None, str | None]:
-    if current_count <= 0:
-        return "EMPTY", "critical"
-    if current_count <= critical_threshold:
-        return "CRITICAL", "critical"
-    if current_count <= low_threshold:
-        return "LOW", "warning"
-    return None, None
-
-
-def sync_alert_for_unit(
+def sync_alert(
     db: Session,
     atm: ATM,
+    *,
     unit_no: int,
+    alert_type: str,
+    severity: str,
+    message: str,
     current_count: int,
-    low_threshold: int,
-    critical_threshold: int,
+    threshold_count: int,
 ) -> None:
-    alert_type, severity = classify_cash_alert(current_count, low_threshold, critical_threshold)
     open_alert = (
         db.query(AtmCashAlert)
-        .filter(AtmCashAlert.atm_id == atm.id, AtmCashAlert.unit_no == unit_no, AtmCashAlert.status == "open")
+        .filter(
+            AtmCashAlert.atm_id == atm.id,
+            AtmCashAlert.unit_no == unit_no,
+            AtmCashAlert.alert_type == alert_type,
+            AtmCashAlert.status == "open",
+        )
         .first()
     )
-
-    if alert_type is None:
-        if open_alert:
-            open_alert.status = "closed"
-            open_alert.closed_at = utcnow()
-        return
-
-    threshold_count = critical_threshold if alert_type in {"EMPTY", "CRITICAL"} else low_threshold
-    message = f"Cash {alert_type.lower()} on unit {unit_no}: {current_count} notes remaining"
     if open_alert:
-        open_alert.alert_type = alert_type
-        open_alert.severity = severity or "warning"
+        open_alert.severity = severity
         open_alert.message = message
         open_alert.current_count = current_count
         open_alert.threshold_count = threshold_count
@@ -81,7 +74,7 @@ def sync_alert_for_unit(
             atm_id=atm.id,
             unit_no=unit_no,
             alert_type=alert_type,
-            severity=severity or "warning",
+            severity=severity,
             message=message,
             current_count=current_count,
             threshold_count=threshold_count,
@@ -98,6 +91,56 @@ def sync_alert_for_unit(
     )
 
 
+def close_inactive_alerts(db: Session, atm: ATM, unit_no: int, active_types: set[str], candidates: set[str]) -> None:
+    open_alerts = (
+        db.query(AtmCashAlert)
+        .filter(
+            AtmCashAlert.atm_id == atm.id,
+            AtmCashAlert.unit_no == unit_no,
+            AtmCashAlert.status == "open",
+            AtmCashAlert.alert_type.in_(candidates),
+        )
+        .all()
+    )
+    for alert in open_alerts:
+        if alert.alert_type not in active_types:
+            alert.status = "closed"
+            alert.closed_at = utcnow()
+
+
+def cash_count_alert(current_count: int, low_threshold: int, critical_threshold: int) -> tuple[str | None, str | None, int]:
+    if current_count <= 0:
+        return "CASH_EMPTY", "critical", 0
+    if current_count <= critical_threshold:
+        return "CASH_CRITICAL", "critical", critical_threshold
+    if current_count <= low_threshold:
+        return "CASH_LOW", "warning", low_threshold
+    return None, None, 0
+
+
+def cassette_health_alert(status: str, physical_status: str) -> tuple[str | None, str | None]:
+    status_value = status.upper()
+    physical_value = physical_status.upper()
+    if physical_value not in {"PRESENT", "OK"}:
+        return "CASSETTE_MISSING", "critical"
+    if status_value in {"INOP", "INOPERATIVE", "ERROR", "FATAL"}:
+        return "CASSETTE_INOP", "critical"
+    return None, None
+
+
+def layout_match_status(unit_payload, layout: dict[str, Any]) -> tuple[str, set[str]]:
+    active_types: set[str] = set()
+    if unit_payload.reported_currency != layout["currency"]:
+        active_types.add("CURRENCY_MISMATCH")
+    if unit_payload.reported_denomination != int(layout["denomination"]):
+        active_types.add("DENOMINATION_MISMATCH")
+    if "CURRENCY_MISMATCH" in active_types:
+        return "CURRENCY_MISMATCH", active_types
+    if "DENOMINATION_MISMATCH" in active_types:
+        return "DENOMINATION_MISMATCH", active_types
+    return "MATCH", active_types
+
+
 @router.post("/api/agent/cash-snapshot")
 def submit_cash_snapshot(
     payload: CashSnapshotRequest,
@@ -106,6 +149,8 @@ def submit_cash_snapshot(
 ) -> dict[str, bool]:
     if payload.atm_id and payload.atm_id != atm.atm_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ATM ID does not match credentials")
+    if payload.atm_cash_mode != "DISPENSE_ONLY":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only DISPENSE_ONLY cash mode is supported")
 
     snapshot = AtmCashSnapshot(
         atm_id=atm.id,
@@ -119,17 +164,56 @@ def submit_cash_snapshot(
     statuses["cash_monitoring"] = "running"
     atm.module_status_json = statuses
 
+    layout_map = layout_by_cassette(atm)
     for unit_payload in payload.cash_units:
-        low_threshold, critical_threshold, max_capacity = threshold_for_unit(db, atm, unit_payload.denomination)
+        layout = layout_map.get(unit_payload.cassette_no)
+        if layout is None:
+            layout = {
+                "cassette_no": unit_payload.cassette_no,
+                "currency": unit_payload.reported_currency,
+                "denomination": unit_payload.reported_denomination,
+                "max_capacity": 2000,
+                "low_threshold": atm.cash_low_threshold_default,
+                "critical_threshold": atm.cash_critical_threshold_default,
+            }
+
+        low_threshold = int(layout["low_threshold"])
+        critical_threshold = int(layout["critical_threshold"])
+        max_capacity = int(layout["max_capacity"])
+        layout_status, mismatch_types = layout_match_status(unit_payload, layout)
+
         unit = db.query(AtmCashUnit).filter(
             AtmCashUnit.atm_id == atm.id,
-            AtmCashUnit.unit_no == unit_payload.unit_no,
+            AtmCashUnit.unit_no == unit_payload.cassette_no,
         ).first()
-        values = unit_payload.model_dump()
-        values["min_threshold"] = low_threshold
-        values["max_capacity"] = unit_payload.max_capacity or max_capacity
-        values["source"] = payload.source
-        values["read_at"] = payload.read_at
+        values = {
+            "unit_no": unit_payload.cassette_no,
+            "cassette_no": unit_payload.cassette_no,
+            "cassette_id": unit_payload.cassette_id,
+            "cassette_name": unit_payload.cassette_name or f"Dispense Cassette {unit_payload.cassette_no}",
+            "expected_currency": layout["currency"],
+            "expected_denomination": int(layout["denomination"]),
+            "reported_currency": unit_payload.reported_currency,
+            "reported_denomination": unit_payload.reported_denomination,
+            "currency": unit_payload.reported_currency,
+            "denomination": unit_payload.reported_denomination,
+            "initial_count": unit_payload.initial_count,
+            "current_count": unit_payload.current_count,
+            "reject_count": unit_payload.reject_count,
+            "retract_count": unit_payload.retract_count,
+            "retracted_count": unit_payload.retract_count,
+            "dispensed_count": unit_payload.dispensed_count,
+            "presented_count": unit_payload.presented_count,
+            "min_threshold": low_threshold,
+            "low_threshold": low_threshold,
+            "critical_threshold": critical_threshold,
+            "max_capacity": max_capacity,
+            "status": unit_payload.status,
+            "physical_status": unit_payload.physical_status,
+            "layout_match_status": layout_status,
+            "source": payload.source,
+            "read_at": payload.read_at,
+        }
 
         if unit is None:
             unit = AtmCashUnit(atm_id=atm.id, **values)
@@ -138,14 +222,108 @@ def submit_cash_snapshot(
             for key, value in values.items():
                 setattr(unit, key, value)
 
-        sync_alert_for_unit(
-            db,
-            atm,
-            unit_payload.unit_no,
+        active_types = set(mismatch_types)
+        count_alert, count_severity, count_threshold = cash_count_alert(
             unit_payload.current_count,
             low_threshold,
             critical_threshold,
         )
+        if count_alert and count_severity:
+            active_types.add(count_alert)
+            sync_alert(
+                db,
+                atm,
+                unit_no=unit_payload.cassette_no,
+                alert_type=count_alert,
+                severity=count_severity,
+                message=f"{count_alert} on dispense cassette {unit_payload.cassette_no}: {unit_payload.current_count} notes",
+                current_count=unit_payload.current_count,
+                threshold_count=count_threshold,
+            )
+
+        health_alert, health_severity = cassette_health_alert(unit_payload.status, unit_payload.physical_status)
+        if health_alert and health_severity:
+            active_types.add(health_alert)
+            sync_alert(
+                db,
+                atm,
+                unit_no=unit_payload.cassette_no,
+                alert_type=health_alert,
+                severity=health_severity,
+                message=f"{health_alert} on dispense cassette {unit_payload.cassette_no}",
+                current_count=unit_payload.current_count,
+                threshold_count=0,
+            )
+
+        for mismatch_type in mismatch_types:
+            expected = layout["currency"] if mismatch_type == "CURRENCY_MISMATCH" else layout["denomination"]
+            reported = unit_payload.reported_currency if mismatch_type == "CURRENCY_MISMATCH" else unit_payload.reported_denomination
+            sync_alert(
+                db,
+                atm,
+                unit_no=unit_payload.cassette_no,
+                alert_type=mismatch_type,
+                severity="critical",
+                message=f"{mismatch_type} on cassette {unit_payload.cassette_no}: expected {expected}, reported {reported}",
+                current_count=unit_payload.current_count,
+                threshold_count=0,
+            )
+
+        close_inactive_alerts(db, atm, unit_payload.cassette_no, active_types, CASSETTE_ALERT_TYPES)
+
+    reject_retract = (
+        db.query(AtmRejectRetractStatus)
+        .filter(AtmRejectRetractStatus.atm_id == atm.id)
+        .first()
+    )
+    rr_values = payload.reject_retract.model_dump()
+    rr_values["read_at"] = payload.read_at
+    if reject_retract is None:
+        reject_retract = AtmRejectRetractStatus(atm_id=atm.id, **rr_values)
+        db.add(reject_retract)
+    else:
+        for key, value in rr_values.items():
+            setattr(reject_retract, key, value)
+
+    active_rr_alerts: set[str] = set()
+    reject_high_threshold = max(1, int(payload.reject_retract.reject_max_capacity * 0.8))
+    if payload.reject_retract.reject_count >= payload.reject_retract.reject_max_capacity:
+        active_rr_alerts.add("REJECT_BIN_FULL")
+        sync_alert(
+            db,
+            atm,
+            unit_no=0,
+            alert_type="REJECT_BIN_FULL",
+            severity="critical",
+            message="Reject bin is full",
+            current_count=payload.reject_retract.reject_count,
+            threshold_count=payload.reject_retract.reject_max_capacity,
+        )
+    elif payload.reject_retract.reject_count >= reject_high_threshold:
+        active_rr_alerts.add("REJECT_BIN_HIGH")
+        sync_alert(
+            db,
+            atm,
+            unit_no=0,
+            alert_type="REJECT_BIN_HIGH",
+            severity="warning",
+            message="Reject bin count is high",
+            current_count=payload.reject_retract.reject_count,
+            threshold_count=reject_high_threshold,
+        )
+    if payload.reject_retract.retract_count > 0:
+        active_rr_alerts.add("RETRACT_OCCURRED")
+        sync_alert(
+            db,
+            atm,
+            unit_no=0,
+            alert_type="RETRACT_OCCURRED",
+            severity="warning",
+            message="Retract bin has notes pulled back from customer presentation",
+            current_count=payload.reject_retract.retract_count,
+            threshold_count=1,
+        )
+    close_inactive_alerts(db, atm, 0, active_rr_alerts, REJECT_RETRACT_ALERT_TYPES)
 
     db.commit()
     return {"ok": True}
@@ -158,8 +336,9 @@ def cash_summary(
 ) -> CashSummary:
     units = db.query(AtmCashUnit).order_by(AtmCashUnit.updated_at.desc()).all()
     open_alerts = db.query(AtmCashAlert).filter(AtmCashAlert.status == "open").all()
-    low_atms = {alert.atm_id for alert in open_alerts if alert.alert_type == "LOW"}
-    empty_atms = {alert.atm_id for alert in open_alerts if alert.alert_type == "EMPTY"}
+    low_atms = {alert.atm_id for alert in open_alerts if alert.alert_type == "CASH_LOW"}
+    critical_atms = {alert.atm_id for alert in open_alerts if alert.alert_type == "CASH_CRITICAL"}
+    empty_atms = {alert.atm_id for alert in open_alerts if alert.alert_type == "CASH_EMPTY"}
 
     now = utcnow()
     stale_atms: set[int] = set()
@@ -182,6 +361,7 @@ def cash_summary(
     return CashSummary(
         atm_count=db.query(ATM).count(),
         cash_low_atms=len(low_atms),
+        cash_critical_atms=len(critical_atms),
         cash_empty_atms=len(empty_atms),
         cash_stale_atms=len(stale_atms),
         open_alerts=len(open_alerts),
@@ -200,7 +380,12 @@ def cash_atm_details(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ATM not found")
     return CashAtmDetails(
         atm=atm,
-        units=db.query(AtmCashUnit).filter(AtmCashUnit.atm_id == atm.id).order_by(AtmCashUnit.unit_no.asc()).all(),
+        units=db.query(AtmCashUnit).filter(AtmCashUnit.atm_id == atm.id).order_by(AtmCashUnit.cassette_no.asc()).all(),
+        reject_retract=(
+            db.query(AtmRejectRetractStatus)
+            .filter(AtmRejectRetractStatus.atm_id == atm.id)
+            .first()
+        ),
         alerts=(
             db.query(AtmCashAlert)
             .filter(AtmCashAlert.atm_id == atm.id)

@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from ..auth import get_agent_atm
+from ..cash_layout import normalized_cash_layout
 from ..database import get_db
 from ..models import ATM, AgentCommand, AgentLog, UpdatePackage, UpdateResult, UpdateTarget
 from ..schemas import (
@@ -68,10 +69,10 @@ def get_agent_config(atm: ATM = Depends(get_agent_atm)) -> AgentConfigResponse:
             ),
             cash_monitoring=CashMonitoringRemoteConfig(
                 enabled=atm.cash_monitoring_enabled,
+                atm_cash_mode=atm.atm_cash_mode,
                 provider=atm.cash_provider,
                 read_interval_seconds=atm.cash_read_interval_seconds,
-                low_threshold_default=atm.cash_low_threshold_default,
-                critical_threshold_default=atm.cash_critical_threshold_default,
+                cash_layout=normalized_cash_layout(atm.cash_layout_json),
                 stale_after_minutes=atm.cash_stale_after_minutes,
             ),
         ),

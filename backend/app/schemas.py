@@ -9,6 +9,10 @@ UserRole = Literal["admin", "system_admin", "operator", "media_admin", "cash_mon
 
 
 PATH_FIELDS = {"media_path", "backup_path", "temp_path"}
+ALLOWED_CURRENCIES = {"YER", "USD", "SAR"}
+ALLOWED_DENOMINATIONS = {"YER": {1000}, "USD": {100}, "SAR": {100}}
+CASH_MODE_DISPENSE_ONLY = "DISPENSE_ONLY"
+CashDispenseProvider = Literal["mock", "xfs_cdm", "vendor_cdm"]
 
 
 def validate_atm_managed_path(value: str | None) -> str | None:
@@ -22,6 +26,32 @@ def validate_atm_managed_path(value: str | None) -> str | None:
     if ".." in normalized.split("\\"):
         raise ValueError("Path must not contain '..'")
     return cleaned
+
+
+class CashLayoutItem(BaseModel):
+    cassette_no: int = Field(ge=1, le=12)
+    currency: Literal["YER", "USD", "SAR"]
+    denomination: int = Field(ge=1)
+    max_capacity: int = Field(default=2000, ge=1, le=100000)
+    low_threshold: int = Field(default=300, ge=0, le=100000)
+    critical_threshold: int = Field(default=100, ge=0, le=100000)
+
+    @field_validator("denomination")
+    @classmethod
+    def validate_denomination(cls, value: int, info) -> int:
+        currency = info.data.get("currency")
+        if currency and value not in ALLOWED_DENOMINATIONS[currency]:
+            raise ValueError(f"Unsupported denomination for {currency}")
+        return value
+
+
+def validate_cash_layout_items(value: list[CashLayoutItem] | None) -> list[CashLayoutItem] | None:
+    if value is None:
+        return value
+    cassette_numbers = [item.cassette_no for item in value]
+    if len(cassette_numbers) != len(set(cassette_numbers)):
+        raise ValueError("Duplicate cassette_no is not allowed in the same ATM layout")
+    return value
 
 
 class LoginRequest(BaseModel):
@@ -100,7 +130,9 @@ class ATMCreate(ATMBase):
     config_sync_interval_seconds: int | None = Field(default=None, ge=30, le=86400)
     media_update_enabled: bool | None = None
     cash_monitoring_enabled: bool | None = None
-    cash_provider: Literal["mock", "xfs", "vendor_api"] | None = None
+    atm_cash_mode: Literal["DISPENSE_ONLY"] | None = None
+    cash_provider: CashDispenseProvider | None = None
+    cash_layout: list[CashLayoutItem] | None = None
     cash_read_interval_seconds: int | None = Field(default=None, ge=30, le=86400)
     cash_low_threshold_default: int | None = Field(default=None, ge=0, le=100000)
     cash_critical_threshold_default: int | None = Field(default=None, ge=0, le=100000)
@@ -110,6 +142,11 @@ class ATMCreate(ATMBase):
     @classmethod
     def validate_paths(cls, value: str | None) -> str | None:
         return validate_atm_managed_path(value)
+
+    @field_validator("cash_layout")
+    @classmethod
+    def validate_cash_layout(cls, value: list[CashLayoutItem] | None) -> list[CashLayoutItem] | None:
+        return validate_cash_layout_items(value)
 
 
 class ATMUpdate(BaseModel):
@@ -126,7 +163,9 @@ class ATMUpdate(BaseModel):
     config_sync_interval_seconds: int | None = Field(default=None, ge=30, le=86400)
     media_update_enabled: bool | None = None
     cash_monitoring_enabled: bool | None = None
-    cash_provider: Literal["mock", "xfs", "vendor_api"] | None = None
+    atm_cash_mode: Literal["DISPENSE_ONLY"] | None = None
+    cash_provider: CashDispenseProvider | None = None
+    cash_layout: list[CashLayoutItem] | None = None
     cash_read_interval_seconds: int | None = Field(default=None, ge=30, le=86400)
     cash_low_threshold_default: int | None = Field(default=None, ge=0, le=100000)
     cash_critical_threshold_default: int | None = Field(default=None, ge=0, le=100000)
@@ -136,6 +175,11 @@ class ATMUpdate(BaseModel):
     @classmethod
     def validate_paths(cls, value: str | None) -> str | None:
         return validate_atm_managed_path(value)
+
+    @field_validator("cash_layout")
+    @classmethod
+    def validate_cash_layout(cls, value: list[CashLayoutItem] | None) -> list[CashLayoutItem] | None:
+        return validate_cash_layout_items(value)
 
 
 class ATMRead(ATMBase):
@@ -163,7 +207,9 @@ class ATMRead(ATMBase):
     media_update_enabled: bool
     cash_monitoring_enabled: bool
     module_status_json: dict[str, Any] = Field(default_factory=dict)
+    atm_cash_mode: str
     cash_provider: str
+    cash_layout_json: list[dict[str, Any]] = Field(default_factory=list)
     cash_read_interval_seconds: int
     cash_low_threshold_default: int
     cash_critical_threshold_default: int
@@ -330,10 +376,10 @@ class MediaUpdateRemoteConfig(BaseModel):
 
 class CashMonitoringRemoteConfig(BaseModel):
     enabled: bool
-    provider: Literal["mock", "xfs", "vendor_api"] = "mock"
+    atm_cash_mode: Literal["DISPENSE_ONLY"] = "DISPENSE_ONLY"
+    provider: CashDispenseProvider = "mock"
     read_interval_seconds: int
-    low_threshold_default: int
-    critical_threshold_default: int
+    cash_layout: list[CashLayoutItem] = Field(default_factory=list)
     stale_after_minutes: int
 
 
@@ -412,50 +458,71 @@ class AuditLogRead(BaseModel):
     created_at: datetime
 
 
+class RejectRetractPayload(BaseModel):
+    reject_count: int = Field(default=0, ge=0)
+    retract_count: int = Field(default=0, ge=0)
+    reject_status: str = "OK"
+    retract_status: str = "OK"
+    reject_max_capacity: int = Field(default=100, ge=1)
+    retract_max_capacity: int = Field(default=50, ge=1)
+
+
 class CashUnitPayload(BaseModel):
-    unit_no: int
+    cassette_no: int = Field(ge=1, le=12)
     cassette_id: str | None = None
     cassette_name: str | None = None
-    currency: str = Field(default="YER", min_length=2, max_length=10)
-    denomination: int = Field(ge=0)
+    reported_currency: Literal["YER", "USD", "SAR"]
+    reported_denomination: int = Field(ge=1)
     initial_count: int = Field(default=0, ge=0)
     current_count: int = Field(default=0, ge=0)
     reject_count: int = Field(default=0, ge=0)
+    retract_count: int = Field(default=0, ge=0)
     dispensed_count: int = Field(default=0, ge=0)
     presented_count: int = Field(default=0, ge=0)
-    retracted_count: int = Field(default=0, ge=0)
-    min_threshold: int = Field(default=300, ge=0)
-    max_capacity: int = Field(default=2000, ge=0)
     status: str = "OK"
     physical_status: str = "PRESENT"
+
+    @field_validator("reported_denomination")
+    @classmethod
+    def validate_reported_denomination(cls, value: int, info) -> int:
+        currency = info.data.get("reported_currency")
+        if currency and value not in ALLOWED_DENOMINATIONS[currency]:
+            raise ValueError(f"Unsupported denomination for {currency}")
+        return value
 
 
 class CashSnapshotRequest(BaseModel):
     atm_id: str | None = None
-    source: Literal["mock", "xfs", "vendor_api"] = "mock"
+    source: CashDispenseProvider = "mock"
+    atm_cash_mode: Literal["DISPENSE_ONLY"] = "DISPENSE_ONLY"
     read_at: datetime
     cash_units: list[CashUnitPayload] = Field(default_factory=list)
+    reject_retract: RejectRetractPayload = Field(default_factory=RejectRetractPayload)
 
 
 class CashUnitRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    unit_no: int
+    cassette_no: int
     cassette_id: str | None
     cassette_name: str | None
-    currency: str
-    denomination: int
+    expected_currency: str
+    expected_denomination: int
+    reported_currency: str
+    reported_denomination: int
     initial_count: int
     current_count: int
     reject_count: int
+    retract_count: int
     dispensed_count: int
     presented_count: int
-    retracted_count: int
-    min_threshold: int
+    low_threshold: int
+    critical_threshold: int
     max_capacity: int
     status: str
     physical_status: str
+    layout_match_status: str
     source: str
     read_at: datetime
     updated_at: datetime
@@ -475,6 +542,20 @@ class CashAlertRead(BaseModel):
     status: str
     opened_at: datetime
     closed_at: datetime | None
+
+
+class RejectRetractRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    reject_count: int
+    retract_count: int
+    reject_status: str
+    retract_status: str
+    reject_max_capacity: int
+    retract_max_capacity: int
+    read_at: datetime
+    updated_at: datetime
 
 
 class CashThresholdCreate(BaseModel):
@@ -507,6 +588,7 @@ class CashThresholdRead(BaseModel):
 class CashAtmDetails(BaseModel):
     atm: ATMRead
     units: list[CashUnitRead]
+    reject_retract: RejectRetractRead | None = None
     alerts: list[CashAlertRead]
     thresholds: list[CashThresholdRead]
 
@@ -514,6 +596,7 @@ class CashAtmDetails(BaseModel):
 class CashSummary(BaseModel):
     atm_count: int
     cash_low_atms: int
+    cash_critical_atms: int
     cash_empty_atms: int
     cash_stale_atms: int
     open_alerts: int

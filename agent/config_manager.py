@@ -28,12 +28,22 @@ class MediaUpdateConfig:
 
 
 @dataclass
+class CashLayoutItem:
+    cassette_no: int
+    currency: str
+    denomination: int
+    max_capacity: int
+    low_threshold: int
+    critical_threshold: int
+
+
+@dataclass
 class CashMonitoringConfig:
     enabled: bool
+    atm_cash_mode: str
     provider: str
     read_interval_seconds: int
-    low_threshold_default: int
-    critical_threshold_default: int
+    cash_layout: list[CashLayoutItem]
     stale_after_minutes: int
 
 
@@ -113,12 +123,23 @@ def parse_remote_config(payload: dict[str, Any]) -> RemoteConfig:
     }
     cash_payload = modules.get("cash_monitoring") or {
         "enabled": False,
+        "atm_cash_mode": "DISPENSE_ONLY",
         "provider": "mock",
         "read_interval_seconds": 120,
-        "low_threshold_default": 300,
-        "critical_threshold_default": 100,
+        "cash_layout": [],
         "stale_after_minutes": 10,
     }
+    cash_layout = [
+        CashLayoutItem(
+            cassette_no=int(item["cassette_no"]),
+            currency=str(item["currency"]),
+            denomination=int(item["denomination"]),
+            max_capacity=int(item.get("max_capacity") or 2000),
+            low_threshold=int(item.get("low_threshold") or 300),
+            critical_threshold=int(item.get("critical_threshold") or 100),
+        )
+        for item in cash_payload.get("cash_layout", [])
+    ]
     return RemoteConfig(
         atm_id=str(payload["atm_id"]),
         config_version=int(payload["config_version"]),
@@ -134,10 +155,10 @@ def parse_remote_config(payload: dict[str, Any]) -> RemoteConfig:
         ),
         cash_monitoring=CashMonitoringConfig(
             enabled=bool(cash_payload.get("enabled", False)),
+            atm_cash_mode=str(cash_payload.get("atm_cash_mode") or "DISPENSE_ONLY"),
             provider=str(cash_payload.get("provider") or "mock"),
             read_interval_seconds=int(cash_payload.get("read_interval_seconds") or 120),
-            low_threshold_default=int(cash_payload.get("low_threshold_default") or 300),
-            critical_threshold_default=int(cash_payload.get("critical_threshold_default") or 100),
+            cash_layout=cash_layout,
             stale_after_minutes=int(cash_payload.get("stale_after_minutes") or 10),
         ),
     )

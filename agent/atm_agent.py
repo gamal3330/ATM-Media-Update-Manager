@@ -427,7 +427,9 @@ def status_command(args: argparse.Namespace) -> None:
             print(f"Backup Path: {media.get('backup_path', '-')}")
             print(f"Temp Path: {media.get('temp_path', '-')}")
             print(f"Cash Monitoring Enabled: {cash.get('enabled', False)}")
-            print(f"Cash Provider: {cash.get('provider', '-')}")
+            print(f"ATM Cash Mode: {cash.get('atm_cash_mode', 'DISPENSE_ONLY')}")
+            print(f"CDM Provider: {cash.get('provider', '-')}")
+            print(f"Dispense Cassette Layout Count: {len(cash.get('cash_layout') or [])}")
         else:
             print(f"Server Connectivity: Failed HTTP {response.status_code}")
             print(f"Server Response: {response.text[:500]}")

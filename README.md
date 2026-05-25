@@ -132,7 +132,7 @@ pytest
 6. Media Update Module يتحقق من وجود تحديث، ثم يرسل تقدم العملية للسيرفر: تنزيل ZIP، التحقق من SHA256، فك الضغط، Backup، ونسخ الملفات.
 7. إذا كان ZIP يحتوي مجلداً رئيسياً واحداً فقط، ينسخ الـ Agent محتوياته مباشرة داخل `media_path`. المجلدات الداخلية المهمة مثل مجلدات المقاسات تبقى كما هي.
 8. في حال الفشل، يحاول Rollback من آخر Backup ويرسل سبب الفشل للسيرفر.
-9. Cash Monitoring Module يرسل snapshots بنظام Read-Only فقط عند تفعيله من لوحة التحكم.
+9. Cash Monitoring Module مخصص لصرافات السحب فقط `DISPENSE_ONLY`، ويقرأ CDM dispense cassettes و reject/retract بنظام Read-Only عند تفعيله من لوحة التحكم.
 10. من صفحة تفاصيل التحديثات استخدم `Retry Failed` لإعادة محاولة الصرافات الفاشلة فقط.
 
 ## تشغيل الصراف عملياً
@@ -194,12 +194,37 @@ sc.exe query ATMUnifiedAgent
 - يمكن تفعيل أو تعطيل كل Module من إعدادات الصراف في لوحة التحكم.
 - لا يستقبل الـ Agent أوامر Shell أو PowerShell أو PS1 من السيرفر.
 - مسارات الصور والنسخ الاحتياطي وإعدادات مراقبة النقد تأتي من `/api/agent/config`.
+- كل الصرافات في هذه النسخة تعامل كصرافات سحب فقط `DISPENSE_ONLY`.
+- Cash Monitoring يركز على `CDM = Cash Dispenser Module` فقط.
+- الـ providers الحالية: `mock`, `xfs_cdm`, `vendor_cdm`.
+- لا يوجد CIM أو Cash-In أو Deposit أو Recycler في هذه النسخة.
+
+مثال إعدادات مراقبة النقد القادمة من السيرفر:
+
+```json
+{
+  "cash_monitoring": {
+    "enabled": true,
+    "atm_cash_mode": "DISPENSE_ONLY",
+    "provider": "xfs_cdm",
+    "read_interval_seconds": 120,
+    "cash_layout": [
+      { "cassette_no": 1, "currency": "YER", "denomination": 1000, "max_capacity": 2000, "low_threshold": 300, "critical_threshold": 100 },
+      { "cassette_no": 2, "currency": "YER", "denomination": 1000, "max_capacity": 2000, "low_threshold": 300, "critical_threshold": 100 },
+      { "cassette_no": 3, "currency": "USD", "denomination": 100, "max_capacity": 2000, "low_threshold": 100, "critical_threshold": 30 },
+      { "cassette_no": 4, "currency": "SAR", "denomination": 100, "max_capacity": 2000, "low_threshold": 100, "critical_threshold": 30 }
+    ],
+    "stale_after_minutes": 10
+  }
+}
+```
 
 ## ملاحظات أمنية مهمة
 
 - لا يتم تنفيذ أي EXE أو Script من داخل حزمة ZIP على الصراف؛ الحزمة مخصصة لملفات الصور فقط.
 - الامتدادات المسموحة داخل ZIP فقط: `jpg`, `jpeg`, `png`, `bmp`, `gif`.
-- Cash Monitoring Read-Only فقط: لا Dispense، لا Cash Unit Exchange، لا Reset Counters.
+- Cash Monitoring Read-Only فقط: لا تنفيذ Dispense commands، لا Cash Unit Exchange، لا Reset Counters، ولا أي أمر يغيّر حالة الصراف.
+- لوحة مراقبة النقد تعرض فقط dispense cassettes و available cash و reject/retract والتنبيهات الخاصة بها.
 - يتم منع Path Traversal عند رفع ZIP في السيرفر وعند فكه في الـ Agent.
 - يتم حفظ SHA256 لكل حزمة والتحقق منه قبل التطبيق.
 - كلمات المرور لا تخزن كنص صريح؛ يتم استخدام PBKDF2-HMAC-SHA256.

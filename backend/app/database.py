@@ -92,6 +92,8 @@ def migrate_existing_schema() -> None:
                 "cash_monitoring_enabled": "BOOLEAN NOT NULL DEFAULT 0",
                 "module_status_json": "JSON NOT NULL DEFAULT '{}'",
                 "cash_provider": "VARCHAR(40) NOT NULL DEFAULT 'mock'",
+                "atm_cash_mode": "VARCHAR(40) NOT NULL DEFAULT 'DISPENSE_ONLY'",
+                "cash_layout_json": "JSON NOT NULL DEFAULT '[]'",
                 "cash_read_interval_seconds": "INTEGER NOT NULL DEFAULT 120",
                 "cash_low_threshold_default": "INTEGER NOT NULL DEFAULT 300",
                 "cash_critical_threshold_default": "INTEGER NOT NULL DEFAULT 100",
@@ -110,6 +112,50 @@ def migrate_existing_schema() -> None:
                         last_heartbeat_at = COALESCE(last_heartbeat_at, last_seen),
                         current_package_version = COALESCE(current_package_version, last_image_version),
                         config_updated_at = COALESCE(config_updated_at, updated_at, created_at)
+                    """
+                )
+            )
+
+        if "atm_agent_configs" in table_names:
+            existing_columns = {column["name"] for column in inspector.get_columns("atm_agent_configs")}
+            config_columns = {
+                "atm_cash_mode": "VARCHAR(40) NOT NULL DEFAULT 'DISPENSE_ONLY'",
+                "cash_layout_json": "JSON NOT NULL DEFAULT '[]'",
+            }
+            for name, definition in config_columns.items():
+                if name not in existing_columns:
+                    connection.execute(text(f"ALTER TABLE atm_agent_configs ADD COLUMN {name} {definition}"))
+
+        if "atm_cash_units" in table_names:
+            existing_columns = {column["name"] for column in inspector.get_columns("atm_cash_units")}
+            cash_unit_columns = {
+                "cassette_no": "INTEGER NOT NULL DEFAULT 1",
+                "expected_currency": "VARCHAR(10) NOT NULL DEFAULT 'YER'",
+                "expected_denomination": "INTEGER NOT NULL DEFAULT 1000",
+                "reported_currency": "VARCHAR(10) NOT NULL DEFAULT 'YER'",
+                "reported_denomination": "INTEGER NOT NULL DEFAULT 1000",
+                "retract_count": "INTEGER NOT NULL DEFAULT 0",
+                "low_threshold": "INTEGER NOT NULL DEFAULT 300",
+                "critical_threshold": "INTEGER NOT NULL DEFAULT 100",
+                "layout_match_status": "VARCHAR(40) NOT NULL DEFAULT 'MATCH'",
+            }
+            for name, definition in cash_unit_columns.items():
+                if name not in existing_columns:
+                    connection.execute(text(f"ALTER TABLE atm_cash_units ADD COLUMN {name} {definition}"))
+
+            connection.execute(
+                text(
+                    """
+                    UPDATE atm_cash_units
+                    SET
+                        cassette_no = COALESCE(cassette_no, unit_no),
+                        expected_currency = COALESCE(expected_currency, currency),
+                        expected_denomination = COALESCE(expected_denomination, denomination),
+                        reported_currency = COALESCE(reported_currency, currency),
+                        reported_denomination = COALESCE(reported_denomination, denomination),
+                        retract_count = COALESCE(retract_count, retracted_count),
+                        low_threshold = COALESCE(low_threshold, min_threshold),
+                        critical_threshold = COALESCE(critical_threshold, 100)
                     """
                 )
             )

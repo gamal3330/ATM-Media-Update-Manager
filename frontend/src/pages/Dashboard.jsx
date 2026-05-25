@@ -33,6 +33,7 @@ export default function Dashboard({ atms, packages, cashSummary, loading, onRefr
         <StatCard label="Pending / Failed" value={`${pending} / ${failed}`} tone={failed ? "bad" : "neutral"} />
         <StatCard label="Pending Config" value={pendingConfig} tone={pendingConfig ? "warn" : "good"} />
         <StatCard label="Cash Low" value={cashSummary?.cash_low_atms || 0} tone={cashSummary?.cash_low_atms ? "warn" : "good"} />
+        <StatCard label="Cash Critical" value={cashSummary?.cash_critical_atms || 0} tone={cashSummary?.cash_critical_atms ? "bad" : "good"} />
         <StatCard label="Cash Empty" value={cashSummary?.cash_empty_atms || 0} tone={cashSummary?.cash_empty_atms ? "bad" : "good"} />
         <StatCard label="Cash Data Stale" value={cashSummary?.cash_stale_atms || 0} tone={cashSummary?.cash_stale_atms ? "warn" : "good"} />
       </div>

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from ..auth import generate_api_key, get_current_user, hash_api_key
+from ..cash_layout import normalized_cash_layout
 from ..database import get_db
 from ..models import (
     ATM,
@@ -14,6 +15,7 @@ from ..models import (
     AtmCashSnapshot,
     AtmCashThreshold,
     AtmCashUnit,
+    AtmRejectRetractStatus,
     UpdateResult,
     UpdateTarget,
     User,
@@ -33,6 +35,8 @@ CONFIG_FIELDS = {
     "media_update_enabled",
     "cash_monitoring_enabled",
     "cash_provider",
+    "atm_cash_mode",
+    "cash_layout_json",
     "cash_read_interval_seconds",
     "cash_low_threshold_default",
     "cash_critical_threshold_default",
@@ -54,6 +58,8 @@ def record_agent_config_snapshot(db: Session, atm: ATM, updated_by: str | None) 
             media_check_interval_seconds=atm.check_interval_seconds,
             cash_monitoring_enabled=atm.cash_monitoring_enabled,
             cash_provider=atm.cash_provider,
+            atm_cash_mode=atm.atm_cash_mode,
+            cash_layout_json=atm.cash_layout_json,
             cash_read_interval_seconds=atm.cash_read_interval_seconds,
             cash_stale_after_minutes=atm.cash_stale_after_minutes,
             updated_by=updated_by,
@@ -95,6 +101,10 @@ def create_atm(
         media_update_enabled=True if payload.media_update_enabled is None else payload.media_update_enabled,
         cash_monitoring_enabled=False if payload.cash_monitoring_enabled is None else payload.cash_monitoring_enabled,
         cash_provider=payload.cash_provider or "mock",
+        atm_cash_mode=payload.atm_cash_mode or "DISPENSE_ONLY",
+        cash_layout_json=normalized_cash_layout(
+            [item.model_dump() for item in payload.cash_layout] if payload.cash_layout is not None else None
+        ),
         cash_read_interval_seconds=payload.cash_read_interval_seconds or 120,
         cash_low_threshold_default=payload.cash_low_threshold_default or 300,
         cash_critical_threshold_default=payload.cash_critical_threshold_default or 100,
@@ -251,6 +261,8 @@ def update_atm(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ATM not found")
 
     changes = payload.model_dump(exclude_unset=True)
+    if "cash_layout" in changes:
+        changes["cash_layout_json"] = normalized_cash_layout(changes.pop("cash_layout"))
     config_changes = {
         key: value for key, value in changes.items() if key in CONFIG_FIELDS and getattr(atm, key) != value
     }
@@ -393,6 +405,9 @@ def delete_atm(
         "deleted_update_results": db.query(UpdateResult).filter(UpdateResult.atm_id == atm.id).count(),
         "deleted_agent_logs": db.query(AgentLog).filter(AgentLog.atm_id == atm.id).count(),
         "deleted_cash_units": db.query(AtmCashUnit).filter(AtmCashUnit.atm_id == atm.id).count(),
+        "deleted_reject_retract_status": db.query(AtmRejectRetractStatus).filter(
+            AtmRejectRetractStatus.atm_id == atm.id
+        ).count(),
     }
     write_audit(
         db,
@@ -410,6 +425,7 @@ def delete_atm(
     db.query(AgentCommand).filter(AgentCommand.atm_id == atm.id).delete(synchronize_session=False)
     db.query(AtmAgentConfig).filter(AtmAgentConfig.atm_id == atm.id).delete(synchronize_session=False)
     db.query(AtmCashUnit).filter(AtmCashUnit.atm_id == atm.id).delete(synchronize_session=False)
+    db.query(AtmRejectRetractStatus).filter(AtmRejectRetractStatus.atm_id == atm.id).delete(synchronize_session=False)
     db.query(AtmCashSnapshot).filter(AtmCashSnapshot.atm_id == atm.id).delete(synchronize_session=False)
     db.query(AtmCashAlert).filter(AtmCashAlert.atm_id == atm.id).delete(synchronize_session=False)
     db.query(AtmCashThreshold).filter(AtmCashThreshold.atm_id == atm.id).delete(synchronize_session=False)

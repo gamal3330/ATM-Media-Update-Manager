@@ -248,6 +248,8 @@ def test_agent_config_ack_and_atm_settings_version() -> None:
         assert config.json()["media_path"] == "C:/ATM/NewMedia"
         assert config.json()["modules"]["media_update"]["enabled"] is True
         assert config.json()["modules"]["cash_monitoring"]["enabled"] is False
+        assert config.json()["modules"]["cash_monitoring"]["atm_cash_mode"] == "DISPENSE_ONLY"
+        assert config.json()["modules"]["cash_monitoring"]["cash_layout"][0]["cassette_no"] == 1
 
         ack = client.post(
             "/api/agent/config-ack",
@@ -296,6 +298,57 @@ def test_agent_heartbeat_records_module_statuses() -> None:
         assert atm.json()["module_status_json"]["cash_monitoring"] == "running"
 
 
+def test_cash_layout_validation_allows_duplicate_denomination_but_not_duplicate_cassette() -> None:
+    with TestClient(app) as client:
+        headers = login(client)
+        valid = client.post(
+            "/api/atms",
+            json={
+                "atm_id": "ATM-LAYOUT-OK",
+                "name": "Layout OK",
+                "vpn_ip": "10.10.0.45",
+                "branch": "HQ",
+                "cash_layout": [
+                    {"cassette_no": 1, "currency": "YER", "denomination": 1000},
+                    {"cassette_no": 2, "currency": "YER", "denomination": 1000},
+                ],
+            },
+            headers=headers,
+        )
+        assert valid.status_code == 201
+
+        duplicate = client.post(
+            "/api/atms",
+            json={
+                "atm_id": "ATM-LAYOUT-DUP",
+                "name": "Layout Dup",
+                "vpn_ip": "10.10.0.46",
+                "branch": "HQ",
+                "cash_layout": [
+                    {"cassette_no": 1, "currency": "YER", "denomination": 1000},
+                    {"cassette_no": 1, "currency": "USD", "denomination": 100},
+                ],
+            },
+            headers=headers,
+        )
+        assert duplicate.status_code == 422
+
+        bad_denomination = client.post(
+            "/api/atms",
+            json={
+                "atm_id": "ATM-LAYOUT-BAD",
+                "name": "Layout Bad",
+                "vpn_ip": "10.10.0.47",
+                "branch": "HQ",
+                "cash_layout": [
+                    {"cassette_no": 1, "currency": "USD", "denomination": 50},
+                ],
+            },
+            headers=headers,
+        )
+        assert bad_denomination.status_code == 422
+
+
 def test_cash_snapshot_updates_units_and_alerts() -> None:
     with TestClient(app) as client:
         headers = login(client)
@@ -318,60 +371,63 @@ def test_cash_snapshot_updates_units_and_alerts() -> None:
             json={
                 "atm_id": "ATM-CASH",
                 "source": "mock",
+                "atm_cash_mode": "DISPENSE_ONLY",
                 "read_at": "2026-05-25T10:30:00Z",
                 "cash_units": [
                     {
-                        "unit_no": 1,
+                        "cassette_no": 1,
                         "cassette_id": "CST01",
-                        "cassette_name": "Cassette 1",
-                        "currency": "YER",
-                        "denomination": 1000,
+                        "cassette_name": "Dispense Cassette 1",
+                        "reported_currency": "YER",
+                        "reported_denomination": 1000,
                         "initial_count": 2000,
                         "current_count": 80,
                         "reject_count": 0,
+                        "retract_count": 0,
                         "dispensed_count": 1920,
                         "presented_count": 1920,
-                        "retracted_count": 0,
-                        "min_threshold": 300,
-                        "max_capacity": 2000,
                         "status": "LOW",
                         "physical_status": "PRESENT",
                     },
                     {
-                        "unit_no": 2,
+                        "cassette_no": 2,
                         "cassette_id": "CST02",
-                        "cassette_name": "Cassette 2",
-                        "currency": "YER",
-                        "denomination": 500,
+                        "cassette_name": "Dispense Cassette 2",
+                        "reported_currency": "YER",
+                        "reported_denomination": 1000,
                         "initial_count": 2000,
                         "current_count": 250,
                         "reject_count": 0,
+                        "retract_count": 0,
                         "dispensed_count": 1750,
                         "presented_count": 1750,
-                        "retracted_count": 0,
-                        "min_threshold": 300,
-                        "max_capacity": 2000,
                         "status": "LOW",
                         "physical_status": "PRESENT",
                     },
                     {
-                        "unit_no": 3,
+                        "cassette_no": 3,
                         "cassette_id": "CST03",
-                        "cassette_name": "Cassette 3",
-                        "currency": "YER",
-                        "denomination": 250,
+                        "cassette_name": "Dispense Cassette 3",
+                        "reported_currency": "YER",
+                        "reported_denomination": 1000,
                         "initial_count": 2000,
                         "current_count": 0,
                         "reject_count": 0,
+                        "retract_count": 0,
                         "dispensed_count": 2000,
                         "presented_count": 2000,
-                        "retracted_count": 0,
-                        "min_threshold": 300,
-                        "max_capacity": 2000,
                         "status": "EMPTY",
                         "physical_status": "PRESENT",
                     }
                 ],
+                "reject_retract": {
+                    "reject_count": 90,
+                    "retract_count": 1,
+                    "reject_status": "OK",
+                    "retract_status": "OK",
+                    "reject_max_capacity": 100,
+                    "retract_max_capacity": 50,
+                },
             },
             headers=agent_headers,
         )
@@ -380,13 +436,17 @@ def test_cash_snapshot_updates_units_and_alerts() -> None:
         details = client.get("/api/cash/atms/ATM-CASH", headers=headers)
         assert details.status_code == 200
         assert details.json()["units"][0]["current_count"] == 80
+        assert details.json()["units"][0]["cassette_no"] == 1
+        assert details.json()["reject_retract"]["reject_count"] == 90
+        assert details.json()["reject_retract"]["retract_count"] == 1
         alert_types = {alert["alert_type"] for alert in details.json()["alerts"]}
-        assert {"LOW", "CRITICAL", "EMPTY"}.issubset(alert_types)
+        assert {"CASH_LOW", "CASH_CRITICAL", "CASH_EMPTY", "REJECT_BIN_HIGH", "RETRACT_OCCURRED"}.issubset(alert_types)
 
         summary = client.get("/api/cash/summary", headers=headers)
         assert summary.status_code == 200
         assert summary.json()["open_alerts"] >= 1
         assert summary.json()["cash_low_atms"] >= 1
+        assert summary.json()["cash_critical_atms"] >= 1
         assert summary.json()["cash_empty_atms"] >= 1
 
 

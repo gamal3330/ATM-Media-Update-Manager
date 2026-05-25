@@ -1,4 +1,4 @@
-import { AlertTriangle, Banknote, RefreshCw } from "lucide-react";
+import { AlertTriangle, Banknote, PackageCheck, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { formatApiDate } from "../api/time";
@@ -6,9 +6,21 @@ import StatCard from "../components/StatCard";
 
 function statusTone(status) {
   const value = String(status || "").toUpperCase();
-  if (value === "EMPTY" || value === "CRITICAL") return "bg-rose-50 text-rose-700";
-  if (value === "LOW") return "bg-amber-50 text-amber-700";
+  if (value.includes("EMPTY") || value.includes("CRITICAL") || value.includes("MISSING") || value.includes("INOP")) {
+    return "bg-rose-50 text-rose-700";
+  }
+  if (value.includes("LOW") || value.includes("HIGH") || value.includes("RETRACT")) return "bg-amber-50 text-amber-700";
+  if (value.includes("MISMATCH")) return "bg-rose-50 text-rose-700";
   return "bg-emerald-50 text-emerald-700";
+}
+
+function formatCashValue(value) {
+  return new Intl.NumberFormat("en-US").format(value || 0);
+}
+
+function alertUnitLabel(alert) {
+  if (alert.unit_no === 0) return "Reject/Retract";
+  return `Cassette ${alert.unit_no}`;
 }
 
 export default function CashMonitoring({ atms }) {
@@ -20,6 +32,15 @@ export default function CashMonitoring({ atms }) {
   const [error, setError] = useState("");
 
   const cashEnabledAtms = useMemo(() => atms.filter((atm) => atm.cash_monitoring_enabled), [atms]);
+  const availableByCurrency = useMemo(() => {
+    const totals = {};
+    (details?.units || []).forEach((unit) => {
+      const currency = unit.reported_currency || unit.expected_currency || "N/A";
+      const denomination = Number(unit.reported_denomination || unit.expected_denomination || 0);
+      totals[currency] = (totals[currency] || 0) + Number(unit.current_count || 0) * denomination;
+    });
+    return Object.entries(totals);
+  }, [details]);
 
   async function load() {
     setLoading(true);
@@ -62,7 +83,7 @@ export default function CashMonitoring({ atms }) {
             <Banknote size={25} />
             <span>مراقبة النقد</span>
           </h1>
-          <p className="text-sm text-slate-500">قراءة Read-Only لحالة الكاسيتات والتنبيهات من ATM Unified Agent</p>
+          <p className="text-sm text-slate-500">CDM Read-Only لصرافات السحب فقط: dispense cassettes و reject/retract</p>
         </div>
         <button
           onClick={load}
@@ -81,8 +102,9 @@ export default function CashMonitoring({ atms }) {
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Cash Low" value={summary?.cash_low_atms || 0} tone={summary?.cash_low_atms ? "warn" : "good"} />
+        <StatCard label="Cash Critical" value={summary?.cash_critical_atms || 0} tone={summary?.cash_critical_atms ? "bad" : "good"} />
         <StatCard label="Cash Empty" value={summary?.cash_empty_atms || 0} tone={summary?.cash_empty_atms ? "bad" : "good"} />
         <StatCard label="Data Stale" value={summary?.cash_stale_atms || 0} tone={summary?.cash_stale_atms ? "warn" : "good"} />
         <StatCard label="Open Alerts" value={summary?.open_alerts || 0} tone={summary?.open_alerts ? "bad" : "neutral"} />
@@ -102,7 +124,7 @@ export default function CashMonitoring({ atms }) {
               >
                 <div className="font-medium text-slate-950">{atm.name}</div>
                 <div className="mt-1 text-xs text-slate-500">
-                  {atm.atm_id} · {atm.cash_monitoring_enabled ? "Cash Enabled" : "Cash Disabled"}
+                  {atm.atm_id} · {atm.cash_monitoring_enabled ? "CDM Enabled" : "CDM Disabled"}
                 </div>
               </button>
             ))}
@@ -110,23 +132,67 @@ export default function CashMonitoring({ atms }) {
           </div>
         </div>
 
-        <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="space-y-4">
+          <div className="grid gap-4 lg:grid-cols-3">
+            <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
+                <PackageCheck size={17} />
+                <span>Available Cash</span>
+              </div>
+              <div className="mt-3 space-y-2">
+                {availableByCurrency.map(([currency, value]) => (
+                  <div key={currency} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
+                    <span className="font-medium text-slate-600">{currency}</span>
+                    <span className="font-semibold text-slate-950">{formatCashValue(value)}</span>
+                  </div>
+                ))}
+                {availableByCurrency.length === 0 && <div className="text-sm text-slate-500">لا توجد قراءة نقد بعد</div>}
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-sm font-medium text-slate-600">Reject Bin</div>
+              <div className="mt-3 flex items-end justify-between">
+                <div className="text-3xl font-semibold text-slate-950">{details?.reject_retract?.reject_count ?? "-"}</div>
+                <span className={`rounded-full px-2 py-1 text-xs ${statusTone(details?.reject_retract?.reject_status)}`}>
+                  {details?.reject_retract?.reject_status || "-"}
+                </span>
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                Capacity {details?.reject_retract?.reject_max_capacity ?? "-"}
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-sm font-medium text-slate-600">Retract Bin</div>
+              <div className="mt-3 flex items-end justify-between">
+                <div className="text-3xl font-semibold text-slate-950">{details?.reject_retract?.retract_count ?? "-"}</div>
+                <span className={`rounded-full px-2 py-1 text-xs ${statusTone(details?.reject_retract?.retract_status)}`}>
+                  {details?.reject_retract?.retract_status || "-"}
+                </span>
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                Capacity {details?.reject_retract?.retract_max_capacity ?? "-"}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 px-4 py-3">
-            <div className="font-medium text-slate-950">الكاسيتات</div>
+            <div className="font-medium text-slate-950">Dispense Cassettes</div>
             <div className="mt-1 text-xs text-slate-500">
-              {details?.atm ? `${details.atm.atm_id} · آخر قراءة حسب كل كاسيت` : "اختر صرافاً"}
+              {details?.atm ? `${details.atm.atm_id} · ${details.atm.atm_cash_mode || "DISPENSE_ONLY"}` : "اختر صرافاً"}
             </div>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead className="bg-slate-50 text-slate-600">
                 <tr>
-                  <th className="px-4 py-3 text-right font-medium">Unit</th>
                   <th className="px-4 py-3 text-right font-medium">Cassette</th>
-                  <th className="px-4 py-3 text-right font-medium">Currency</th>
-                  <th className="px-4 py-3 text-right font-medium">Denom</th>
+                  <th className="px-4 py-3 text-right font-medium">Expected</th>
+                  <th className="px-4 py-3 text-right font-medium">Reported</th>
                   <th className="px-4 py-3 text-right font-medium">Current</th>
-                  <th className="px-4 py-3 text-right font-medium">Threshold</th>
+                  <th className="px-4 py-3 text-right font-medium">Low / Critical</th>
+                  <th className="px-4 py-3 text-right font-medium">Reject</th>
+                  <th className="px-4 py-3 text-right font-medium">Physical</th>
                   <th className="px-4 py-3 text-right font-medium">Status</th>
                   <th className="px-4 py-3 text-right font-medium">Last Read</th>
                 </tr>
@@ -134,28 +200,42 @@ export default function CashMonitoring({ atms }) {
               <tbody className="divide-y divide-slate-100">
                 {(details?.units || []).map((unit) => (
                   <tr key={unit.id}>
-                    <td className="px-4 py-3">{unit.unit_no}</td>
-                    <td className="px-4 py-3">{unit.cassette_name || unit.cassette_id || "-"}</td>
-                    <td className="px-4 py-3">{unit.currency}</td>
-                    <td className="px-4 py-3">{unit.denomination}</td>
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-slate-950">{unit.cassette_no}</div>
+                      <div className="text-xs text-slate-500">{unit.cassette_name || unit.cassette_id || "-"}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {unit.expected_currency} {unit.expected_denomination}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={unit.layout_match_status === "MATCH" ? "" : "font-semibold text-rose-700"}>
+                        {unit.reported_currency} {unit.reported_denomination}
+                      </span>
+                    </td>
                     <td className="px-4 py-3 font-semibold text-slate-950">{unit.current_count}</td>
-                    <td className="px-4 py-3">{unit.min_threshold}</td>
+                    <td className="px-4 py-3">{unit.low_threshold} / {unit.critical_threshold}</td>
+                    <td className="px-4 py-3">{unit.reject_count}</td>
+                    <td className="px-4 py-3">{unit.physical_status}</td>
                     <td className="px-4 py-3">
                       <span className={`rounded-full px-2 py-1 text-xs ${statusTone(unit.status)}`}>{unit.status}</span>
+                      {unit.layout_match_status !== "MATCH" && (
+                        <div className="mt-1 text-xs font-medium text-rose-700">{unit.layout_match_status}</div>
+                      )}
                     </td>
                     <td className="px-4 py-3">{formatApiDate(unit.read_at)}</td>
                   </tr>
                 ))}
                 {(!details || details.units.length === 0) && (
                   <tr>
-                    <td colSpan="8" className="px-4 py-8 text-center text-slate-500">
-                      لا توجد بيانات نقد بعد. فعّل Cash Monitoring وانتظر أول snapshot من الـ Agent.
+                    <td colSpan="9" className="px-4 py-8 text-center text-slate-500">
+                      لا توجد بيانات CDM بعد. فعّل Cash Monitoring وانتظر أول snapshot من الـ Agent.
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
+        </div>
         </div>
       </div>
 
@@ -172,7 +252,7 @@ export default function CashMonitoring({ atms }) {
                 <span className={`rounded-full px-2 py-1 text-xs ${statusTone(alert.alert_type)}`}>{alert.alert_type}</span>
               </div>
               <div className="mt-1 text-xs text-slate-500">
-                Unit {alert.unit_no} · Current {alert.current_count} · Threshold {alert.threshold_count} · {formatApiDate(alert.opened_at)}
+                {alertUnitLabel(alert)} · Current {alert.current_count} · Threshold {alert.threshold_count} · {formatApiDate(alert.opened_at)}
               </div>
             </div>
           ))}

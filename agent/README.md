@@ -87,5 +87,8 @@ atm-agent.exe run --config config.json --once
 - The agent never executes files downloaded from the server.
 - Update packages must be ZIP files containing allowed image extensions only.
 - ZIP entries with absolute paths or path traversal are rejected.
-- Cash monitoring is read-only. There is no dispense, cash unit exchange, reset counters, shell, PowerShell, or script execution path.
+- Cash monitoring is DISPENSE_ONLY and reads CDM cash dispenser data only.
+- Supported dispense providers are `mock`, `xfs_cdm`, and `vendor_cdm`.
+- The module reads dispense cassettes, reject count, and retract count when available.
+- There is no CIM, Cash-In, Deposit, Recycler, dispense command, cash unit exchange, reset counters, shell, PowerShell, or script execution path.
 - The API key is only stored locally on the ATM and is stored as a hash on the server.
