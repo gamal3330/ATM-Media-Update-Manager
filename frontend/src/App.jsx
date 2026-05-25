@@ -3,6 +3,7 @@ import { api } from "./api/client";
 import Layout, { nav } from "./components/Layout";
 import AgentDownloads from "./pages/AgentDownloads";
 import Atms from "./pages/Atms";
+import CashMonitoring from "./pages/CashMonitoring";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
 import Logs from "./pages/Logs";
@@ -24,6 +25,7 @@ export default function App() {
   const [activePage, setActivePage] = useState("dashboard");
   const [atms, setAtms] = useState([]);
   const [packages, setPackages] = useState([]);
+  const [cashSummary, setCashSummary] = useState(null);
   const [logs, setLogs] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -33,9 +35,14 @@ export default function App() {
     setLoading(true);
     setGlobalError("");
     try {
-      const [atmData, packageData] = await Promise.all([api.listAtms(), api.listPackages()]);
+      const [atmData, packageData, cashData] = await Promise.all([
+        api.listAtms(),
+        api.listPackages(),
+        api.getCashSummary(),
+      ]);
       setAtms(atmData);
       setPackages(packageData);
+      setCashSummary(cashData);
     } catch (err) {
       setGlobalError(err.message || "تعذر تحميل البيانات");
       if (err.status === 401) {
@@ -93,10 +100,11 @@ export default function App() {
   }
 
   let page = null;
-  if (visiblePage === "dashboard") page = <Dashboard atms={atms} packages={packages} loading={loading} onRefresh={refreshCore} />;
+  if (visiblePage === "dashboard") page = <Dashboard atms={atms} packages={packages} cashSummary={cashSummary} loading={loading} onRefresh={refreshCore} />;
   if (visiblePage === "atms") page = <Atms atms={atms} onChanged={refreshCore} />;
   if (visiblePage === "upload") page = <UploadPackage onUploaded={refreshCore} onOpenPackages={() => setActivePage("packages")} />;
   if (visiblePage === "packages") page = <Packages packages={packages} atms={atms} onChanged={refreshCore} />;
+  if (visiblePage === "cash") page = <CashMonitoring atms={atms} />;
   if (visiblePage === "agent-downloads") page = <AgentDownloads />;
   if (visiblePage === "logs") page = <Logs logs={logs} auditLogs={auditLogs} onRefresh={refreshLogs} />;
   if (visiblePage === "settings") page = <Settings onOpenAgentDownloads={() => setActivePage("agent-downloads")} />;

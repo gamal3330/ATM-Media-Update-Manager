@@ -5,7 +5,19 @@ from sqlalchemy.orm import Session
 
 from ..auth import generate_api_key, get_current_user, hash_api_key
 from ..database import get_db
-from ..models import ATM, AgentCommand, AgentLog, UpdateResult, UpdateTarget, User
+from ..models import (
+    ATM,
+    AgentCommand,
+    AgentLog,
+    AtmAgentConfig,
+    AtmCashAlert,
+    AtmCashSnapshot,
+    AtmCashThreshold,
+    AtmCashUnit,
+    UpdateResult,
+    UpdateTarget,
+    User,
+)
 from ..schemas import AgentCommandRead, ATMDiagnostics, ATMCreate, ATMCreateResponse, ATMRead, ATMRebootRequest, ATMUpdate
 from ..services.audit_service import write_audit
 
@@ -17,7 +29,36 @@ CONFIG_FIELDS = {
     "temp_path",
     "check_interval_seconds",
     "heartbeat_interval_seconds",
+    "config_sync_interval_seconds",
+    "media_update_enabled",
+    "cash_monitoring_enabled",
+    "cash_provider",
+    "cash_read_interval_seconds",
+    "cash_low_threshold_default",
+    "cash_critical_threshold_default",
+    "cash_stale_after_minutes",
 }
+
+
+def record_agent_config_snapshot(db: Session, atm: ATM, updated_by: str | None) -> None:
+    db.add(
+        AtmAgentConfig(
+            atm_id=atm.id,
+            config_version=atm.config_version,
+            heartbeat_interval_seconds=atm.heartbeat_interval_seconds,
+            config_sync_interval_seconds=atm.config_sync_interval_seconds,
+            media_update_enabled=atm.media_update_enabled,
+            media_path=atm.media_path,
+            backup_path=atm.backup_path,
+            temp_path=atm.temp_path,
+            media_check_interval_seconds=atm.check_interval_seconds,
+            cash_monitoring_enabled=atm.cash_monitoring_enabled,
+            cash_provider=atm.cash_provider,
+            cash_read_interval_seconds=atm.cash_read_interval_seconds,
+            cash_stale_after_minutes=atm.cash_stale_after_minutes,
+            updated_by=updated_by,
+        )
+    )
 
 
 @router.get("", response_model=list[ATMRead])
@@ -50,10 +91,19 @@ def create_atm(
         temp_path=payload.temp_path or "C:\\ATM\\Temp",
         check_interval_seconds=payload.check_interval_seconds or 300,
         heartbeat_interval_seconds=payload.heartbeat_interval_seconds or 60,
+        config_sync_interval_seconds=payload.config_sync_interval_seconds or 120,
+        media_update_enabled=True if payload.media_update_enabled is None else payload.media_update_enabled,
+        cash_monitoring_enabled=False if payload.cash_monitoring_enabled is None else payload.cash_monitoring_enabled,
+        cash_provider=payload.cash_provider or "mock",
+        cash_read_interval_seconds=payload.cash_read_interval_seconds or 120,
+        cash_low_threshold_default=payload.cash_low_threshold_default or 300,
+        cash_critical_threshold_default=payload.cash_critical_threshold_default or 100,
+        cash_stale_after_minutes=payload.cash_stale_after_minutes or 10,
         config_updated_at=datetime.now(timezone.utc),
     )
     db.add(atm)
     db.flush()
+    record_agent_config_snapshot(db, atm, current_user.username)
     write_audit(
         db,
         actor_type="user",
@@ -133,7 +183,7 @@ def get_atm_diagnostics(
         severity = "critical"
         summary = "Service not reporting"
         recommended_action = (
-            "On the ATM, run: sc.exe query ATMMediaAgent, then check "
+            "On the ATM, run: sc.exe query ATMUnifiedAgent, then check "
             "C:\\Program Files\\ATM Media Agent\\logs\\agent.log."
         )
         if last_reboot_command and last_reboot_command.status == "completed":
@@ -211,6 +261,7 @@ def update_atm(
         atm.config_version += 1
         atm.config_updated_at = datetime.now(timezone.utc)
         atm.last_config_error = None
+        record_agent_config_snapshot(db, atm, current_user.username)
         write_audit(
             db,
             actor_type="user",
@@ -246,6 +297,7 @@ def request_atm_reboot(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AgentCommand:
+    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Remote ATM commands are disabled for ATM Unified Agent")
     atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
     if not atm:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ATM not found")
@@ -340,6 +392,7 @@ def delete_atm(
         "deleted_update_targets": db.query(UpdateTarget).filter(UpdateTarget.atm_id == atm.id).count(),
         "deleted_update_results": db.query(UpdateResult).filter(UpdateResult.atm_id == atm.id).count(),
         "deleted_agent_logs": db.query(AgentLog).filter(AgentLog.atm_id == atm.id).count(),
+        "deleted_cash_units": db.query(AtmCashUnit).filter(AtmCashUnit.atm_id == atm.id).count(),
     }
     write_audit(
         db,
@@ -354,6 +407,12 @@ def delete_atm(
     db.query(UpdateTarget).filter(UpdateTarget.atm_id == atm.id).delete(synchronize_session=False)
     db.query(UpdateResult).filter(UpdateResult.atm_id == atm.id).delete(synchronize_session=False)
     db.query(AgentLog).filter(AgentLog.atm_id == atm.id).delete(synchronize_session=False)
+    db.query(AgentCommand).filter(AgentCommand.atm_id == atm.id).delete(synchronize_session=False)
+    db.query(AtmAgentConfig).filter(AtmAgentConfig.atm_id == atm.id).delete(synchronize_session=False)
+    db.query(AtmCashUnit).filter(AtmCashUnit.atm_id == atm.id).delete(synchronize_session=False)
+    db.query(AtmCashSnapshot).filter(AtmCashSnapshot.atm_id == atm.id).delete(synchronize_session=False)
+    db.query(AtmCashAlert).filter(AtmCashAlert.atm_id == atm.id).delete(synchronize_session=False)
+    db.query(AtmCashThreshold).filter(AtmCashThreshold.atm_id == atm.id).delete(synchronize_session=False)
     db.delete(atm)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

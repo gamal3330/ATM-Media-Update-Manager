@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from .auth import ensure_admin_user
 from .config import settings
 from .database import SessionLocal, init_db
-from .routers import agent, atms, auth, downloads, logs, packages, users
+from .routers import agent, atms, auth, cash, downloads, logs, packages, users
 
 
 @asynccontextmanager
@@ -47,6 +47,7 @@ app.include_router(agent.router)
 app.include_router(downloads.router)
 app.include_router(logs.router)
 app.include_router(users.router)
+app.include_router(cash.router)
 
 frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 if frontend_dist.exists():

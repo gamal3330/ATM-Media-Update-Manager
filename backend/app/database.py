@@ -45,7 +45,7 @@ def migrate_existing_schema() -> None:
                     connection.execute(text("ALTER TABLE users ADD COLUMN allowed_pages JSON NOT NULL DEFAULT '[]'"))
 
             all_pages_json = (
-                '["dashboard","atms","upload","packages","agent-downloads","logs","settings","users"]'
+                '["dashboard","atms","upload","packages","cash","agent-downloads","logs","settings","users"]'
             )
             default_pages_json = '["dashboard"]'
             connection.execute(
@@ -53,7 +53,7 @@ def migrate_existing_schema() -> None:
                     """
                     UPDATE users
                     SET allowed_pages = :all_pages
-                    WHERE role = 'admin' AND (allowed_pages IS NULL OR allowed_pages = '[]')
+                    WHERE role IN ('admin', 'system_admin') AND (allowed_pages IS NULL OR allowed_pages = '[]')
                     """
                 ),
                 {"all_pages": all_pages_json},
@@ -86,7 +86,16 @@ def migrate_existing_schema() -> None:
                 "last_config_sync_at": datetime_type,
                 "last_config_error": "TEXT",
                 "heartbeat_interval_seconds": "INTEGER NOT NULL DEFAULT 60",
+                "config_sync_interval_seconds": "INTEGER NOT NULL DEFAULT 120",
                 "check_interval_seconds": "INTEGER NOT NULL DEFAULT 300",
+                "media_update_enabled": "BOOLEAN NOT NULL DEFAULT 1",
+                "cash_monitoring_enabled": "BOOLEAN NOT NULL DEFAULT 0",
+                "module_status_json": "JSON NOT NULL DEFAULT '{}'",
+                "cash_provider": "VARCHAR(40) NOT NULL DEFAULT 'mock'",
+                "cash_read_interval_seconds": "INTEGER NOT NULL DEFAULT 120",
+                "cash_low_threshold_default": "INTEGER NOT NULL DEFAULT 300",
+                "cash_critical_threshold_default": "INTEGER NOT NULL DEFAULT 100",
+                "cash_stale_after_minutes": "INTEGER NOT NULL DEFAULT 10",
             }
 
             for name, definition in atm_columns.items():

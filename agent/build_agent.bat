@@ -82,9 +82,12 @@ if exist atm-agent.spec del /f /q atm-agent.spec
   --paths "%CD%" ^
   --hidden-import api_client ^
   --hidden-import backup_manager ^
+  --hidden-import cash_monitoring_module ^
   --hidden-import checksum ^
   --hidden-import config_manager ^
   --hidden-import logger ^
+  --hidden-import media_update_module ^
+  --hidden-import module_runner ^
   --hidden-import path_policy ^
   --hidden-import safe_zip ^
   --hidden-import service ^

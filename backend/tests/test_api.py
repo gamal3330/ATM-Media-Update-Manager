@@ -246,10 +246,17 @@ def test_agent_config_ack_and_atm_settings_version() -> None:
         config = client.get("/api/agent/config", headers=agent_headers)
         assert config.status_code == 200
         assert config.json()["media_path"] == "C:/ATM/NewMedia"
+        assert config.json()["modules"]["media_update"]["enabled"] is True
+        assert config.json()["modules"]["cash_monitoring"]["enabled"] is False
 
         ack = client.post(
             "/api/agent/config-ack",
-            json={"atm_id": "ATM-CONFIG", "applied_config_version": config.json()["config_version"], "success": True},
+            json={
+                "atm_id": "ATM-CONFIG",
+                "applied_config_version": config.json()["config_version"],
+                "success": True,
+                "enabled_modules": ["media_update"],
+            },
             headers=agent_headers,
         )
         assert ack.status_code == 200
@@ -257,6 +264,155 @@ def test_agent_config_ack_and_atm_settings_version() -> None:
         after = client.get("/api/atms/ATM-CONFIG", headers=headers)
         assert after.status_code == 200
         assert after.json()["applied_config_version"] == config.json()["config_version"]
+        assert after.json()["module_status_json"]["media_update"] == "configured"
+
+
+def test_agent_heartbeat_records_module_statuses() -> None:
+    with TestClient(app) as client:
+        headers = login(client)
+        atm_response = client.post(
+            "/api/atms",
+            json={"atm_id": "ATM-MODULES", "name": "Modules ATM", "vpn_ip": "10.10.0.41", "branch": "HQ"},
+            headers=headers,
+        )
+        assert atm_response.status_code == 201
+        agent_headers = {"X-ATM-ID": "ATM-MODULES", "X-API-Key": atm_response.json()["api_key"]}
+
+        heartbeat = client.post(
+            "/api/agent/heartbeat",
+            json={
+                "atm_id": "ATM-MODULES",
+                "agent_version": "2.0.0",
+                "enabled_modules": ["media_update", "cash_monitoring"],
+                "module_statuses": {"media_update": "running", "cash_monitoring": "running"},
+            },
+            headers=agent_headers,
+        )
+        assert heartbeat.status_code == 200
+
+        atm = client.get("/api/atms/ATM-MODULES", headers=headers)
+        assert atm.status_code == 200
+        assert atm.json()["agent_version"] == "2.0.0"
+        assert atm.json()["module_status_json"]["cash_monitoring"] == "running"
+
+
+def test_cash_snapshot_updates_units_and_alerts() -> None:
+    with TestClient(app) as client:
+        headers = login(client)
+        atm_response = client.post(
+            "/api/atms",
+            json={
+                "atm_id": "ATM-CASH",
+                "name": "Cash ATM",
+                "vpn_ip": "10.10.0.42",
+                "branch": "HQ",
+                "cash_monitoring_enabled": True,
+            },
+            headers=headers,
+        )
+        assert atm_response.status_code == 201
+        agent_headers = {"X-ATM-ID": "ATM-CASH", "X-API-Key": atm_response.json()["api_key"]}
+
+        snapshot = client.post(
+            "/api/agent/cash-snapshot",
+            json={
+                "atm_id": "ATM-CASH",
+                "source": "mock",
+                "read_at": "2026-05-25T10:30:00Z",
+                "cash_units": [
+                    {
+                        "unit_no": 1,
+                        "cassette_id": "CST01",
+                        "cassette_name": "Cassette 1",
+                        "currency": "YER",
+                        "denomination": 1000,
+                        "initial_count": 2000,
+                        "current_count": 80,
+                        "reject_count": 0,
+                        "dispensed_count": 1920,
+                        "presented_count": 1920,
+                        "retracted_count": 0,
+                        "min_threshold": 300,
+                        "max_capacity": 2000,
+                        "status": "LOW",
+                        "physical_status": "PRESENT",
+                    },
+                    {
+                        "unit_no": 2,
+                        "cassette_id": "CST02",
+                        "cassette_name": "Cassette 2",
+                        "currency": "YER",
+                        "denomination": 500,
+                        "initial_count": 2000,
+                        "current_count": 250,
+                        "reject_count": 0,
+                        "dispensed_count": 1750,
+                        "presented_count": 1750,
+                        "retracted_count": 0,
+                        "min_threshold": 300,
+                        "max_capacity": 2000,
+                        "status": "LOW",
+                        "physical_status": "PRESENT",
+                    },
+                    {
+                        "unit_no": 3,
+                        "cassette_id": "CST03",
+                        "cassette_name": "Cassette 3",
+                        "currency": "YER",
+                        "denomination": 250,
+                        "initial_count": 2000,
+                        "current_count": 0,
+                        "reject_count": 0,
+                        "dispensed_count": 2000,
+                        "presented_count": 2000,
+                        "retracted_count": 0,
+                        "min_threshold": 300,
+                        "max_capacity": 2000,
+                        "status": "EMPTY",
+                        "physical_status": "PRESENT",
+                    }
+                ],
+            },
+            headers=agent_headers,
+        )
+        assert snapshot.status_code == 200
+
+        details = client.get("/api/cash/atms/ATM-CASH", headers=headers)
+        assert details.status_code == 200
+        assert details.json()["units"][0]["current_count"] == 80
+        alert_types = {alert["alert_type"] for alert in details.json()["alerts"]}
+        assert {"LOW", "CRITICAL", "EMPTY"}.issubset(alert_types)
+
+        summary = client.get("/api/cash/summary", headers=headers)
+        assert summary.status_code == 200
+        assert summary.json()["open_alerts"] >= 1
+        assert summary.json()["cash_low_atms"] >= 1
+        assert summary.json()["cash_empty_atms"] >= 1
+
+
+def test_cash_snapshot_cannot_impersonate_other_atm() -> None:
+    with TestClient(app) as client:
+        headers = login(client)
+        atm1 = client.post(
+            "/api/atms",
+            json={"atm_id": "ATM-CASH-1", "name": "Cash 1", "vpn_ip": "10.10.0.43", "branch": "HQ"},
+            headers=headers,
+        )
+        atm2 = client.post(
+            "/api/atms",
+            json={"atm_id": "ATM-CASH-2", "name": "Cash 2", "vpn_ip": "10.10.0.44", "branch": "HQ"},
+            headers=headers,
+        )
+        assert atm1.status_code == 201
+        assert atm2.status_code == 201
+        agent_headers = {"X-ATM-ID": "ATM-CASH-1", "X-API-Key": atm1.json()["api_key"]}
+
+        response = client.post(
+            "/api/agent/cash-snapshot",
+            json={"atm_id": "ATM-CASH-2", "source": "mock", "read_at": "2026-05-25T10:30:00Z", "cash_units": []},
+            headers=agent_headers,
+        )
+        assert response.status_code == 403
 
 
 def test_atm_settings_reject_paths_outside_managed_root() -> None:
@@ -335,7 +491,7 @@ def test_delete_atm_with_active_update_requires_force() -> None:
         assert forced.status_code == 204
 
 
-def test_admin_can_request_atm_reboot_and_agent_can_ack() -> None:
+def test_remote_atm_commands_are_disabled_for_unified_agent() -> None:
     with TestClient(app) as client:
         headers = login(client)
         atm_response = client.post(
@@ -351,30 +507,14 @@ def test_admin_can_request_atm_reboot_and_agent_can_ack() -> None:
             json={"confirmation": "REBOOT", "reason": "maintenance", "delay_seconds": 60},
             headers=headers,
         )
-        assert request.status_code == 200
-        command = request.json()
-        assert command["command_type"] == "reboot"
-        assert command["status"] == "pending"
-        assert command["payload"]["delay_seconds"] == 60
+        assert request.status_code == 410
 
         actions = client.get("/api/agent/commands", headers=agent_headers)
         assert actions.status_code == 200
-        assert actions.json()[0]["id"] == command["id"]
-
-        ack = client.post(
-            f"/api/agent/commands/{command['id']}/ack",
-            json={"status": "completed", "message": "Reboot scheduled"},
-            headers=agent_headers,
-        )
-        assert ack.status_code == 200
-        assert ack.json()["status"] == "completed"
-
-        after = client.get("/api/atms/ATM-REBOOT", headers=headers)
-        assert after.status_code == 200
-        assert after.json()["last_reboot_status"] == "completed"
+        assert actions.json() == []
 
 
-def test_reboot_with_active_update_requires_force() -> None:
+def test_reboot_endpoint_stays_disabled_even_with_active_update() -> None:
     with TestClient(app) as client:
         headers = login(client)
         atm_response = client.post(
@@ -403,14 +543,14 @@ def test_reboot_with_active_update_requires_force() -> None:
             json={"confirmation": "REBOOT", "delay_seconds": 60},
             headers=headers,
         )
-        assert blocked.status_code == 409
+        assert blocked.status_code == 410
 
         forced = client.post(
             "/api/atms/ATM-REBOOT-ACTIVE/reboot?force=true",
             json={"confirmation": "REBOOT", "delay_seconds": 60},
             headers=headers,
         )
-        assert forced.status_code == 200
+        assert forced.status_code == 410
 
 
 def test_retry_failed_package_targets() -> None:
@@ -599,7 +739,7 @@ def test_upload_ignores_macos_zip_metadata() -> None:
         assert response.json()["version"] == "media-macos-metadata"
 
 
-def test_upload_accepts_pcx_media_files() -> None:
+def test_upload_rejects_pcx_media_files() -> None:
     with TestClient(app) as client:
         headers = login(client)
         zip_buffer = make_zip(
@@ -615,5 +755,4 @@ def test_upload_accepts_pcx_media_files() -> None:
             files={"file": ("pcx.zip", zip_buffer, "application/zip")},
             headers=headers,
         )
-        assert response.status_code == 201
-        assert response.json()["version"] == "media-pcx-package"
+        assert response.status_code == 400

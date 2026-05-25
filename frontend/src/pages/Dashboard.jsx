@@ -2,11 +2,12 @@ import { RefreshCw } from "lucide-react";
 import { formatLastSeenAge, isRecentlyOnline } from "../api/time";
 import StatCard from "../components/StatCard";
 
-export default function Dashboard({ atms, packages, loading, onRefresh }) {
+export default function Dashboard({ atms, packages, cashSummary, loading, onRefresh }) {
   const online = atms.filter(isRecentlyOnline).length;
   const offline = atms.length - online;
   const pending = packages.reduce((total, item) => total + (item.pending_targets || 0), 0);
   const failed = packages.reduce((total, item) => total + (item.failed_targets || 0), 0);
+  const pendingConfig = atms.filter((atm) => (atm.applied_config_version || 0) < (atm.config_version || 0)).length;
 
   return (
     <section>
@@ -30,6 +31,10 @@ export default function Dashboard({ atms, packages, loading, onRefresh }) {
         <StatCard label="Online" value={online} tone="good" />
         <StatCard label="Offline" value={offline} tone="warn" />
         <StatCard label="Pending / Failed" value={`${pending} / ${failed}`} tone={failed ? "bad" : "neutral"} />
+        <StatCard label="Pending Config" value={pendingConfig} tone={pendingConfig ? "warn" : "good"} />
+        <StatCard label="Cash Low" value={cashSummary?.cash_low_atms || 0} tone={cashSummary?.cash_low_atms ? "warn" : "good"} />
+        <StatCard label="Cash Empty" value={cashSummary?.cash_empty_atms || 0} tone={cashSummary?.cash_empty_atms ? "bad" : "good"} />
+        <StatCard label="Cash Data Stale" value={cashSummary?.cash_stale_atms || 0} tone={cashSummary?.cash_stale_atms ? "warn" : "good"} />
       </div>
 
       <div className="mt-6 grid gap-4 xl:grid-cols-2">

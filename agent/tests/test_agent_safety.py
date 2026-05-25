@@ -6,7 +6,9 @@ import pytest
 
 from backup_manager import create_backup, restore_backup
 from checksum import sha256_file
-from config_manager import load_local_config
+from cash_monitoring_module import CashMonitoringModule
+from config_manager import load_local_config, parse_remote_config
+from module_runner import ModuleRunner
 from path_policy import validate_managed_path
 from safe_zip import extract_safe_zip
 
@@ -76,3 +78,130 @@ def test_local_config_contains_connection_data_only(tmp_path):
 def test_remote_config_rejects_paths_outside_atm_root():
     with pytest.raises(ValueError, match="media_path must be under"):
         validate_managed_path("C:/Windows/System32", "media_path")
+
+
+class FakeApi:
+    def __init__(self):
+        self.snapshots = []
+
+    def check_update(self):
+        return None
+
+    def cash_snapshot(self, payload):
+        self.snapshots.append(payload)
+
+
+def remote_payload(media_enabled=True, cash_enabled=True):
+    return {
+        "atm_id": "ATM001",
+        "config_version": 2,
+        "heartbeat_interval_seconds": 60,
+        "config_sync_interval_seconds": 120,
+        "modules": {
+            "media_update": {
+                "enabled": media_enabled,
+                "media_path": "C:/ATM/Media",
+                "backup_path": "C:/ATM/Backups",
+                "temp_path": "C:/ATM/Temp",
+                "check_interval_seconds": 300,
+                "allowed_extensions": ["jpg", "jpeg", "png", "bmp", "gif"],
+            },
+            "cash_monitoring": {
+                "enabled": cash_enabled,
+                "provider": "mock",
+                "read_interval_seconds": 30,
+                "low_threshold_default": 300,
+                "critical_threshold_default": 100,
+                "stale_after_minutes": 10,
+            },
+        },
+    }
+
+
+def test_core_parse_remote_config_modules():
+    config = parse_remote_config(remote_payload())
+
+    assert config.media_update.enabled is True
+    assert config.cash_monitoring.enabled is True
+    assert config.cash_monitoring.provider == "mock"
+    assert "gif" in config.media_update.allowed_extensions
+
+
+def test_module_runner_runs_enabled_modules_only():
+    logger = __import__("logging").getLogger("test")
+    runner = ModuleRunner(logger)
+
+    class StubModule:
+        def __init__(self, name):
+            self.name = name
+            self.status = "created"
+            self.ticks = 0
+
+        def configure(self, config):
+            self.status = "running"
+
+        def tick(self, now):
+            self.ticks += 1
+
+    media = StubModule("media_update")
+    cash = StubModule("cash_monitoring")
+    runner.register(media)
+    runner.register(cash)
+    runner.configure(parse_remote_config(remote_payload(media_enabled=True, cash_enabled=False)))
+    runner.tick(999999.0)
+
+    assert media.ticks == 1
+    assert cash.ticks == 0
+    assert runner.module_statuses()["cash_monitoring"] == "disabled"
+
+
+def test_module_failure_does_not_stop_other_modules():
+    logger = __import__("logging").getLogger("test")
+    runner = ModuleRunner(logger)
+
+    class BrokenModule:
+        name = "media_update"
+        status = "running"
+
+        def configure(self, config):
+            pass
+
+        def tick(self, now):
+            raise RuntimeError("boom")
+
+    class HealthyModule:
+        name = "cash_monitoring"
+        status = "running"
+
+        def __init__(self):
+            self.ticks = 0
+
+        def configure(self, config):
+            pass
+
+        def tick(self, now):
+            self.ticks += 1
+
+    broken = BrokenModule()
+    healthy = HealthyModule()
+    runner.register(broken)
+    runner.register(healthy)
+    runner.configure(parse_remote_config(remote_payload()))
+    runner.tick(123.0)
+
+    assert runner.module_statuses()["media_update"] == "error"
+    assert healthy.ticks == 1
+
+
+def test_cash_monitoring_module_mock_provider_sends_snapshot():
+    api = FakeApi()
+    logger = __import__("logging").getLogger("test")
+    module = CashMonitoringModule(api, "ATM001", logger)
+    config = parse_remote_config(remote_payload(cash_enabled=True))
+    module.configure(config)
+    module.tick(999999.0)
+
+    assert len(api.snapshots) == 1
+    assert api.snapshots[0]["atm_id"] == "ATM001"
+    assert api.snapshots[0]["source"] == "mock"
+    assert api.snapshots[0]["cash_units"][0]["unit_no"] == 1

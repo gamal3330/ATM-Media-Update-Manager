@@ -232,7 +232,7 @@ export default function UploadPackage({ onUploaded, onOpenPackages }) {
             </div>
             <div>
               <dt className="text-slate-500">الامتدادات داخل ZIP</dt>
-              <dd className="mt-1 text-slate-700">jpg, jpeg, png, bmp, gif, pcx</dd>
+              <dd className="mt-1 text-slate-700">jpg, jpeg, png, bmp, gif</dd>
             </div>
           </dl>
 

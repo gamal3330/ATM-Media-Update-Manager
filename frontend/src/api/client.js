@@ -34,6 +34,12 @@ const fieldLabels = {
   temp_path: "Temp Path",
   check_interval_seconds: "Check Interval Seconds",
   heartbeat_interval_seconds: "Heartbeat Interval Seconds",
+  config_sync_interval_seconds: "Config Sync Interval",
+  cash_provider: "Cash Provider",
+  cash_read_interval_seconds: "Cash Read Interval",
+  cash_low_threshold_default: "Cash Low Threshold",
+  cash_critical_threshold_default: "Cash Critical Threshold",
+  cash_stale_after_minutes: "Cash Stale After Minutes",
   username: "اسم المستخدم",
   password: "كلمة المرور",
   file: "ملف ZIP",
@@ -231,13 +237,13 @@ export const api = {
     request(`/api/atms/${encodeURIComponent(atmId)}`, { method: "PUT", body: JSON.stringify(payload) }),
   regenerateAtmApiKey: (atmId) =>
     request(`/api/atms/${encodeURIComponent(atmId)}/regenerate-api-key`, { method: "POST" }),
-  requestAtmReboot: (atmId, payload, force = false) =>
-    request(`/api/atms/${encodeURIComponent(atmId)}/reboot${force ? "?force=true" : ""}`, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
   deleteAtm: (atmId, force = false) =>
     request(`/api/atms/${encodeURIComponent(atmId)}${force ? "?force=true" : ""}`, { method: "DELETE" }),
+  getCashSummary: () => request("/api/cash/summary"),
+  getCashAtm: (atmId) => request(`/api/cash/atms/${encodeURIComponent(atmId)}`),
+  listCashAlerts: () => request("/api/cash/alerts"),
+  saveCashThreshold: (payload) =>
+    request("/api/cash/thresholds", { method: "POST", body: JSON.stringify(payload) }),
   listPackages: () => request("/api/packages"),
   getPackage: (id) => request(`/api/packages/${id}`),
   uploadPackage: (formData) => request("/api/packages/upload", { method: "POST", body: formData }),

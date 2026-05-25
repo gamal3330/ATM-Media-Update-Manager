@@ -15,15 +15,18 @@ from pathlib import Path
 import requests
 
 from api_client import ApiClient
+from cash_monitoring_module import CashMonitoringModule
 from config_manager import LocalConfig, RemoteConfig, load_local_config, write_local_config
 from logger import setup_logger
-from update_manager import UpdateManager
+from media_update_module import MediaUpdateModule
+from module_runner import ModuleRunner
 
-AGENT_VERSION = "1.0.3"
+AGENT_VERSION = "2.0.0"
 DEFAULT_INSTALL_DIR = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "ATM Media Agent"
 DEFAULT_CONFIG = DEFAULT_INSTALL_DIR / "config.json"
-SERVICE_NAME = "ATMMediaAgent"
-SERVICE_DISPLAY_NAME = "ATM Media Update Agent"
+SERVICE_NAME = "ATMUnifiedAgent"
+LEGACY_SERVICE_NAMES = ["ATMMediaAgent"]
+SERVICE_DISPLAY_NAME = "ATM Unified Agent Service"
 
 
 def utc_now_iso() -> str:
@@ -82,44 +85,44 @@ def same_path(left: Path, right: Path) -> bool:
     return left_text == right_text
 
 
-def is_service_installed() -> bool:
+def is_service_installed(name: str = SERVICE_NAME) -> bool:
     if os.name != "nt":
         return False
-    return run_sc("query", SERVICE_NAME).returncode == 0
+    return run_sc("query", name).returncode == 0
 
 
-def stop_existing_service(timeout_seconds: int = 45) -> None:
-    if os.name != "nt" or not is_service_installed():
+def stop_existing_service(name: str = SERVICE_NAME, timeout_seconds: int = 45) -> None:
+    if os.name != "nt" or not is_service_installed(name):
         return
 
-    status = service_status()
+    status = service_status(name)
     if "STOPPED" in status:
         return
 
-    print(f"Stopping existing {SERVICE_DISPLAY_NAME} service...")
-    run_sc("stop", SERVICE_NAME)
+    print(f"Stopping existing service {name}...")
+    run_sc("stop", name)
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        status = service_status()
+        status = service_status(name)
         if "STOPPED" in status or status == "not installed":
             return
         time.sleep(1)
 
     raise SystemExit(
-        f"Could not stop existing {SERVICE_DISPLAY_NAME} service within {timeout_seconds} seconds. "
-        "Close any running atm-agent.exe process, or run: sc.exe stop ATMMediaAgent"
+        f"Could not stop existing service {name} within {timeout_seconds} seconds. "
+        f"Close any running atm-agent.exe process, or run: sc.exe stop {name}"
     )
 
 
-def delete_existing_service(timeout_seconds: int = 45) -> None:
-    if os.name != "nt" or not is_service_installed():
+def delete_existing_service(name: str = SERVICE_NAME, timeout_seconds: int = 45) -> None:
+    if os.name != "nt" or not is_service_installed(name):
         return
 
-    print(f"Deleting existing {SERVICE_DISPLAY_NAME} service registration...")
-    run_sc("delete", SERVICE_NAME)
+    print(f"Deleting existing service {name} registration...")
+    run_sc("delete", name)
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        if not is_service_installed():
+        if not is_service_installed(name):
             return
         time.sleep(1)
 
@@ -129,36 +132,13 @@ def delete_existing_service(timeout_seconds: int = 45) -> None:
     )
 
 
-def terminate_processes_for_path(executable_path: Path) -> None:
-    if os.name != "nt" or not executable_path.exists():
-        return
-
-    script = r"""
-$target = [System.IO.Path]::GetFullPath($args[0]).ToLowerInvariant()
-$currentPid = [int]$args[1]
-Get-CimInstance Win32_Process -Filter "name='atm-agent.exe'" |
-  Where-Object {
-    $_.ExecutablePath -and
-    ([System.IO.Path]::GetFullPath($_.ExecutablePath).ToLowerInvariant() -eq $target) -and
-    ($_.ProcessId -ne $currentPid)
-  } |
-  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-"""
-    subprocess.run(
-        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script, str(executable_path), str(os.getpid())],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-
 def remove_previous_agent(target_exe: Path, source_exe: Path) -> None:
     if os.name != "nt":
         return
 
-    stop_existing_service()
-    delete_existing_service()
-    terminate_processes_for_path(target_exe)
+    for service_name in [SERVICE_NAME, *LEGACY_SERVICE_NAMES]:
+        stop_existing_service(service_name)
+        delete_existing_service(service_name)
 
     if same_path(source_exe, target_exe):
         print("Existing service was removed. Using current executable from install directory.")
@@ -181,7 +161,11 @@ class AtmAgent:
         self.local_config = load_local_config(config_path)
         self.logger = setup_logger(self.local_config.local_log_path)
         self.api = ApiClient(self.local_config)
-        self.update_manager = UpdateManager(self.api, self.local_config)
+        self.media_module = MediaUpdateModule(self.api, self.local_config, self.logger)
+        self.cash_module = CashMonitoringModule(self.api, self.local_config.atm_id, self.logger)
+        self.modules = ModuleRunner(self.logger)
+        self.modules.register(self.media_module)
+        self.modules.register(self.cash_module)
         self.stop_event = stop_event or threading.Event()
         self.remote_config: RemoteConfig | None = None
         self.applied_config_version = 0
@@ -189,18 +173,25 @@ class AtmAgent:
     def sync_config(self) -> None:
         config = self.api.get_config()
         try:
-            self.update_manager.apply_remote_config(config)
+            self.modules.configure(config)
             self.remote_config = config
             self.applied_config_version = config.config_version
-            self.api.ack_config(config.config_version, True, "Config applied successfully")
+            self.api.ack_config(
+                config.config_version,
+                True,
+                "Config applied successfully",
+                self.modules.enabled_modules(),
+            )
             write_state(
                 self.local_config,
                 last_config_sync_at=utc_now_iso(),
                 config_version=config.config_version,
                 applied_config_version=config.config_version,
-                media_path=config.media_path,
-                backup_path=config.backup_path,
-                temp_path=config.temp_path,
+                enabled_modules=self.modules.enabled_modules(),
+                module_statuses=self.modules.module_statuses(),
+                media_path=config.media_update.media_path,
+                backup_path=config.media_update.backup_path,
+                temp_path=config.media_update.temp_path,
                 last_config_error=None,
             )
         except Exception as exc:
@@ -221,69 +212,30 @@ class AtmAgent:
         self.api.heartbeat(
             AGENT_VERSION,
             "running",
-            self.update_manager.current_package_version,
+            self.media_module.current_package_version,
             self.applied_config_version,
+            enabled_modules=self.modules.enabled_modules(),
+            module_statuses=self.modules.module_statuses(),
         )
-        update = self.api.check_update()
-        if update:
-            self.update_manager.apply_update(update, config)
-
-    def process_commands(self) -> bool:
-        commands = self.api.get_commands()
-        for command in commands:
-            if command.get("command_type") != "reboot":
-                continue
-            self.handle_reboot_command(command)
-            return True
-        return False
-
-    def handle_reboot_command(self, command: dict) -> None:
-        command_id = int(command["id"])
-        payload = command.get("payload") or {}
-        delay_seconds = int(payload.get("delay_seconds") or 60)
-        reason = str(payload.get("reason") or "ATM Media Update Manager requested restart")
-        self.logger.warning("Reboot command received. command_id=%s delay=%ss reason=%s", command_id, delay_seconds, reason)
-        self.api.ack_command(command_id, "acknowledged", "Reboot command received")
-        try:
-            self.schedule_reboot(delay_seconds, reason)
-            self.api.ack_command(command_id, "completed", f"Reboot scheduled in {delay_seconds} seconds")
-            write_state(
-                self.local_config,
-                last_reboot_requested_at=utc_now_iso(),
-                last_reboot_status="scheduled",
-                last_reboot_delay_seconds=delay_seconds,
-            )
-        except Exception as exc:
-            self.api.ack_command(command_id, "failed", str(exc))
-            write_state(self.local_config, last_reboot_status="failed", last_reboot_error=str(exc))
-            raise
-
-    def schedule_reboot(self, delay_seconds: int, reason: str) -> None:
-        if os.name != "nt":
-            raise RuntimeError("Reboot command is only supported on Windows")
-        safe_delay = max(30, min(3600, delay_seconds))
-        subprocess.run(
-            ["shutdown.exe", "/r", "/t", str(safe_delay), "/c", reason[:512]],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        self.modules.tick(time.monotonic())
 
     def run_forever(self) -> None:
         last_heartbeat = 0.0
-        last_check = 0.0
         last_config = 0.0
-        last_commands = 0.0
-        self.logger.info("ATM Media Agent %s started for %s", AGENT_VERSION, self.local_config.atm_id)
+        self.logger.info("ATM Unified Agent %s started for %s", AGENT_VERSION, self.local_config.atm_id)
 
         while not self.stop_event.is_set():
             now = time.monotonic()
             config = self.remote_config
             heartbeat_interval = config.heartbeat_interval_seconds if config else self.local_config.fallback_heartbeat_interval_seconds
-            check_interval = config.check_interval_seconds if config else self.local_config.fallback_check_interval_seconds
+            config_interval = (
+                config.config_sync_interval_seconds
+                if config
+                else self.local_config.fallback_config_sync_interval_seconds
+            )
 
             try:
-                if now - last_config >= min(check_interval, 60):
+                if now - last_config >= config_interval:
                     self.sync_config()
                     last_config = now
                     config = self.remote_config
@@ -292,8 +244,10 @@ class AtmAgent:
                     self.api.heartbeat(
                         AGENT_VERSION,
                         "running",
-                        self.update_manager.current_package_version,
+                        self.media_module.current_package_version,
                         self.applied_config_version,
+                        enabled_modules=self.modules.enabled_modules(),
+                        module_statuses=self.modules.module_statuses(),
                     )
                     write_state(
                         self.local_config,
@@ -301,27 +255,18 @@ class AtmAgent:
                         agent_version=AGENT_VERSION,
                         service_status="running",
                         latency_ms=self.api.last_latency_ms,
+                        enabled_modules=self.modules.enabled_modules(),
+                        module_statuses=self.modules.module_statuses(),
                     )
                     last_heartbeat = now
 
-                if now - last_commands >= min(heartbeat_interval, 30):
-                    if self.process_commands():
-                        last_commands = now
-                        self.stop_event.wait(5)
-                        continue
-                    last_commands = now
-
-                if config and now - last_check >= check_interval:
-                    update = self.api.check_update()
-                    write_state(self.local_config, last_update_check_at=utc_now_iso(), has_update=bool(update))
-                    if update:
-                        self.update_manager.apply_update(update, config)
-                        write_state(
-                            self.local_config,
-                            current_package_version=self.update_manager.current_package_version,
-                            last_update_error=None,
-                        )
-                    last_check = now
+                if config:
+                    self.modules.tick(now)
+                    write_state(
+                        self.local_config,
+                        module_statuses=self.modules.module_statuses(),
+                        current_package_version=self.media_module.current_package_version,
+                    )
             except requests.RequestException as exc:
                 response = getattr(exc, "response", None)
                 if response is not None:
@@ -352,7 +297,7 @@ def install(args: argparse.Namespace) -> None:
         if not is_admin:
             raise SystemExit(
                 "Administrator privileges are required to install the Windows Service. "
-                "Open Command Prompt or PowerShell with Run as administrator, then run install again."
+                "Open Command Prompt with Run as administrator, then run install again."
             )
 
     install_dir = Path(args.install_dir or DEFAULT_INSTALL_DIR)
@@ -374,6 +319,7 @@ def install(args: argparse.Namespace) -> None:
         local_log_path=args.local_log_path or str(install_dir / "logs"),
         fallback_check_interval_seconds=args.fallback_check_interval_seconds,
         fallback_heartbeat_interval_seconds=args.fallback_heartbeat_interval_seconds,
+        fallback_config_sync_interval_seconds=args.fallback_config_sync_interval_seconds,
     )
     validate_server_credentials(local_config)
 
@@ -390,8 +336,8 @@ def install(args: argparse.Namespace) -> None:
             shutil.copy2(source_exe, target_exe)
         except PermissionError as exc:
             raise SystemExit(
-                f"Could not replace {target_exe} because it is still in use. "
-                "Stop the existing service with: sc.exe stop ATMMediaAgent, then run install again."
+        f"Could not replace {target_exe} because it is still in use. "
+                f"Stop the existing service with: sc.exe stop {SERVICE_NAME}, then run install again."
             ) from exc
 
     if os.name != "nt":
@@ -406,7 +352,7 @@ def install(args: argparse.Namespace) -> None:
         ["sc.exe", "create", SERVICE_NAME, "binPath=", bin_path, "start=", "auto", "DisplayName=", SERVICE_DISPLAY_NAME],
         check=True,
     )
-    subprocess.run(["sc.exe", "description", SERVICE_NAME, "Pull-based ATM media update agent"], check=True)
+    subprocess.run(["sc.exe", "description", SERVICE_NAME, "Pull-based unified ATM agent"], check=True)
     subprocess.run(
         ["sc.exe", "failure", SERVICE_NAME, "reset=", "86400", "actions=", "restart/60000/restart/60000/restart/60000"],
         check=True,
@@ -424,10 +370,10 @@ def uninstall(_: argparse.Namespace) -> None:
     print(f"Uninstalled {SERVICE_DISPLAY_NAME}.")
 
 
-def service_status() -> str:
+def service_status(name: str = SERVICE_NAME) -> str:
     if os.name != "nt":
         return "not available outside Windows"
-    result = subprocess.run(["sc.exe", "query", SERVICE_NAME], capture_output=True, text=True, check=False)
+    result = subprocess.run(["sc.exe", "query", name], capture_output=True, text=True, check=False)
     if result.returncode != 0:
         return "not installed"
     for line in result.stdout.splitlines():
@@ -448,6 +394,10 @@ def status_command(args: argparse.Namespace) -> None:
     print(f"ATM ID: {config.atm_id}")
     print(f"Server URL: {config.server_url}")
     print(f"Service: {service_status()}")
+    for legacy_name in LEGACY_SERVICE_NAMES:
+        legacy_status = service_status(legacy_name)
+        if legacy_status != "not installed":
+            print(f"Legacy Service {legacy_name}: {legacy_status}")
 
     state = read_state(config)
     print(f"Last Heartbeat: {state.get('last_heartbeat_at', '-')}")
@@ -469,9 +419,15 @@ def status_command(args: argparse.Namespace) -> None:
             payload = response.json()
             print("Server Connectivity: OK")
             print(f"Server Config Version: {payload.get('config_version', '-')}")
-            print(f"Media Path: {payload.get('media_path', '-')}")
-            print(f"Backup Path: {payload.get('backup_path', '-')}")
-            print(f"Temp Path: {payload.get('temp_path', '-')}")
+            modules = payload.get("modules") or {}
+            media = modules.get("media_update") or payload
+            cash = modules.get("cash_monitoring") or {}
+            print(f"Media Update Enabled: {media.get('enabled', True)}")
+            print(f"Media Path: {media.get('media_path', '-')}")
+            print(f"Backup Path: {media.get('backup_path', '-')}")
+            print(f"Temp Path: {media.get('temp_path', '-')}")
+            print(f"Cash Monitoring Enabled: {cash.get('enabled', False)}")
+            print(f"Cash Provider: {cash.get('provider', '-')}")
         else:
             print(f"Server Connectivity: Failed HTTP {response.status_code}")
             print(f"Server Response: {response.text[:500]}")
@@ -495,7 +451,7 @@ def service_main(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="ATM Media Update Agent")
+    parser = argparse.ArgumentParser(description="ATM Unified Agent")
     sub = parser.add_subparsers(dest="command", required=True)
 
     install_parser = sub.add_parser("install")
@@ -507,6 +463,7 @@ def main() -> None:
     install_parser.add_argument("--local-log-path")
     install_parser.add_argument("--fallback-check-interval-seconds", type=int, default=300)
     install_parser.add_argument("--fallback-heartbeat-interval-seconds", type=int, default=60)
+    install_parser.add_argument("--fallback-config-sync-interval-seconds", type=int, default=120)
     install_parser.set_defaults(func=install)
 
     uninstall_parser = sub.add_parser("uninstall")

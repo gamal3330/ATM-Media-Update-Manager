@@ -3,6 +3,6 @@
   "atm_id": "ATM001",
   "api_key": "CHANGE_ME",
   "local_log_path": "C:\\ATM\\Agent\\logs",
-  "fallback_check_interval_seconds": 300,
-  "fallback_heartbeat_interval_seconds": 60
+  "fallback_heartbeat_interval_seconds": 60,
+  "fallback_config_sync_interval_seconds": 120
 }

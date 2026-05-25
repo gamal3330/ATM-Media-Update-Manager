@@ -5,7 +5,6 @@ import {
   Clipboard,
   Clock3,
   KeyRound,
-  Power,
   Plus,
   RefreshCw,
   Save,
@@ -22,8 +21,14 @@ const settingsFields = [
   ["media_path", "Media Path", "C:/ATM/Media"],
   ["backup_path", "Backup Path", "C:/ATM/Media_Backup"],
   ["temp_path", "Temp Path", "C:/ATM/Temp"],
-  ["check_interval_seconds", "Check Interval Seconds", "300"],
+  ["check_interval_seconds", "Media Check Interval", "300"],
   ["heartbeat_interval_seconds", "Heartbeat Interval Seconds", "60"],
+  ["config_sync_interval_seconds", "Config Sync Interval", "120"],
+  ["cash_provider", "Cash Provider", "mock"],
+  ["cash_read_interval_seconds", "Cash Read Interval", "120"],
+  ["cash_low_threshold_default", "Cash Low Threshold", "300"],
+  ["cash_critical_threshold_default", "Cash Critical Threshold", "100"],
+  ["cash_stale_after_minutes", "Cash Stale After Minutes", "10"],
 ];
 const fields = [
   ["atm_id", "ATM ID", "مثال: ATM-001", 2],
@@ -60,6 +65,14 @@ function buildSettingsForm(atm) {
     temp_path: atm?.temp_path || "",
     check_interval_seconds: String(atm?.check_interval_seconds || 300),
     heartbeat_interval_seconds: String(atm?.heartbeat_interval_seconds || 60),
+    config_sync_interval_seconds: String(atm?.config_sync_interval_seconds || 120),
+    media_update_enabled: atm?.media_update_enabled ?? true,
+    cash_monitoring_enabled: atm?.cash_monitoring_enabled ?? false,
+    cash_provider: atm?.cash_provider || "mock",
+    cash_read_interval_seconds: String(atm?.cash_read_interval_seconds || 120),
+    cash_low_threshold_default: String(atm?.cash_low_threshold_default || 300),
+    cash_critical_threshold_default: String(atm?.cash_critical_threshold_default || 100),
+    cash_stale_after_minutes: String(atm?.cash_stale_after_minutes || 10),
   };
 }
 
@@ -133,7 +146,6 @@ export default function Atms({ atms, onChanged }) {
   const [savingSettings, setSavingSettings] = useState(false);
   const [regeneratingKey, setRegeneratingKey] = useState(false);
   const [deletingAtmId, setDeletingAtmId] = useState("");
-  const [rebootingAtmId, setRebootingAtmId] = useState("");
   const [diagnostics, setDiagnostics] = useState(null);
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
 
@@ -218,6 +230,14 @@ export default function Atms({ atms, onChanged }) {
         temp_path: settingsForm.temp_path.trim(),
         check_interval_seconds: Number(settingsForm.check_interval_seconds),
         heartbeat_interval_seconds: Number(settingsForm.heartbeat_interval_seconds),
+        config_sync_interval_seconds: Number(settingsForm.config_sync_interval_seconds),
+        media_update_enabled: Boolean(settingsForm.media_update_enabled),
+        cash_monitoring_enabled: Boolean(settingsForm.cash_monitoring_enabled),
+        cash_provider: settingsForm.cash_provider || "mock",
+        cash_read_interval_seconds: Number(settingsForm.cash_read_interval_seconds),
+        cash_low_threshold_default: Number(settingsForm.cash_low_threshold_default),
+        cash_critical_threshold_default: Number(settingsForm.cash_critical_threshold_default),
+        cash_stale_after_minutes: Number(settingsForm.cash_stale_after_minutes),
       };
       const updated = await api.updateAtm(selectedAtm.atm_id, payload);
       setSettingsForm(buildSettingsForm(updated));
@@ -299,49 +319,6 @@ export default function Atms({ atms, onChanged }) {
       setError(err.message || "تعذر توليد API Key جديد");
     } finally {
       setRegeneratingKey(false);
-    }
-  }
-
-  async function requestReboot(atm, force = false) {
-    const activeText =
-      atm.active_update_count > 0 ? `\n\nتنبيه: يوجد ${atm.active_update_count} تحديث نشط. إعادة التشغيل قد تقطع العملية.` : "";
-    if (!force) {
-      const confirmed = window.confirm(
-        `تحذير مهم:\nسيتم طلب إعادة تشغيل الصراف ${atm.atm_id} بعد 60 ثانية.\n\nتأكد أن الصراف ليس في نافذة تشغيل حرجة.${activeText}\n\nهل تريد المتابعة؟`,
-      );
-      if (!confirmed) return;
-    }
-
-    setRebootingAtmId(atm.atm_id);
-    setError("");
-    setSettingsMessage("");
-
-    try {
-      await api.requestAtmReboot(
-        atm.atm_id,
-        {
-          confirmation: "REBOOT",
-          delay_seconds: 60,
-          reason: "Requested from ATM Media Update Manager dashboard",
-        },
-        force,
-      );
-      setSettingsMessage(`تم إنشاء طلب إعادة تشغيل للصراف ${atm.atm_id}. سينفذه الـ Agent عند اتصاله.`);
-      onChanged();
-      loadDiagnostics(atm.atm_id);
-    } catch (err) {
-      if (err.status === 409 && err.payload?.detail?.active_update_count && !force) {
-        const forceConfirmed = window.confirm(
-          `يوجد ${err.payload.detail.active_update_count} تحديث نشط لهذا الصراف.\nهل تريد إنشاء طلب إعادة التشغيل رغم ذلك؟`,
-        );
-        if (forceConfirmed) {
-          await requestReboot(atm, true);
-        }
-        return;
-      }
-      setError(err.message || "تعذر طلب إعادة تشغيل الصراف");
-    } finally {
-      setRebootingAtmId("");
     }
   }
 
@@ -491,6 +468,31 @@ export default function Atms({ atms, onChanged }) {
               })()}
             </div>
 
+            <div className="mb-4 grid gap-3 md:grid-cols-2">
+              <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                <span className="font-medium text-slate-700">Enable Media Update</span>
+                <input
+                  type="checkbox"
+                  checked={Boolean(settingsForm.media_update_enabled)}
+                  onChange={(event) =>
+                    setSettingsForm((current) => ({ ...current, media_update_enabled: event.target.checked }))
+                  }
+                  className="h-4 w-4"
+                />
+              </label>
+              <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                <span className="font-medium text-slate-700">Enable Cash Monitoring</span>
+                <input
+                  type="checkbox"
+                  checked={Boolean(settingsForm.cash_monitoring_enabled)}
+                  onChange={(event) =>
+                    setSettingsForm((current) => ({ ...current, cash_monitoring_enabled: event.target.checked }))
+                  }
+                  className="h-4 w-4"
+                />
+              </label>
+            </div>
+
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {settingsFields.map(([key, label, placeholder]) => (
                 <label key={key} className="block">
@@ -632,17 +634,14 @@ export default function Atms({ atms, onChanged }) {
                         )}
                       </div>
                       <div className="rounded-lg bg-slate-50 px-3 py-2">
-                        <div className="text-slate-500">Last Reboot Command</div>
+                        <div className="text-slate-500">Module Statuses</div>
                         <div className="font-semibold text-slate-950">
-                          {diagnostics.last_reboot_command
-                            ? diagnostics.last_reboot_command.status
+                          {Object.entries(selectedAtm.module_status_json || {}).length > 0
+                            ? Object.entries(selectedAtm.module_status_json || {})
+                                .map(([name, status]) => `${name}: ${status}`)
+                                .join(" · ")
                             : "-"}
                         </div>
-                        {diagnostics.last_reboot_command?.created_at && (
-                          <div className="mt-1 text-xs text-slate-500">
-                            {formatApiDate(diagnostics.last_reboot_command.created_at)}
-                          </div>
-                        )}
                       </div>
                     </div>
                     <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
@@ -722,22 +721,6 @@ export default function Atms({ atms, onChanged }) {
                   <span>Copy Install Command</span>
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => requestReboot(selectedAtm)}
-                disabled={rebootingAtmId === selectedAtm.atm_id || selectedAtm.pending_reboot_count > 0}
-                className="focus-ring inline-flex items-center gap-2 rounded-lg border border-rose-300 px-4 py-2 text-rose-700 hover:bg-rose-50 disabled:opacity-60"
-                title="طلب إعادة تشغيل الصراف"
-              >
-                <Power size={17} />
-                <span>
-                  {selectedAtm.pending_reboot_count > 0
-                    ? "Reboot Pending"
-                    : rebootingAtmId === selectedAtm.atm_id
-                      ? "جار الطلب..."
-                      : "Restart ATM"}
-                </span>
-              </button>
             </div>
           </form>
         )}

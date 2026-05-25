@@ -5,6 +5,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .page_permissions import ALL_PAGE_IDS
 
+UserRole = Literal["admin", "system_admin", "operator", "media_admin", "cash_monitoring_viewer", "cash_monitoring_admin"]
+
 
 PATH_FIELDS = {"media_path", "backup_path", "temp_path"}
 
@@ -40,7 +42,7 @@ class UserRead(BaseModel):
 class UserCreate(BaseModel):
     username: str = Field(min_length=2, max_length=80)
     password: str = Field(min_length=8, max_length=200)
-    role: Literal["admin", "operator"] = "operator"
+    role: UserRole = "operator"
     allowed_pages: list[str] = Field(default_factory=list)
     is_active: bool = True
 
@@ -56,7 +58,7 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     username: str | None = Field(default=None, min_length=2, max_length=80)
     password: str | None = Field(default=None, min_length=8, max_length=200)
-    role: Literal["admin", "operator"] | None = None
+    role: UserRole | None = None
     allowed_pages: list[str] | None = None
     is_active: bool | None = None
 
@@ -95,6 +97,14 @@ class ATMCreate(ATMBase):
     temp_path: str | None = Field(default=None, max_length=500)
     check_interval_seconds: int | None = Field(default=None, ge=30, le=86400)
     heartbeat_interval_seconds: int | None = Field(default=None, ge=10, le=3600)
+    config_sync_interval_seconds: int | None = Field(default=None, ge=30, le=86400)
+    media_update_enabled: bool | None = None
+    cash_monitoring_enabled: bool | None = None
+    cash_provider: Literal["mock", "xfs", "vendor_api"] | None = None
+    cash_read_interval_seconds: int | None = Field(default=None, ge=30, le=86400)
+    cash_low_threshold_default: int | None = Field(default=None, ge=0, le=100000)
+    cash_critical_threshold_default: int | None = Field(default=None, ge=0, le=100000)
+    cash_stale_after_minutes: int | None = Field(default=None, ge=1, le=1440)
 
     @field_validator("media_path", "backup_path", "temp_path")
     @classmethod
@@ -113,6 +123,14 @@ class ATMUpdate(BaseModel):
     temp_path: str | None = Field(default=None, min_length=3, max_length=500)
     check_interval_seconds: int | None = Field(default=None, ge=30, le=86400)
     heartbeat_interval_seconds: int | None = Field(default=None, ge=10, le=3600)
+    config_sync_interval_seconds: int | None = Field(default=None, ge=30, le=86400)
+    media_update_enabled: bool | None = None
+    cash_monitoring_enabled: bool | None = None
+    cash_provider: Literal["mock", "xfs", "vendor_api"] | None = None
+    cash_read_interval_seconds: int | None = Field(default=None, ge=30, le=86400)
+    cash_low_threshold_default: int | None = Field(default=None, ge=0, le=100000)
+    cash_critical_threshold_default: int | None = Field(default=None, ge=0, le=100000)
+    cash_stale_after_minutes: int | None = Field(default=None, ge=1, le=1440)
 
     @field_validator("media_path", "backup_path", "temp_path")
     @classmethod
@@ -140,7 +158,16 @@ class ATMRead(ATMBase):
     last_config_sync_at: datetime | None = None
     last_config_error: str | None = None
     heartbeat_interval_seconds: int
+    config_sync_interval_seconds: int
     check_interval_seconds: int
+    media_update_enabled: bool
+    cash_monitoring_enabled: bool
+    module_status_json: dict[str, Any] = Field(default_factory=dict)
+    cash_provider: str
+    cash_read_interval_seconds: int
+    cash_low_threshold_default: int
+    cash_critical_threshold_default: int
+    cash_stale_after_minutes: int
     seconds_since_last_seen: int | None = None
     is_online: bool = False
     active_update_count: int = 0
@@ -240,6 +267,8 @@ class HeartbeatRequest(BaseModel):
     service_status: str | None = None
     applied_config_version: int | None = None
     latency_ms: int | None = Field(default=None, ge=0, le=600000)
+    enabled_modules: list[str] = Field(default_factory=list)
+    module_statuses: dict[str, str] = Field(default_factory=dict)
 
 
 class HeartbeatResponse(BaseModel):
@@ -290,9 +319,35 @@ class AgentLogRequest(BaseModel):
     details: str | dict[str, Any] | None = None
 
 
+class MediaUpdateRemoteConfig(BaseModel):
+    enabled: bool
+    media_path: str
+    backup_path: str
+    temp_path: str
+    check_interval_seconds: int
+    allowed_extensions: list[str]
+
+
+class CashMonitoringRemoteConfig(BaseModel):
+    enabled: bool
+    provider: Literal["mock", "xfs", "vendor_api"] = "mock"
+    read_interval_seconds: int
+    low_threshold_default: int
+    critical_threshold_default: int
+    stale_after_minutes: int
+
+
+class AgentModulesConfig(BaseModel):
+    media_update: MediaUpdateRemoteConfig
+    cash_monitoring: CashMonitoringRemoteConfig
+
+
 class AgentConfigResponse(BaseModel):
     atm_id: str
     config_version: int
+    config_sync_interval_seconds: int = 120
+    modules: AgentModulesConfig
+    # Legacy fields kept so older installed agents can continue to run during rollout.
     media_path: str
     backup_path: str
     temp_path: str
@@ -306,6 +361,7 @@ class AgentConfigAckRequest(BaseModel):
     applied_config_version: int
     success: bool
     message: str | None = None
+    enabled_modules: list[str] = Field(default_factory=list)
 
 
 class AgentCommandAckRequest(BaseModel):
@@ -354,3 +410,111 @@ class AuditLogRead(BaseModel):
     entity_id: str | None
     details: dict[str, Any] | None
     created_at: datetime
+
+
+class CashUnitPayload(BaseModel):
+    unit_no: int
+    cassette_id: str | None = None
+    cassette_name: str | None = None
+    currency: str = Field(default="YER", min_length=2, max_length=10)
+    denomination: int = Field(ge=0)
+    initial_count: int = Field(default=0, ge=0)
+    current_count: int = Field(default=0, ge=0)
+    reject_count: int = Field(default=0, ge=0)
+    dispensed_count: int = Field(default=0, ge=0)
+    presented_count: int = Field(default=0, ge=0)
+    retracted_count: int = Field(default=0, ge=0)
+    min_threshold: int = Field(default=300, ge=0)
+    max_capacity: int = Field(default=2000, ge=0)
+    status: str = "OK"
+    physical_status: str = "PRESENT"
+
+
+class CashSnapshotRequest(BaseModel):
+    atm_id: str | None = None
+    source: Literal["mock", "xfs", "vendor_api"] = "mock"
+    read_at: datetime
+    cash_units: list[CashUnitPayload] = Field(default_factory=list)
+
+
+class CashUnitRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    unit_no: int
+    cassette_id: str | None
+    cassette_name: str | None
+    currency: str
+    denomination: int
+    initial_count: int
+    current_count: int
+    reject_count: int
+    dispensed_count: int
+    presented_count: int
+    retracted_count: int
+    min_threshold: int
+    max_capacity: int
+    status: str
+    physical_status: str
+    source: str
+    read_at: datetime
+    updated_at: datetime
+
+
+class CashAlertRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    atm_id: int
+    unit_no: int
+    alert_type: str
+    severity: str
+    message: str
+    current_count: int
+    threshold_count: int
+    status: str
+    opened_at: datetime
+    closed_at: datetime | None
+
+
+class CashThresholdCreate(BaseModel):
+    atm_id: str
+    denomination: int = Field(ge=0)
+    low_threshold_count: int = Field(ge=0)
+    critical_threshold_count: int = Field(ge=0)
+    max_capacity: int = Field(default=2000, ge=0)
+
+
+class CashThresholdUpdate(BaseModel):
+    low_threshold_count: int | None = Field(default=None, ge=0)
+    critical_threshold_count: int | None = Field(default=None, ge=0)
+    max_capacity: int | None = Field(default=None, ge=0)
+
+
+class CashThresholdRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    atm_id: int
+    denomination: int
+    low_threshold_count: int
+    critical_threshold_count: int
+    max_capacity: int
+    updated_by: str | None
+    updated_at: datetime
+
+
+class CashAtmDetails(BaseModel):
+    atm: ATMRead
+    units: list[CashUnitRead]
+    alerts: list[CashAlertRead]
+    thresholds: list[CashThresholdRead]
+
+
+class CashSummary(BaseModel):
+    atm_count: int
+    cash_low_atms: int
+    cash_empty_atms: int
+    cash_stale_atms: int
+    open_alerts: int
+    units: list[CashUnitRead]

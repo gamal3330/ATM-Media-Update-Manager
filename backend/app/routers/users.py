@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from ..auth import hash_password, require_admin
 from ..database import get_db
 from ..models import User
-from ..page_permissions import ALL_PAGE_IDS, normalize_allowed_pages
+from ..page_permissions import ALL_PAGE_IDS, SYSTEM_ADMIN_ROLES, normalize_allowed_pages
 from ..schemas import PagePermissionRead, UserCreate, UserRead, UserUpdate
 from ..services.audit_service import write_audit
 
@@ -15,6 +15,7 @@ PAGE_LABELS = {
     "atms": "الصرافات",
     "upload": "رفع الحزمة",
     "packages": "التحديثات",
+    "cash": "مراقبة النقد",
     "agent-downloads": "Agent Downloads",
     "logs": "السجلات",
     "settings": "الإعدادات",
@@ -23,7 +24,7 @@ PAGE_LABELS = {
 
 
 def active_admin_count(db: Session) -> int:
-    return db.query(User).filter(User.role == "admin", User.is_active.is_(True)).count()
+    return db.query(User).filter(User.role.in_(SYSTEM_ADMIN_ROLES), User.is_active.is_(True)).count()
 
 
 @router.get("/pages", response_model=list[PagePermissionRead])
@@ -92,11 +93,11 @@ def update_user(
         user.username = username
 
     next_role = changes.get("role", user.role)
-    if user.id == current_user.id and next_role != "admin":
+    if user.id == current_user.id and next_role not in SYSTEM_ADMIN_ROLES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot remove admin role from yourself")
     if user.id == current_user.id and changes.get("is_active") is False:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot deactivate yourself")
-    if user.role == "admin" and user.is_active and next_role != "admin" and active_admin_count(db) <= 1:
+    if user.role in SYSTEM_ADMIN_ROLES and user.is_active and next_role not in SYSTEM_ADMIN_ROLES and active_admin_count(db) <= 1:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot remove the last active admin")
 
     if "password" in changes and changes["password"]:
@@ -104,7 +105,7 @@ def update_user(
     if "role" in changes:
         user.role = next_role
     if "is_active" in changes:
-        if user.role == "admin" and changes["is_active"] is False and active_admin_count(db) <= 1:
+        if user.role in SYSTEM_ADMIN_ROLES and changes["is_active"] is False and active_admin_count(db) <= 1:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot deactivate the last active admin")
         user.is_active = changes["is_active"]
 
@@ -139,7 +140,7 @@ def deactivate_user(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     if user.id == current_user.id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot deactivate yourself")
-    if user.role == "admin" and user.is_active and active_admin_count(db) <= 1:
+    if user.role in SYSTEM_ADMIN_ROLES and user.is_active and active_admin_count(db) <= 1:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot deactivate the last active admin")
 
     user.is_active = False

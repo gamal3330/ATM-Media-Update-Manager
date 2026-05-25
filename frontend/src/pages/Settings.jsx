@@ -17,9 +17,9 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { api, apiBaseUrl } from "../api/client";
 
-const expectedAgentVersion = "1.0.3";
+const expectedAgentVersion = "2.0.0";
 const onlineThresholdMinutes = 5;
-const allowedExtensions = ["jpg", "jpeg", "png", "bmp", "gif", "pcx"];
+const allowedExtensions = ["jpg", "jpeg", "png", "bmp", "gif"];
 const blockedExtensions = ["exe", "ps1", "bat", "cmd", "vbs", "js", "jse", "msi", "dll", "scr", "com", "reg"];
 
 function StatusBadge({ ok, label }) {
@@ -73,9 +73,9 @@ export default function Settings({ onOpenAgentDownloads }) {
 
   const healthUrl = `${apiBaseUrl}/api/health`;
   const openedFrom = typeof window === "undefined" ? "-" : window.location.origin;
-  const serviceCommand = `sc.exe query ATMMediaAgent`;
+  const serviceCommand = `sc.exe query ATMUnifiedAgent`;
   const statusCommand = `"C:\\Program Files\\ATM Media Agent\\atm-agent.exe" status`;
-  const healthCommand = `Invoke-WebRequest ${healthUrl} -UseBasicParsing`;
+  const healthCommand = `curl.exe ${healthUrl}`;
 
   const healthOk = health.status === "ok";
   const environmentRows = useMemo(

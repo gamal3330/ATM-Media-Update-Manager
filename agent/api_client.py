@@ -27,7 +27,13 @@ class ApiClient:
         self.last_latency_ms = max(0, int((time.perf_counter() - started) * 1000))
         return parse_remote_config(response.json())
 
-    def ack_config(self, version: int, success: bool, message: str | None = None) -> None:
+    def ack_config(
+        self,
+        version: int,
+        success: bool,
+        message: str | None = None,
+        enabled_modules: list[str] | None = None,
+    ) -> None:
         response = self.session.post(
             self.url("/api/agent/config-ack"),
             json={
@@ -35,6 +41,7 @@ class ApiClient:
                 "applied_config_version": version,
                 "success": success,
                 "message": message,
+                "enabled_modules": enabled_modules or [],
             },
             timeout=30,
         )
@@ -47,6 +54,8 @@ class ApiClient:
         current_package_version: str | None,
         applied_config_version: int,
         measured_latency_ms: int | None = None,
+        enabled_modules: list[str] | None = None,
+        module_statuses: dict[str, str] | None = None,
     ) -> int:
         started = time.perf_counter()
         payload: dict[str, Any] = {
@@ -55,6 +64,8 @@ class ApiClient:
             "service_status": service_status,
             "current_package_version": current_package_version,
             "applied_config_version": applied_config_version,
+            "enabled_modules": enabled_modules or [],
+            "module_statuses": module_statuses or {},
         }
         latency = measured_latency_ms if measured_latency_ms is not None else self.last_latency_ms
         if latency is not None:
@@ -77,19 +88,6 @@ class ApiClient:
         if not payload.get("has_update") and not payload.get("update_available"):
             return None
         return payload
-
-    def get_commands(self) -> list[dict[str, Any]]:
-        response = self.session.get(self.url("/api/agent/commands"), timeout=30)
-        response.raise_for_status()
-        return response.json()
-
-    def ack_command(self, command_id: int, status: str, message: str | None = None) -> None:
-        response = self.session.post(
-            self.url(f"/api/agent/commands/{command_id}/ack"),
-            json={"status": status, "message": message},
-            timeout=30,
-        )
-        response.raise_for_status()
 
     def download_package(self, download_url: str, output: BinaryIO) -> tuple[int, int]:
         downloaded = 0
@@ -162,3 +160,7 @@ class ApiClient:
             )
         except requests.RequestException:
             pass
+
+    def cash_snapshot(self, payload: dict[str, Any]) -> None:
+        response = self.session.post(self.url("/api/agent/cash-snapshot"), json=payload, timeout=30)
+        response.raise_for_status()

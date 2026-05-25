@@ -1,6 +1,6 @@
-# ATM Media Agent
+# ATM Unified Agent
 
-Permanent pull-based Windows Agent for ATM Media Update Manager.
+Permanent pull-based Windows Agent for ATM Media Update Manager. It is one executable and one Windows Service with modular internals.
 
 ## Local Config
 
@@ -12,12 +12,12 @@ The local config contains only connection data:
   "atm_id": "ATM001",
   "api_key": "CHANGE_ME",
   "local_log_path": "C:\\ATM\\Agent\\logs",
-  "fallback_check_interval_seconds": 300,
-  "fallback_heartbeat_interval_seconds": 60
+  "fallback_heartbeat_interval_seconds": 60,
+  "fallback_config_sync_interval_seconds": 120
 }
 ```
 
-`media_path`, `backup_path`, `temp_path`, heartbeat interval, and update check interval are pulled from the server with:
+`media_path`, `backup_path`, `temp_path`, module flags, heartbeat interval, and monitoring intervals are pulled from the server with:
 
 ```text
 GET /api/agent/config
@@ -59,7 +59,13 @@ C:\Program Files\ATM Media Agent
 It creates and starts this Windows Service:
 
 ```text
-ATM Media Update Agent
+ATM Unified Agent Service
+```
+
+The service name is:
+
+```text
+ATMUnifiedAgent
 ```
 
 ## Commands
@@ -81,4 +87,5 @@ atm-agent.exe run --config config.json --once
 - The agent never executes files downloaded from the server.
 - Update packages must be ZIP files containing allowed image extensions only.
 - ZIP entries with absolute paths or path traversal are rejected.
+- Cash monitoring is read-only. There is no dispense, cash unit exchange, reset counters, shell, PowerShell, or script execution path.
 - The API key is only stored locally on the ATM and is stored as a hash on the server.

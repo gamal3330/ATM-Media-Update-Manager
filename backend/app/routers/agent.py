@@ -13,12 +13,15 @@ from ..schemas import (
     AgentCommandRead,
     AgentConfigAckRequest,
     AgentConfigResponse,
+    AgentModulesConfig,
     AgentLogRequest,
     AgentNoUpdate,
     AgentProgressRequest,
     AgentUpdateAvailable,
     HeartbeatRequest,
     HeartbeatResponse,
+    CashMonitoringRemoteConfig,
+    MediaUpdateRemoteConfig,
     UpdateResultRequest,
 )
 from ..services.audit_service import write_audit
@@ -49,15 +52,35 @@ def update_target_progress(
 
 @router.get("/config", response_model=AgentConfigResponse)
 def get_agent_config(atm: ATM = Depends(get_agent_atm)) -> AgentConfigResponse:
+    allowed_extensions = sorted(extension.lstrip(".") for extension in ALLOWED_IMAGE_EXTENSIONS)
     return AgentConfigResponse(
         atm_id=atm.atm_id,
         config_version=atm.config_version,
+        config_sync_interval_seconds=atm.config_sync_interval_seconds,
+        modules=AgentModulesConfig(
+            media_update=MediaUpdateRemoteConfig(
+                enabled=atm.media_update_enabled,
+                media_path=atm.media_path,
+                backup_path=atm.backup_path,
+                temp_path=atm.temp_path,
+                check_interval_seconds=atm.check_interval_seconds,
+                allowed_extensions=allowed_extensions,
+            ),
+            cash_monitoring=CashMonitoringRemoteConfig(
+                enabled=atm.cash_monitoring_enabled,
+                provider=atm.cash_provider,
+                read_interval_seconds=atm.cash_read_interval_seconds,
+                low_threshold_default=atm.cash_low_threshold_default,
+                critical_threshold_default=atm.cash_critical_threshold_default,
+                stale_after_minutes=atm.cash_stale_after_minutes,
+            ),
+        ),
         media_path=atm.media_path,
         backup_path=atm.backup_path,
         temp_path=atm.temp_path,
         heartbeat_interval_seconds=atm.heartbeat_interval_seconds,
         check_interval_seconds=atm.check_interval_seconds,
-        allowed_extensions=sorted(extension.lstrip(".") for extension in ALLOWED_IMAGE_EXTENSIONS),
+        allowed_extensions=allowed_extensions,
     )
 
 
@@ -74,6 +97,11 @@ def acknowledge_agent_config(
     if payload.success:
         atm.applied_config_version = payload.applied_config_version
         atm.last_config_error = None
+        if payload.enabled_modules:
+            statuses = dict(atm.module_status_json or {})
+            for module_name in payload.enabled_modules:
+                statuses.setdefault(module_name, "configured")
+            atm.module_status_json = statuses
     else:
         atm.last_config_error = payload.message or "Config sync failed"
 
@@ -98,6 +126,8 @@ def heartbeat(
         atm.agent_version = payload.agent_version
     if payload.latency_ms is not None:
         atm.latency_ms = payload.latency_ms
+    if payload.module_statuses:
+        atm.module_status_json = payload.module_statuses
     if payload.service_status:
         atm.status = payload.service_status
     current_version = payload.current_package_version or payload.current_version
@@ -157,13 +187,7 @@ def list_agent_commands(
     atm: ATM = Depends(get_agent_atm),
     db: Session = Depends(get_db),
 ) -> list[AgentCommand]:
-    return (
-        db.query(AgentCommand)
-        .filter(AgentCommand.atm_id == atm.id, AgentCommand.status == "pending")
-        .order_by(AgentCommand.created_at.asc())
-        .limit(5)
-        .all()
-    )
+    return []
 
 
 @router.post("/commands/{command_id}/ack", response_model=AgentCommandRead)
@@ -173,6 +197,7 @@ def acknowledge_agent_command(
     atm: ATM = Depends(get_agent_atm),
     db: Session = Depends(get_db),
 ) -> AgentCommand:
+    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Agent commands are disabled for the unified agent")
     command = (
         db.query(AgentCommand)
         .filter(AgentCommand.id == command_id, AgentCommand.atm_id == atm.id)

@@ -10,15 +10,24 @@ const emptyForm = {
   allowed_pages: ["dashboard"],
 };
 
+const roles = [
+  ["operator", "Operator"],
+  ["media_admin", "Media Admin"],
+  ["cash_monitoring_viewer", "Cash Monitoring Viewer"],
+  ["cash_monitoring_admin", "Cash Monitoring Admin"],
+  ["system_admin", "System Admin"],
+  ["admin", "Admin (Legacy)"],
+];
+
 function normalizedPages(role, pages, pageOptions) {
-  if (role === "admin") return pageOptions.map((page) => page.id);
+  if (role === "admin" || role === "system_admin") return pageOptions.map((page) => page.id);
   const allowed = pages.filter((page) => page !== "users");
   return allowed.length ? allowed : ["dashboard"];
 }
 
 function PageSelector({ role, value, pages, onChange }) {
   const selected = normalizedPages(role, value || [], pages);
-  const disabled = role === "admin";
+  const disabled = role === "admin" || role === "system_admin";
 
   function toggle(pageId) {
     if (disabled) return;
@@ -241,8 +250,9 @@ export default function UserManagement({ currentUser }) {
               onChange={(event) => updateForm("role", event.target.value)}
               className="focus-ring w-full rounded-lg border border-slate-300 px-3 py-2"
             >
-              <option value="operator">Operator</option>
-              <option value="admin">Admin</option>
+              {roles.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
             </select>
           </label>
           <label className="flex items-center gap-2 pt-7 text-sm text-slate-700">
@@ -355,8 +365,9 @@ export default function UserManagement({ currentUser }) {
                     disabled={isCurrentUser}
                     className="focus-ring w-full rounded-lg border border-slate-300 px-3 py-2 disabled:bg-slate-50"
                   >
-                    <option value="operator">Operator</option>
-                    <option value="admin">Admin</option>
+                    {roles.map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
                   </select>
                 </label>
                 <label className="flex items-center gap-2 pt-7 text-sm text-slate-700">

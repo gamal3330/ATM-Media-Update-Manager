@@ -6,7 +6,7 @@ MVP لإدارة تحديث ملفات الصور على صرافات Windows ع
 
 - `backend/`: FastAPI + SQLite + SQLAlchemy.
 - `frontend/`: React + Tailwind Dashboard.
-- `agent/`: Agent دائم قابل للبناء كملف `atm-agent.exe` ويعمل كـ Windows Service.
+- `agent/`: ATM Unified Agent دائم قابل للبناء كملف `atm-agent.exe` ويعمل كـ Windows Service واحدة.
 
 ## التشغيل المحلي
 
@@ -69,8 +69,8 @@ admin / admin123!
   "atm_id": "ATM001",
   "api_key": "CHANGE_ME",
   "local_log_path": "C:\\ATM\\Agent\\logs",
-  "fallback_check_interval_seconds": 300,
-  "fallback_heartbeat_interval_seconds": 60
+  "fallback_heartbeat_interval_seconds": 60,
+  "fallback_config_sync_interval_seconds": 120
 }
 ```
 
@@ -96,7 +96,7 @@ atm-agent.exe install --server-url https://atm-update-server.local --atm-id ATM0
 بعد التثبيت تعمل الخدمة تلقائياً مع Windows باسم:
 
 ```text
-ATM Media Update Agent
+ATM Unified Agent Service
 ```
 
 أوامر مفيدة:
@@ -128,22 +128,22 @@ pytest
 2. من صفحة الصرافات يمكنك توليد `API Key` جديد ونسخ أمر التثبيت الجاهز.
 3. ارفع ZIP يحتوي صوراً فقط.
 4. عيّن الحزمة للصرافات المستهدفة.
-5. عندما يتصل الـ Agent، يرسل heartbeat ثم يتحقق من وجود تحديث.
-6. عند وجود تحديث، يرسل الـ Agent تقدم العملية للسيرفر: تنزيل ZIP، التحقق من SHA256، فك الضغط، Backup، ونسخ الملفات.
+5. عندما يتصل الـ Unified Agent، يرسل heartbeat ويسحب config الوحدات المفعلة.
+6. Media Update Module يتحقق من وجود تحديث، ثم يرسل تقدم العملية للسيرفر: تنزيل ZIP، التحقق من SHA256، فك الضغط، Backup، ونسخ الملفات.
 7. إذا كان ZIP يحتوي مجلداً رئيسياً واحداً فقط، ينسخ الـ Agent محتوياته مباشرة داخل `media_path`. المجلدات الداخلية المهمة مثل مجلدات المقاسات تبقى كما هي.
 8. في حال الفشل، يحاول Rollback من آخر Backup ويرسل سبب الفشل للسيرفر.
-9. من صفحة تفاصيل التحديثات استخدم `Retry Failed` لإعادة محاولة الصرافات الفاشلة فقط.
+9. Cash Monitoring Module يرسل snapshots بنظام Read-Only فقط عند تفعيله من لوحة التحكم.
+10. من صفحة تفاصيل التحديثات استخدم `Retry Failed` لإعادة محاولة الصرافات الفاشلة فقط.
 
 ## تشغيل الصراف عملياً
 
 1. من لوحة التحكم أضف الصراف واحفظ `API Key`.
 2. افتح صفحة `Agent Downloads` وحمّل `ATM-Agent-Build-Source.zip`.
-3. على جهاز بناء Windows:
+3. على جهاز بناء Windows، فك ضغط الملف ثم شغّل:
 
-```powershell
-Expand-Archive .\ATM-Agent-Build-Source.zip -DestinationPath .\ATM-Agent
-cd .\ATM-Agent
-.\build_agent.bat
+```bat
+cd ATM-Agent
+build_agent.bat
 ```
 
 4. ضع الملف الناتج على السيرفر في:
@@ -160,7 +160,7 @@ agent\dist\atm-agent.exe
 dist\atm-agent.exe
 ```
 
-6. على الصراف افتح Command Prompt أو PowerShell كمسؤول وشغّل أمر التثبيت المنسوخ من لوحة التحكم:
+6. على الصراف افتح Command Prompt كمسؤول وشغّل أمر التثبيت المنسوخ من لوحة التحكم:
 
 ```bat
 atm-agent.exe install --server-url http://SERVER:8001 --atm-id ATM001 --api-key "KEY"
@@ -170,7 +170,7 @@ atm-agent.exe install --server-url http://SERVER:8001 --atm-id ATM001 --api-key 
 
 ```bat
 atm-agent.exe status
-sc.exe query ATMMediaAgent
+sc.exe query ATMUnifiedAgent
 ```
 
 ## إدارة المفاتيح
@@ -187,18 +187,19 @@ sc.exe query ATMMediaAgent
 - زر `Retry Failed` يعيد الصرافات الفاشلة إلى `pending` فقط دون إعادة تعيين الناجحة.
 - يمكن أيضاً اختيار صرافات فاشلة يدوياً وإعادة إرسال التعيين لها.
 
-## إعادة تشغيل الصراف
+## ATM Unified Agent
 
-- من صفحة الصرافات يوجد زر `Restart ATM`.
-- العملية لا تتم بدخول مباشر من السيرفر إلى الصراف؛ يتم تسجيل طلب ثابت، والـ Agent يسحبه بنظام Pull.
-- يظهر تحذير قبل إنشاء الطلب، وتحذير إضافي إذا كان على الصراف تحديث نشط.
-- الطلب يسجل في `audit_logs` باسم `atm_reboot_requested`.
-- الـ Agent ينفذ إعادة تشغيل Windows بمهلة افتراضية 60 ثانية عبر إجراء ثابت فقط، وليس عبر أوامر Shell عامة.
+- يوجد Agent واحد فقط وخدمة Windows واحدة باسم `ATM Unified Agent Service`.
+- الكود الداخلي Modular ويحتوي حالياً على `media_update` و`cash_monitoring`.
+- يمكن تفعيل أو تعطيل كل Module من إعدادات الصراف في لوحة التحكم.
+- لا يستقبل الـ Agent أوامر Shell أو PowerShell أو PS1 من السيرفر.
+- مسارات الصور والنسخ الاحتياطي وإعدادات مراقبة النقد تأتي من `/api/agent/config`.
 
 ## ملاحظات أمنية مهمة
 
 - لا يتم تنفيذ أي EXE أو Script من داخل حزمة ZIP على الصراف؛ الحزمة مخصصة لملفات الصور فقط.
-- الامتدادات المسموحة داخل ZIP فقط: `jpg`, `jpeg`, `png`, `bmp`, `gif`, `pcx`.
+- الامتدادات المسموحة داخل ZIP فقط: `jpg`, `jpeg`, `png`, `bmp`, `gif`.
+- Cash Monitoring Read-Only فقط: لا Dispense، لا Cash Unit Exchange، لا Reset Counters.
 - يتم منع Path Traversal عند رفع ZIP في السيرفر وعند فكه في الـ Agent.
 - يتم حفظ SHA256 لكل حزمة والتحقق منه قبل التطبيق.
 - كلمات المرور لا تخزن كنص صريح؛ يتم استخدام PBKDF2-HMAC-SHA256.

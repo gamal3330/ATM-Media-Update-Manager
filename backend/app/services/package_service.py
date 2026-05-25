@@ -12,7 +12,7 @@ from ..models import UpdatePackage, User
 from .checksum_service import sha256_file
 
 
-ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".pcx"}
+ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".gif"}
 DISALLOWED_PACKAGE_EXTENSIONS = {
     ".exe",
     ".ps1",

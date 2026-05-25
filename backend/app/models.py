@@ -59,7 +59,16 @@ class ATM(Base):
     last_config_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_config_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     heartbeat_interval_seconds: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
+    config_sync_interval_seconds: Mapped[int] = mapped_column(Integer, default=120, nullable=False)
     check_interval_seconds: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
+    media_update_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    cash_monitoring_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    module_status_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    cash_provider: Mapped[str] = mapped_column(String(40), default="mock", nullable=False)
+    cash_read_interval_seconds: Mapped[int] = mapped_column(Integer, default=120, nullable=False)
+    cash_low_threshold_default: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
+    cash_critical_threshold_default: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    cash_stale_after_minutes: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
@@ -69,6 +78,11 @@ class ATM(Base):
     logs: Mapped[list["AgentLog"]] = relationship(back_populates="atm")
     results: Mapped[list["UpdateResult"]] = relationship(back_populates="atm")
     commands: Mapped[list["AgentCommand"]] = relationship(back_populates="atm")
+    agent_configs: Mapped[list["AtmAgentConfig"]] = relationship(back_populates="atm")
+    cash_units: Mapped[list["AtmCashUnit"]] = relationship(back_populates="atm")
+    cash_snapshots: Mapped[list["AtmCashSnapshot"]] = relationship(back_populates="atm")
+    cash_alerts: Mapped[list["AtmCashAlert"]] = relationship(back_populates="atm")
+    cash_thresholds: Mapped[list["AtmCashThreshold"]] = relationship(back_populates="atm")
 
     @property
     def seconds_since_last_seen(self) -> int | None:
@@ -181,6 +195,106 @@ class AgentLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     atm: Mapped[Optional[ATM]] = relationship(back_populates="logs")
+
+
+class AtmAgentConfig(Base):
+    __tablename__ = "atm_agent_configs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    atm_id: Mapped[int] = mapped_column(ForeignKey("atms.id"), nullable=False)
+    config_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    heartbeat_interval_seconds: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
+    config_sync_interval_seconds: Mapped[int] = mapped_column(Integer, default=120, nullable=False)
+    media_update_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    media_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    backup_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    temp_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    media_check_interval_seconds: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
+    cash_monitoring_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    cash_provider: Mapped[str] = mapped_column(String(40), default="mock", nullable=False)
+    cash_read_interval_seconds: Mapped[int] = mapped_column(Integer, default=120, nullable=False)
+    cash_stale_after_minutes: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+    updated_by: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+
+    atm: Mapped[ATM] = relationship(back_populates="agent_configs")
+
+
+class AtmCashUnit(Base):
+    __tablename__ = "atm_cash_units"
+    __table_args__ = (UniqueConstraint("atm_id", "unit_no", name="uq_cash_unit_atm_unit"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    atm_id: Mapped[int] = mapped_column(ForeignKey("atms.id"), nullable=False)
+    unit_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    cassette_id: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    cassette_name: Mapped[Optional[str]] = mapped_column(String(160), nullable=True)
+    currency: Mapped[str] = mapped_column(String(10), default="YER", nullable=False)
+    denomination: Mapped[int] = mapped_column(Integer, nullable=False)
+    initial_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    current_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    reject_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    dispensed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    presented_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    retracted_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    min_threshold: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
+    max_capacity: Mapped[int] = mapped_column(Integer, default=2000, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="OK", nullable=False)
+    physical_status: Mapped[str] = mapped_column(String(40), default="PRESENT", nullable=False)
+    source: Mapped[str] = mapped_column(String(40), default="mock", nullable=False)
+    read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    atm: Mapped[ATM] = relationship(back_populates="cash_units")
+
+
+class AtmCashSnapshot(Base):
+    __tablename__ = "atm_cash_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    atm_id: Mapped[int] = mapped_column(ForeignKey("atms.id"), nullable=False)
+    snapshot_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    source: Mapped[str] = mapped_column(String(40), default="mock", nullable=False)
+    read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    atm: Mapped[ATM] = relationship(back_populates="cash_snapshots")
+
+
+class AtmCashAlert(Base):
+    __tablename__ = "atm_cash_alerts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    atm_id: Mapped[int] = mapped_column(ForeignKey("atms.id"), nullable=False)
+    unit_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    alert_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    severity: Mapped[str] = mapped_column(String(20), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    current_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    threshold_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="open", nullable=False)
+    opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    atm: Mapped[ATM] = relationship(back_populates="cash_alerts")
+
+
+class AtmCashThreshold(Base):
+    __tablename__ = "atm_cash_thresholds"
+    __table_args__ = (UniqueConstraint("atm_id", "denomination", name="uq_cash_threshold_atm_denomination"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    atm_id: Mapped[int] = mapped_column(ForeignKey("atms.id"), nullable=False)
+    denomination: Mapped[int] = mapped_column(Integer, nullable=False)
+    low_threshold_count: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
+    critical_threshold_count: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    max_capacity: Mapped[int] = mapped_column(Integer, default=2000, nullable=False)
+    updated_by: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    atm: Mapped[ATM] = relationship(back_populates="cash_thresholds")
 
 
 class UpdateResult(Base):
