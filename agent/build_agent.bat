@@ -93,6 +93,7 @@ if exist atm-agent.spec del /f /q atm-agent.spec
   --hidden-import service ^
   --hidden-import update_manager ^
   --hidden-import win32timezone ^
+  --hidden-import xfs_cdm_diagnostics ^
   atm_agent.py
 if errorlevel 1 exit /b 1
 

@@ -11,6 +11,7 @@ from config_manager import load_local_config, parse_remote_config
 from module_runner import ModuleRunner
 from path_policy import validate_managed_path
 from safe_zip import extract_safe_zip
+from xfs_cdm_diagnostics import diagnose_xfs_cdm, format_diagnostics
 
 
 def make_zip(path, members):
@@ -243,3 +244,23 @@ def test_cash_monitoring_module_mock_provider_sends_snapshot():
     assert api.snapshots[0]["cash_units"][0]["cassette_no"] == 1
     assert api.snapshots[0]["cash_units"][2]["reported_currency"] == "USD"
     assert api.snapshots[0]["reject_retract"]["retract_count"] == 1
+
+
+def test_xfs_cdm_diagnostics_detects_ncr_aptra_files(tmp_path):
+    aptra = tmp_path / "NCR APTRA"
+    cdm = aptra / "XFS CDM Service Provider"
+    manager = aptra / "XFS Manager"
+    cdm.mkdir(parents=True)
+    manager.mkdir()
+    (cdm / "NCR_CDM2SP.DLL").write_bytes(b"dll")
+    (cdm / "NCR_CDMSP.DLL").write_bytes(b"dll")
+    (manager / "xfs1.cab").write_bytes(b"cab")
+
+    result = diagnose_xfs_cdm(str(aptra))
+    output = format_diagnostics(result)
+
+    assert result.read_only is True
+    assert result.aptra_root == str(aptra)
+    assert any(entry.path.endswith("NCR_CDM2SP.DLL") for entry in result.cdm_provider_files)
+    assert any(entry.path.endswith("xfs1.cab") for entry in result.xfs_manager_files)
+    assert "READ ONLY" in output

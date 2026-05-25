@@ -20,6 +20,7 @@ from config_manager import LocalConfig, RemoteConfig, load_local_config, write_l
 from logger import setup_logger
 from media_update_module import MediaUpdateModule
 from module_runner import ModuleRunner
+from xfs_cdm_diagnostics import diagnose_xfs_cdm, format_diagnostics
 
 AGENT_VERSION = "2.0.0"
 DEFAULT_INSTALL_DIR = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "ATM Media Agent"
@@ -441,6 +442,14 @@ def version_command(_: argparse.Namespace) -> None:
     print(AGENT_VERSION)
 
 
+def xfs_cdm_diagnose_command(args: argparse.Namespace) -> None:
+    result = diagnose_xfs_cdm(args.aptra_root)
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_diagnostics(result))
+
+
 def service_main(args: argparse.Namespace) -> None:
     if os.name != "nt":
         AtmAgent(Path(args.config)).run_forever()
@@ -477,6 +486,11 @@ def main() -> None:
 
     version_parser = sub.add_parser("version")
     version_parser.set_defaults(func=version_command)
+
+    diagnose_parser = sub.add_parser("xfs-cdm-diagnose")
+    diagnose_parser.add_argument("--aptra-root")
+    diagnose_parser.add_argument("--json", action="store_true")
+    diagnose_parser.set_defaults(func=xfs_cdm_diagnose_command)
 
     run_parser = sub.add_parser("run")
     run_parser.add_argument("--config", default=str(DEFAULT_CONFIG))

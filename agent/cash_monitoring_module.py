@@ -126,10 +126,10 @@ class XfsCdmProvider:
     source = "xfs_cdm"
 
     def get_dispense_cash_snapshot(self, atm_id: str, config: CashMonitoringConfig) -> list[DispenseCashUnit]:
-        raise NotImplementedError("XFS CDM provider is a read-only integration stub until the vendor SDK is available")
+        raise NotImplementedError("XFS CDM provider is not enabled yet. Run xfs-cdm-diagnose first.")
 
     def get_reject_retract_status(self, config: CashMonitoringConfig) -> RejectRetractStatus:
-        raise NotImplementedError("XFS CDM provider is a read-only integration stub until the vendor SDK is available")
+        raise NotImplementedError("XFS CDM provider is not enabled yet. Run xfs-cdm-diagnose first.")
 
 
 class VendorCdmProvider:

@@ -75,11 +75,28 @@ atm-agent.exe install --server-url https://server --atm-id ATM001 --api-key XXXX
 atm-agent.exe uninstall
 atm-agent.exe status
 atm-agent.exe version
+atm-agent.exe xfs-cdm-diagnose
 atm-agent.exe run --config "C:\Program Files\ATM Media Agent\config.json"
 atm-agent.exe run --config config.json --once
 ```
 
 `status` shows the configured ATM ID, service status, server connectivity, last heartbeat, last config sync, and last local error state.
+
+`xfs-cdm-diagnose` is read-only. It scans NCR APTRA/XFS files and registry hints to find CDM provider files and possible
+logical service names before the real `xfs_cdm` provider is enabled. It does not call dispense, exchange, reset, or any
+state-changing XFS command.
+
+For NCR APTRA installs, run:
+
+```bat
+atm-agent.exe xfs-cdm-diagnose --aptra-root "C:\Program Files (x86)\NCR APTRA"
+```
+
+If you need machine-readable output:
+
+```bat
+atm-agent.exe xfs-cdm-diagnose --json
+```
 
 ## Security
 

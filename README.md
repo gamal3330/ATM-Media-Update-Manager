@@ -170,6 +170,7 @@ atm-agent.exe install --server-url http://SERVER:8001 --atm-id ATM001 --api-key 
 
 ```bat
 atm-agent.exe status
+atm-agent.exe xfs-cdm-diagnose --aptra-root "C:\Program Files (x86)\NCR APTRA"
 sc.exe query ATMUnifiedAgent
 ```
 
@@ -225,6 +226,7 @@ sc.exe query ATMUnifiedAgent
 - الامتدادات المسموحة داخل ZIP فقط: `jpg`, `jpeg`, `png`, `bmp`, `gif`.
 - Cash Monitoring Read-Only فقط: لا تنفيذ Dispense commands، لا Cash Unit Exchange، لا Reset Counters، ولا أي أمر يغيّر حالة الصراف.
 - لوحة مراقبة النقد تعرض فقط dispense cassettes و available cash و reject/retract والتنبيهات الخاصة بها.
+- لا تفعّل `xfs_cdm` على صراف حقيقي قبل تشغيل `atm-agent.exe xfs-cdm-diagnose` ومعرفة اسم CDM logical service الصحيح.
 - يتم منع Path Traversal عند رفع ZIP في السيرفر وعند فكه في الـ Agent.
 - يتم حفظ SHA256 لكل حزمة والتحقق منه قبل التطبيق.
 - كلمات المرور لا تخزن كنص صريح؛ يتم استخدام PBKDF2-HMAC-SHA256.
