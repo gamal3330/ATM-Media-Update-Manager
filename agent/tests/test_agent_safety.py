@@ -1,5 +1,7 @@
 import hashlib
 import json
+import socket
+import threading
 import zipfile
 
 import pytest
@@ -9,6 +11,7 @@ from checksum import sha256_file
 from cash_monitoring_module import CashMonitoringModule
 from config_manager import load_local_config, parse_remote_config
 from module_runner import ModuleRunner
+from network_probe import tcp_connect_probe
 from path_policy import validate_managed_path
 from safe_zip import extract_safe_zip
 from xfs_cdm_diagnostics import diagnose_xfs_cdm, format_diagnostics
@@ -264,3 +267,23 @@ def test_xfs_cdm_diagnostics_detects_ncr_aptra_files(tmp_path):
     assert any(entry.path.endswith("NCR_CDM2SP.DLL") for entry in result.cdm_provider_files)
     assert any(entry.path.endswith("xfs1.cab") for entry in result.xfs_manager_files)
     assert "READ ONLY" in output
+
+
+def test_tcp_connect_probe_uses_socket_without_shell():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    port = server.getsockname()[1]
+
+    def accept_once():
+        conn, _ = server.accept()
+        conn.close()
+        server.close()
+
+    thread = threading.Thread(target=accept_once)
+    thread.start()
+    result = tcp_connect_probe("127.0.0.1", port, timeout_seconds=2)
+    thread.join(timeout=2)
+
+    assert result.success is True
+    assert result.latency_ms is not None

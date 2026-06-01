@@ -88,6 +88,7 @@ if exist atm-agent.spec del /f /q atm-agent.spec
   --hidden-import logger ^
   --hidden-import media_update_module ^
   --hidden-import module_runner ^
+  --hidden-import network_probe ^
   --hidden-import path_policy ^
   --hidden-import safe_zip ^
   --hidden-import service ^

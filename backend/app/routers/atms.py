@@ -16,11 +16,21 @@ from ..models import (
     AtmCashThreshold,
     AtmCashUnit,
     AtmRejectRetractStatus,
+    AtmSwitchProbe,
     UpdateResult,
     UpdateTarget,
     User,
 )
-from ..schemas import AgentCommandRead, ATMDiagnostics, ATMCreate, ATMCreateResponse, ATMRead, ATMRebootRequest, ATMUpdate
+from ..schemas import (
+    AgentCommandRead,
+    ATMDiagnostics,
+    ATMCreate,
+    ATMCreateResponse,
+    ATMRead,
+    ATMRebootRequest,
+    ATMUpdate,
+    SwitchProbeRead,
+)
 from ..services.audit_service import write_audit
 
 router = APIRouter(prefix="/api/atms", tags=["atms"])
@@ -109,6 +119,8 @@ def create_atm(
         cash_low_threshold_default=payload.cash_low_threshold_default or 300,
         cash_critical_threshold_default=payload.cash_critical_threshold_default or 100,
         cash_stale_after_minutes=payload.cash_stale_after_minutes or 10,
+        switch_probe_host=payload.switch_probe_host or "172.16.25.75",
+        switch_probe_port=payload.switch_probe_port or 10200,
         config_updated_at=datetime.now(timezone.utc),
     )
     db.add(atm)
@@ -301,6 +313,67 @@ def update_atm(
     return atm
 
 
+@router.post("/{atm_id}/switch-probe", response_model=SwitchProbeRead, status_code=status.HTTP_202_ACCEPTED)
+def request_switch_probe(
+    atm_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AtmSwitchProbe:
+    atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
+    if not atm:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ATM not found")
+
+    existing = (
+        db.query(AtmSwitchProbe)
+        .filter(AtmSwitchProbe.atm_id == atm.id, AtmSwitchProbe.status.in_(["pending", "running"]))
+        .order_by(AtmSwitchProbe.requested_at.desc())
+        .first()
+    )
+    if existing:
+        return existing
+
+    probe = AtmSwitchProbe(
+        atm_id=atm.id,
+        host=atm.switch_probe_host,
+        port=atm.switch_probe_port,
+        status="pending",
+        requested_by=current_user.username,
+    )
+    db.add(probe)
+    db.flush()
+    write_audit(
+        db,
+        actor_type="user",
+        actor_id=current_user.username,
+        action="switch_probe_requested",
+        entity_type="atm",
+        entity_id=atm.atm_id,
+        details={"probe_id": probe.id, "host": probe.host, "port": probe.port},
+    )
+    db.commit()
+    db.refresh(probe)
+    return probe
+
+
+@router.get("/{atm_id}/switch-probes", response_model=list[SwitchProbeRead])
+def list_switch_probes(
+    atm_id: str,
+    limit: int = 10,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[AtmSwitchProbe]:
+    atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
+    if not atm:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ATM not found")
+    return (
+        db.query(AtmSwitchProbe)
+        .filter(AtmSwitchProbe.atm_id == atm.id)
+        .order_by(AtmSwitchProbe.requested_at.desc())
+        .limit(max(1, min(limit, 50)))
+        .all()
+    )
+
+
 @router.post("/{atm_id}/reboot", response_model=AgentCommandRead)
 def request_atm_reboot(
     atm_id: str,
@@ -405,6 +478,7 @@ def delete_atm(
         "deleted_update_results": db.query(UpdateResult).filter(UpdateResult.atm_id == atm.id).count(),
         "deleted_agent_logs": db.query(AgentLog).filter(AgentLog.atm_id == atm.id).count(),
         "deleted_cash_units": db.query(AtmCashUnit).filter(AtmCashUnit.atm_id == atm.id).count(),
+        "deleted_switch_probes": db.query(AtmSwitchProbe).filter(AtmSwitchProbe.atm_id == atm.id).count(),
         "deleted_reject_retract_status": db.query(AtmRejectRetractStatus).filter(
             AtmRejectRetractStatus.atm_id == atm.id
         ).count(),
@@ -426,6 +500,7 @@ def delete_atm(
     db.query(AtmAgentConfig).filter(AtmAgentConfig.atm_id == atm.id).delete(synchronize_session=False)
     db.query(AtmCashUnit).filter(AtmCashUnit.atm_id == atm.id).delete(synchronize_session=False)
     db.query(AtmRejectRetractStatus).filter(AtmRejectRetractStatus.atm_id == atm.id).delete(synchronize_session=False)
+    db.query(AtmSwitchProbe).filter(AtmSwitchProbe.atm_id == atm.id).delete(synchronize_session=False)
     db.query(AtmCashSnapshot).filter(AtmCashSnapshot.atm_id == atm.id).delete(synchronize_session=False)
     db.query(AtmCashAlert).filter(AtmCashAlert.atm_id == atm.id).delete(synchronize_session=False)
     db.query(AtmCashThreshold).filter(AtmCashThreshold.atm_id == atm.id).delete(synchronize_session=False)

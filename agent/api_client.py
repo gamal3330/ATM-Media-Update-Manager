@@ -164,3 +164,30 @@ class ApiClient:
     def cash_snapshot(self, payload: dict[str, Any]) -> None:
         response = self.session.post(self.url("/api/agent/cash-snapshot"), json=payload, timeout=30)
         response.raise_for_status()
+
+    def get_switch_probe(self) -> dict[str, Any] | None:
+        response = self.session.get(self.url("/api/agent/switch-probe"), timeout=15)
+        response.raise_for_status()
+        payload = response.json()
+        if not payload.get("has_probe"):
+            return None
+        return payload.get("probe")
+
+    def report_switch_probe(
+        self,
+        probe_id: int,
+        status: str,
+        latency_ms: int | None,
+        error_message: str | None = None,
+    ) -> None:
+        response = self.session.post(
+            self.url("/api/agent/switch-probe-result"),
+            json={
+                "probe_id": probe_id,
+                "status": status,
+                "latency_ms": latency_ms,
+                "error_message": error_message,
+            },
+            timeout=15,
+        )
+        response.raise_for_status()

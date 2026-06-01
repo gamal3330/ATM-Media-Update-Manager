@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from ..auth import get_agent_atm
 from ..cash_layout import normalized_cash_layout
 from ..database import get_db
-from ..models import ATM, AgentCommand, AgentLog, UpdatePackage, UpdateResult, UpdateTarget
+from ..models import ATM, AgentCommand, AgentLog, AtmSwitchProbe, UpdatePackage, UpdateResult, UpdateTarget
 from ..schemas import (
     AgentCommandAckRequest,
     AgentCommandRead,
@@ -21,6 +21,8 @@ from ..schemas import (
     AgentUpdateAvailable,
     HeartbeatRequest,
     HeartbeatResponse,
+    AgentSwitchProbeRequest,
+    AgentSwitchProbeResult,
     CashMonitoringRemoteConfig,
     MediaUpdateRemoteConfig,
     UpdateResultRequest,
@@ -230,6 +232,71 @@ def acknowledge_agent_command(
     db.commit()
     db.refresh(command)
     return command
+
+
+@router.get("/switch-probe", response_model=AgentSwitchProbeRequest)
+def get_switch_probe_request(
+    atm: ATM = Depends(get_agent_atm),
+    db: Session = Depends(get_db),
+) -> AgentSwitchProbeRequest:
+    probe = (
+        db.query(AtmSwitchProbe)
+        .filter(AtmSwitchProbe.atm_id == atm.id, AtmSwitchProbe.status == "pending")
+        .order_by(AtmSwitchProbe.requested_at.asc())
+        .first()
+    )
+    if not probe:
+        return AgentSwitchProbeRequest(has_probe=False)
+
+    probe.status = "running"
+    probe.started_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(probe)
+    return AgentSwitchProbeRequest(has_probe=True, probe=probe)
+
+
+@router.post("/switch-probe-result")
+def report_switch_probe_result(
+    payload: AgentSwitchProbeResult,
+    atm: ATM = Depends(get_agent_atm),
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    probe = (
+        db.query(AtmSwitchProbe)
+        .filter(AtmSwitchProbe.id == payload.probe_id, AtmSwitchProbe.atm_id == atm.id)
+        .first()
+    )
+    if not probe:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Switch probe not found")
+
+    now = datetime.now(timezone.utc)
+    probe.status = payload.status
+    probe.completed_at = now
+    probe.latency_ms = payload.latency_ms
+    probe.error_message = payload.error_message if payload.status == "failed" else None
+
+    atm.last_switch_probe_status = payload.status
+    atm.last_switch_probe_latency_ms = payload.latency_ms
+    atm.last_switch_probe_error = probe.error_message
+    atm.last_switch_probe_at = now
+
+    write_audit(
+        db,
+        actor_type="agent",
+        actor_id=atm.atm_id,
+        action="switch_probe_reported",
+        entity_type="atm_switch_probe",
+        entity_id=str(probe.id),
+        details={
+            "host": probe.host,
+            "port": probe.port,
+            "status": probe.status,
+            "latency_ms": probe.latency_ms,
+            "error_message": probe.error_message,
+        },
+    )
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/download/{package_id}", name="download_package")

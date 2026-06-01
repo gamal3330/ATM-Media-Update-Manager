@@ -298,6 +298,54 @@ def test_agent_heartbeat_records_module_statuses() -> None:
         assert atm.json()["module_status_json"]["cash_monitoring"] == "running"
 
 
+def test_switch_probe_request_and_agent_result() -> None:
+    with TestClient(app) as client:
+        headers = login(client)
+        atm_response = client.post(
+            "/api/atms",
+            json={
+                "atm_id": "ATM-SWITCH",
+                "name": "Switch ATM",
+                "vpn_ip": "10.10.0.48",
+                "branch": "HQ",
+                "switch_probe_host": "172.16.25.75",
+                "switch_probe_port": 10200,
+            },
+            headers=headers,
+        )
+        assert atm_response.status_code == 201
+        agent_headers = {"X-ATM-ID": "ATM-SWITCH", "X-API-Key": atm_response.json()["api_key"]}
+
+        request = client.post("/api/atms/ATM-SWITCH/switch-probe", headers=headers)
+        assert request.status_code == 202
+        probe_id = request.json()["id"]
+        assert request.json()["host"] == "172.16.25.75"
+        assert request.json()["port"] == 10200
+        assert request.json()["status"] == "pending"
+
+        pending = client.get("/api/agent/switch-probe", headers=agent_headers)
+        assert pending.status_code == 200
+        assert pending.json()["has_probe"] is True
+        assert pending.json()["probe"]["id"] == probe_id
+        assert pending.json()["probe"]["status"] == "running"
+
+        result = client.post(
+            "/api/agent/switch-probe-result",
+            json={"probe_id": probe_id, "status": "success", "latency_ms": 33},
+            headers=agent_headers,
+        )
+        assert result.status_code == 200
+
+        atm = client.get("/api/atms/ATM-SWITCH", headers=headers)
+        assert atm.status_code == 200
+        assert atm.json()["last_switch_probe_status"] == "success"
+        assert atm.json()["last_switch_probe_latency_ms"] == 33
+
+        history = client.get("/api/atms/ATM-SWITCH/switch-probes", headers=headers)
+        assert history.status_code == 200
+        assert history.json()[0]["status"] == "success"
+
+
 def test_cash_layout_validation_allows_duplicate_denomination_but_not_duplicate_cassette() -> None:
     with TestClient(app) as client:
         headers = login(client)

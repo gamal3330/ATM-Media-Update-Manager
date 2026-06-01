@@ -35,6 +35,8 @@ const fieldLabels = {
   check_interval_seconds: "Check Interval Seconds",
   heartbeat_interval_seconds: "Heartbeat Interval Seconds",
   config_sync_interval_seconds: "Config Sync Interval",
+  switch_probe_host: "Switch Host",
+  switch_probe_port: "Switch Port",
   atm_cash_mode: "ATM Cash Mode",
   cash_provider: "Cash Provider",
   cash_layout: "Cash Layout",
@@ -237,6 +239,9 @@ export const api = {
     request(`/api/atms/${encodeURIComponent(atmId)}`, { method: "PUT", body: JSON.stringify(payload) }),
   regenerateAtmApiKey: (atmId) =>
     request(`/api/atms/${encodeURIComponent(atmId)}/regenerate-api-key`, { method: "POST" }),
+  requestSwitchProbe: (atmId) =>
+    request(`/api/atms/${encodeURIComponent(atmId)}/switch-probe`, { method: "POST" }),
+  listSwitchProbes: (atmId) => request(`/api/atms/${encodeURIComponent(atmId)}/switch-probes`),
   deleteAtm: (atmId, force = false) =>
     request(`/api/atms/${encodeURIComponent(atmId)}${force ? "?force=true" : ""}`, { method: "DELETE" }),
   getCashSummary: () => request("/api/cash/summary"),

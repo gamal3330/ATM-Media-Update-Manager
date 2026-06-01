@@ -20,6 +20,7 @@ from config_manager import LocalConfig, RemoteConfig, load_local_config, write_l
 from logger import setup_logger
 from media_update_module import MediaUpdateModule
 from module_runner import ModuleRunner
+from network_probe import tcp_connect_probe
 from xfs_cdm_diagnostics import diagnose_xfs_cdm, format_diagnostics
 
 AGENT_VERSION = "2.0.0"
@@ -171,6 +172,24 @@ class AtmAgent:
         self.remote_config: RemoteConfig | None = None
         self.applied_config_version = 0
 
+    def handle_switch_probe(self) -> None:
+        probe = self.api.get_switch_probe()
+        if not probe:
+            return
+
+        probe_id = int(probe["id"])
+        host = str(probe["host"])
+        port = int(probe["port"])
+        self.logger.info("Running read-only switch TCP probe: %s:%s", host, port)
+        result = tcp_connect_probe(host, port, timeout_seconds=5)
+        if result.success:
+            self.api.report_switch_probe(probe_id, "success", result.latency_ms)
+            self.logger.info("Switch TCP probe succeeded: %s:%s latency=%sms", host, port, result.latency_ms)
+            return
+
+        self.api.report_switch_probe(probe_id, "failed", result.latency_ms, result.error_message)
+        self.logger.warning("Switch TCP probe failed: %s:%s error=%s", host, port, result.error_message)
+
     def sync_config(self) -> None:
         config = self.api.get_config()
         try:
@@ -218,6 +237,7 @@ class AtmAgent:
             enabled_modules=self.modules.enabled_modules(),
             module_statuses=self.modules.module_statuses(),
         )
+        self.handle_switch_probe()
         self.modules.tick(time.monotonic())
 
     def run_forever(self) -> None:
@@ -262,6 +282,7 @@ class AtmAgent:
                     last_heartbeat = now
 
                 if config:
+                    self.handle_switch_probe()
                     self.modules.tick(now)
                     write_state(
                         self.local_config,

@@ -82,6 +82,10 @@ atm-agent.exe run --config config.json --once
 
 `status` shows the configured ATM ID, service status, server connectivity, last heartbeat, last config sync, and last local error state.
 
+Switch reachability checks are handled by the service automatically after the dashboard requests one. The agent performs
+a direct TCP connect to the configured `switch_probe_host:switch_probe_port` only. It does not run `cmd`, `telnet.exe`,
+PowerShell, or any shell command.
+
 `xfs-cdm-diagnose` is read-only. It scans NCR APTRA/XFS files and registry hints to find CDM provider files and possible
 logical service names before the real `xfs_cdm` provider is enabled. It does not call dispense, exchange, reset, or any
 state-changing XFS command.

@@ -98,6 +98,12 @@ def migrate_existing_schema() -> None:
                 "cash_low_threshold_default": "INTEGER NOT NULL DEFAULT 300",
                 "cash_critical_threshold_default": "INTEGER NOT NULL DEFAULT 100",
                 "cash_stale_after_minutes": "INTEGER NOT NULL DEFAULT 10",
+                "switch_probe_host": "VARCHAR(120) NOT NULL DEFAULT '172.16.25.75'",
+                "switch_probe_port": "INTEGER NOT NULL DEFAULT 10200",
+                "last_switch_probe_status": "VARCHAR(30)",
+                "last_switch_probe_latency_ms": "INTEGER",
+                "last_switch_probe_error": "TEXT",
+                "last_switch_probe_at": datetime_type,
             }
 
             for name, definition in atm_columns.items():

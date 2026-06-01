@@ -5,6 +5,7 @@ import {
   Clipboard,
   Clock3,
   KeyRound,
+  Network,
   Plus,
   RefreshCw,
   Save,
@@ -24,6 +25,8 @@ const settingsFields = [
   ["check_interval_seconds", "Media Check Interval", "300"],
   ["heartbeat_interval_seconds", "Heartbeat Interval Seconds", "60"],
   ["config_sync_interval_seconds", "Config Sync Interval", "120"],
+  ["switch_probe_host", "Switch Host", "172.16.25.75"],
+  ["switch_probe_port", "Switch Port", "10200"],
   ["cash_read_interval_seconds", "Cash Read Interval", "120"],
   ["cash_stale_after_minutes", "Cash Stale After Minutes", "10"],
 ];
@@ -86,6 +89,8 @@ function buildSettingsForm(atm) {
     cash_layout_profile: currentLayout === mixedLayout ? "mixed_yer_usd_sar" : "yer_1000_4",
     cash_read_interval_seconds: String(atm?.cash_read_interval_seconds || 120),
     cash_stale_after_minutes: String(atm?.cash_stale_after_minutes || 10),
+    switch_probe_host: atm?.switch_probe_host || "172.16.25.75",
+    switch_probe_port: String(atm?.switch_probe_port || 10200),
   };
 }
 
@@ -118,6 +123,20 @@ function getDiagnosticsTone(diagnostics) {
   if (diagnostics.severity === "ok") return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (diagnostics.severity === "warning") return "border-amber-200 bg-amber-50 text-amber-700";
   return "border-rose-200 bg-rose-50 text-rose-700";
+}
+
+function getSwitchProbeTone(status) {
+  if (status === "success") return "bg-emerald-50 text-emerald-700";
+  if (status === "failed") return "bg-rose-50 text-rose-700";
+  if (status === "pending" || status === "running") return "bg-amber-50 text-amber-700";
+  return "bg-slate-100 text-slate-600";
+}
+
+function formatSwitchProbe(atm) {
+  if (!atm.last_switch_probe_status) return "لم يفحص";
+  if (atm.last_switch_probe_status === "success") return `نجح ${atm.last_switch_probe_latency_ms ?? "-"} ms`;
+  if (atm.last_switch_probe_status === "failed") return "فشل";
+  return atm.last_switch_probe_status;
 }
 
 function formatSeconds(seconds) {
@@ -161,6 +180,7 @@ export default function Atms({ atms, onChanged }) {
   const [deletingAtmId, setDeletingAtmId] = useState("");
   const [diagnostics, setDiagnostics] = useState(null);
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
+  const [switchProbeBusyId, setSwitchProbeBusyId] = useState("");
 
   const selectedAtm = useMemo(
     () => atms.find((atm) => atm.atm_id === selectedAtmId) || null,
@@ -244,6 +264,8 @@ export default function Atms({ atms, onChanged }) {
         check_interval_seconds: Number(settingsForm.check_interval_seconds),
         heartbeat_interval_seconds: Number(settingsForm.heartbeat_interval_seconds),
         config_sync_interval_seconds: Number(settingsForm.config_sync_interval_seconds),
+        switch_probe_host: settingsForm.switch_probe_host.trim(),
+        switch_probe_port: Number(settingsForm.switch_probe_port),
         media_update_enabled: Boolean(settingsForm.media_update_enabled),
         cash_monitoring_enabled: Boolean(settingsForm.cash_monitoring_enabled),
         atm_cash_mode: "DISPENSE_ONLY",
@@ -332,6 +354,21 @@ export default function Atms({ atms, onChanged }) {
       setError(err.message || "تعذر توليد API Key جديد");
     } finally {
       setRegeneratingKey(false);
+    }
+  }
+
+  async function requestSwitchProbe(atm) {
+    setSwitchProbeBusyId(atm.atm_id);
+    setError("");
+    setSettingsMessage("");
+    try {
+      const probe = await api.requestSwitchProbe(atm.atm_id);
+      setSettingsMessage(`تم إرسال طلب فحص السويتش للصراف ${atm.atm_id}: ${probe.host}:${probe.port}`);
+      onChanged();
+    } catch (err) {
+      setError(err.message || "تعذر إرسال طلب فحص السويتش");
+    } finally {
+      setSwitchProbeBusyId("");
     }
   }
 
@@ -628,6 +665,37 @@ export default function Atms({ atms, onChanged }) {
                 <div className="font-semibold text-slate-950">{selectedAtm.active_update_count || 0}</div>
               </div>
               <div className="rounded-lg bg-slate-50 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-slate-500">Switch Probe</div>
+                  <button
+                    type="button"
+                    onClick={() => requestSwitchProbe(selectedAtm)}
+                    disabled={switchProbeBusyId === selectedAtm.atm_id}
+                    className="focus-ring inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-60"
+                    title="فحص الوصول إلى السويتش من داخل الصراف"
+                  >
+                    <Network size={13} />
+                    <span>{switchProbeBusyId === selectedAtm.atm_id ? "جار الطلب" : "فحص"}</span>
+                  </button>
+                </div>
+                <div className="mt-1 font-semibold text-slate-950" dir="ltr">
+                  {selectedAtm.switch_probe_host}:{selectedAtm.switch_probe_port}
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <span className={`rounded-full px-2 py-0.5 text-xs ${getSwitchProbeTone(selectedAtm.last_switch_probe_status)}`}>
+                    {formatSwitchProbe(selectedAtm)}
+                  </span>
+                  {selectedAtm.last_switch_probe_at && (
+                    <span className="text-xs text-slate-500">{formatApiDate(selectedAtm.last_switch_probe_at)}</span>
+                  )}
+                </div>
+                {selectedAtm.last_switch_probe_error && (
+                  <div className="mt-1 truncate text-xs text-rose-700" title={selectedAtm.last_switch_probe_error}>
+                    {selectedAtm.last_switch_probe_error}
+                  </div>
+                )}
+              </div>
+              <div className="rounded-lg bg-slate-50 px-3 py-2">
                 <div className="text-slate-500">Last Agent Error</div>
                 <div className="font-semibold text-slate-950">
                   {selectedAtm.last_agent_error || "-"}
@@ -817,6 +885,7 @@ export default function Atms({ atms, onChanged }) {
               <th className="px-4 py-3 text-right font-medium">Config Sync</th>
               <th className="px-4 py-3 text-right font-medium">Agent</th>
               <th className="px-4 py-3 text-right font-medium">Latency</th>
+              <th className="px-4 py-3 text-right font-medium">Switch</th>
               <th className="px-4 py-3 text-right font-medium">آخر إصدار</th>
               <th className="px-4 py-3 text-right font-medium">آخر اتصال</th>
               <th className="px-4 py-3 text-right font-medium">آخر خطأ</th>
@@ -856,6 +925,25 @@ export default function Atms({ atms, onChanged }) {
                     {formatAtmLatency(atm)}
                   </span>
                 </td>
+                <td className="px-4 py-3">
+                  <div className="mb-1">
+                    <span
+                      className={`rounded-full px-2 py-1 text-xs ${getSwitchProbeTone(atm.last_switch_probe_status)}`}
+                      title={atm.last_switch_probe_error || ""}
+                    >
+                      {formatSwitchProbe(atm)}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => requestSwitchProbe(atm)}
+                    disabled={switchProbeBusyId === atm.atm_id}
+                    className="focus-ring inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-60"
+                    title={`فحص TCP من الصراف إلى ${atm.switch_probe_host}:${atm.switch_probe_port}`}
+                  >
+                    <Network size={13} />
+                    <span>{switchProbeBusyId === atm.atm_id ? "جار الطلب" : "فحص"}</span>
+                  </button>
+                </td>
                 <td className="px-4 py-3">{atm.current_package_version || atm.last_image_version || "-"}</td>
                 <td className="px-4 py-3">
                   <div>{formatApiDate(atm.last_heartbeat_at || atm.last_seen)}</div>
@@ -894,7 +982,7 @@ export default function Atms({ atms, onChanged }) {
             ))}
             {atms.length === 0 && (
               <tr>
-                <td colSpan="13" className="px-4 py-8 text-center text-slate-500">لا توجد صرافات بعد</td>
+                <td colSpan="14" className="px-4 py-8 text-center text-slate-500">لا توجد صرافات بعد</td>
               </tr>
             )}
           </tbody>

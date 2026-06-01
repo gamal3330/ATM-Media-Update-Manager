@@ -28,6 +28,19 @@ def validate_atm_managed_path(value: str | None) -> str | None:
     return cleaned
 
 
+def validate_probe_host(value: str | None) -> str | None:
+    if value is None:
+        return value
+    cleaned = value.strip()
+    if not cleaned:
+        raise ValueError("Switch host is required")
+    if any(char.isspace() for char in cleaned):
+        raise ValueError("Switch host must not contain spaces")
+    if "/" in cleaned or "\\" in cleaned or ":" in cleaned:
+        raise ValueError("Switch host must be a hostname or IP address only")
+    return cleaned
+
+
 class CashLayoutItem(BaseModel):
     cassette_no: int = Field(ge=1, le=12)
     currency: Literal["YER", "USD", "SAR"]
@@ -137,6 +150,8 @@ class ATMCreate(ATMBase):
     cash_low_threshold_default: int | None = Field(default=None, ge=0, le=100000)
     cash_critical_threshold_default: int | None = Field(default=None, ge=0, le=100000)
     cash_stale_after_minutes: int | None = Field(default=None, ge=1, le=1440)
+    switch_probe_host: str | None = Field(default=None, min_length=1, max_length=120)
+    switch_probe_port: int | None = Field(default=None, ge=1, le=65535)
 
     @field_validator("media_path", "backup_path", "temp_path")
     @classmethod
@@ -147,6 +162,11 @@ class ATMCreate(ATMBase):
     @classmethod
     def validate_cash_layout(cls, value: list[CashLayoutItem] | None) -> list[CashLayoutItem] | None:
         return validate_cash_layout_items(value)
+
+    @field_validator("switch_probe_host")
+    @classmethod
+    def validate_switch_probe_host(cls, value: str | None) -> str | None:
+        return validate_probe_host(value)
 
 
 class ATMUpdate(BaseModel):
@@ -170,6 +190,8 @@ class ATMUpdate(BaseModel):
     cash_low_threshold_default: int | None = Field(default=None, ge=0, le=100000)
     cash_critical_threshold_default: int | None = Field(default=None, ge=0, le=100000)
     cash_stale_after_minutes: int | None = Field(default=None, ge=1, le=1440)
+    switch_probe_host: str | None = Field(default=None, min_length=1, max_length=120)
+    switch_probe_port: int | None = Field(default=None, ge=1, le=65535)
 
     @field_validator("media_path", "backup_path", "temp_path")
     @classmethod
@@ -180,6 +202,11 @@ class ATMUpdate(BaseModel):
     @classmethod
     def validate_cash_layout(cls, value: list[CashLayoutItem] | None) -> list[CashLayoutItem] | None:
         return validate_cash_layout_items(value)
+
+    @field_validator("switch_probe_host")
+    @classmethod
+    def validate_switch_probe_host(cls, value: str | None) -> str | None:
+        return validate_probe_host(value)
 
 
 class ATMRead(ATMBase):
@@ -214,6 +241,12 @@ class ATMRead(ATMBase):
     cash_low_threshold_default: int
     cash_critical_threshold_default: int
     cash_stale_after_minutes: int
+    switch_probe_host: str
+    switch_probe_port: int
+    last_switch_probe_status: str | None = None
+    last_switch_probe_latency_ms: int | None = None
+    last_switch_probe_error: str | None = None
+    last_switch_probe_at: datetime | None = None
     seconds_since_last_seen: int | None = None
     is_online: bool = False
     active_update_count: int = 0
@@ -302,6 +335,35 @@ class AgentCommandRead(BaseModel):
     created_at: datetime
     acknowledged_at: datetime | None = None
     completed_at: datetime | None = None
+
+
+class SwitchProbeRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    atm_id: int
+    host: str
+    port: int
+    status: str
+    requested_by: str | None = None
+    requested_at: datetime
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    latency_ms: int | None = None
+    error_message: str | None = None
+
+
+class AgentSwitchProbeRequest(BaseModel):
+    has_probe: bool
+    probe: SwitchProbeRead | None = None
+    timeout_seconds: int = 5
+
+
+class AgentSwitchProbeResult(BaseModel):
+    probe_id: int
+    status: Literal["success", "failed"]
+    latency_ms: int | None = Field(default=None, ge=0, le=600000)
+    error_message: str | None = Field(default=None, max_length=1000)
 
 
 class HeartbeatRequest(BaseModel):

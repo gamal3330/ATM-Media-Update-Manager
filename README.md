@@ -133,7 +133,8 @@ pytest
 7. إذا كان ZIP يحتوي مجلداً رئيسياً واحداً فقط، ينسخ الـ Agent محتوياته مباشرة داخل `media_path`. المجلدات الداخلية المهمة مثل مجلدات المقاسات تبقى كما هي.
 8. في حال الفشل، يحاول Rollback من آخر Backup ويرسل سبب الفشل للسيرفر.
 9. Cash Monitoring Module مخصص لصرافات السحب فقط `DISPENSE_ONLY`، ويقرأ CDM dispense cassettes و reject/retract بنظام Read-Only عند تفعيله من لوحة التحكم.
-10. من صفحة تفاصيل التحديثات استخدم `Retry Failed` لإعادة محاولة الصرافات الفاشلة فقط.
+10. من شاشة الصرافات يمكن طلب فحص الوصول إلى السويتش. الـ Agent ينفذ TCP connect فقط إلى `switch_probe_host:switch_probe_port`، بدون CMD وبدون `telnet.exe`.
+11. من صفحة تفاصيل التحديثات استخدم `Retry Failed` لإعادة محاولة الصرافات الفاشلة فقط.
 
 ## تشغيل الصراف عملياً
 
@@ -195,6 +196,7 @@ sc.exe query ATMUnifiedAgent
 - يمكن تفعيل أو تعطيل كل Module من إعدادات الصراف في لوحة التحكم.
 - لا يستقبل الـ Agent أوامر Shell أو PowerShell أو PS1 من السيرفر.
 - مسارات الصور والنسخ الاحتياطي وإعدادات مراقبة النقد تأتي من `/api/agent/config`.
+- فحص السويتش ليس أمر Shell؛ هو TCP probe مقيّد على host/port المخزنين في إعدادات الصراف. القيمة الافتراضية: `172.16.25.75:10200`.
 - كل الصرافات في هذه النسخة تعامل كصرافات سحب فقط `DISPENSE_ONLY`.
 - Cash Monitoring يركز على `CDM = Cash Dispenser Module` فقط.
 - الـ providers الحالية: `mock`, `xfs_cdm`, `vendor_cdm`.
@@ -227,6 +229,7 @@ sc.exe query ATMUnifiedAgent
 - Cash Monitoring Read-Only فقط: لا تنفيذ Dispense commands، لا Cash Unit Exchange، لا Reset Counters، ولا أي أمر يغيّر حالة الصراف.
 - لوحة مراقبة النقد تعرض فقط dispense cassettes و available cash و reject/retract والتنبيهات الخاصة بها.
 - لا تفعّل `xfs_cdm` على صراف حقيقي قبل تشغيل `atm-agent.exe xfs-cdm-diagnose` ومعرفة اسم CDM logical service الصحيح.
+- فحص السويتش لا يستخدم `telnet` ولا CMD ولا PowerShell. إذا كان السويتش لا يقبل الاتصال على المنفذ المحدد، تظهر النتيجة Failed مع سبب الخطأ.
 - يتم منع Path Traversal عند رفع ZIP في السيرفر وعند فكه في الـ Agent.
 - يتم حفظ SHA256 لكل حزمة والتحقق منه قبل التطبيق.
 - كلمات المرور لا تخزن كنص صريح؛ يتم استخدام PBKDF2-HMAC-SHA256.

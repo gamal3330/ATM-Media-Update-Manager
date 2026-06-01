@@ -71,6 +71,12 @@ class ATM(Base):
     cash_low_threshold_default: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
     cash_critical_threshold_default: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     cash_stale_after_minutes: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
+    switch_probe_host: Mapped[str] = mapped_column(String(120), default="172.16.25.75", nullable=False)
+    switch_probe_port: Mapped[int] = mapped_column(Integer, default=10200, nullable=False)
+    last_switch_probe_status: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    last_switch_probe_latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    last_switch_probe_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    last_switch_probe_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
@@ -86,6 +92,7 @@ class ATM(Base):
     cash_alerts: Mapped[list["AtmCashAlert"]] = relationship(back_populates="atm")
     cash_thresholds: Mapped[list["AtmCashThreshold"]] = relationship(back_populates="atm")
     reject_retract_statuses: Mapped[list["AtmRejectRetractStatus"]] = relationship(back_populates="atm")
+    switch_probes: Mapped[list["AtmSwitchProbe"]] = relationship(back_populates="atm")
 
     @property
     def seconds_since_last_seen(self) -> int | None:
@@ -328,6 +335,24 @@ class AtmCashThreshold(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
     atm: Mapped[ATM] = relationship(back_populates="cash_thresholds")
+
+
+class AtmSwitchProbe(Base):
+    __tablename__ = "atm_switch_probes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    atm_id: Mapped[int] = mapped_column(ForeignKey("atms.id"), nullable=False)
+    host: Mapped[str] = mapped_column(String(120), nullable=False)
+    port: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="pending", nullable=False)
+    requested_by: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    atm: Mapped[ATM] = relationship(back_populates="switch_probes")
 
 
 class UpdateResult(Base):
