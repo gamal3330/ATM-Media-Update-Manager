@@ -975,7 +975,7 @@ export default function Atms({ atms, onChanged }) {
                 <td className="px-4 py-3" dir="ltr">{atm.vpn_ip}</td>
                 <td className="px-4 py-3">{atm.branch}</td>
                 <td className="px-4 py-3">
-                  <span className={`rounded-full px-2 py-1 text-xs ${isRecentlyOnline(atm) ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+                  <span className={`rounded-full px-2 py-1 text-xs ${isRecentlyOnline(atm) ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
                     {isRecentlyOnline(atm) ? "online" : "offline"}
                   </span>
                 </td>
