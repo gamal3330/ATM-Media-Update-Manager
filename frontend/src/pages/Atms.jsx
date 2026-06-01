@@ -947,8 +947,112 @@ export default function Atms({ atms, onChanged }) {
         )}
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
+      <div className="space-y-3 lg:hidden">
+        {atms.map((atm) => {
+          const configStatus = getConfigStatus(atm);
+          const online = isRecentlyOnline(atm);
+          return (
+            <article key={atm.atm_id} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate text-base font-semibold text-slate-950">{atm.name}</div>
+                  <div className="mt-1 font-mono text-xs text-slate-500">{atm.atm_id}</div>
+                </div>
+                <span className={`shrink-0 rounded-full px-2 py-1 text-xs ${online ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+                  {online ? "online" : "offline"}
+                </span>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+                <div className="rounded-lg bg-slate-50 px-3 py-2">
+                  <div className="text-xs text-slate-500">IP</div>
+                  <div className="mt-1 truncate font-medium text-slate-900" dir="ltr">{atm.vpn_ip}</div>
+                </div>
+                <div className="rounded-lg bg-slate-50 px-3 py-2">
+                  <div className="text-xs text-slate-500">الفرع</div>
+                  <div className="mt-1 truncate font-medium text-slate-900">{atm.branch || "-"}</div>
+                </div>
+                <div className="rounded-lg bg-slate-50 px-3 py-2">
+                  <div className="text-xs text-slate-500">Agent</div>
+                  <div className="mt-1 truncate font-medium text-slate-900">{atm.agent_version || "-"}</div>
+                </div>
+                <div className="rounded-lg bg-slate-50 px-3 py-2">
+                  <div className="text-xs text-slate-500">Latency</div>
+                  <div className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs ${getAtmLatencyTone(atm)}`} dir="ltr">
+                    {formatAtmLatency(atm)}
+                  </div>
+                </div>
+                <div className="rounded-lg bg-slate-50 px-3 py-2">
+                  <div className="text-xs text-slate-500">Config Sync</div>
+                  <div className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs ${configStatus.tone}`}>
+                    {configStatus.label}
+                  </div>
+                </div>
+                <div className="rounded-lg bg-slate-50 px-3 py-2">
+                  <div className="text-xs text-slate-500">Switch</div>
+                  <div
+                    className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs ${getSwitchProbeTone(atm.last_switch_probe_status)}`}
+                    title={atm.last_switch_probe_error || ""}
+                  >
+                    {formatSwitchProbe(atm)}
+                  </div>
+                </div>
+                <div className="rounded-lg bg-slate-50 px-3 py-2">
+                  <div className="text-xs text-slate-500">آخر إصدار</div>
+                  <div className="mt-1 truncate font-medium text-slate-900">{atm.current_package_version || atm.last_image_version || "-"}</div>
+                </div>
+                <div className="rounded-lg bg-slate-50 px-3 py-2">
+                  <div className="text-xs text-slate-500">آخر اتصال</div>
+                  <div className="mt-1 font-medium text-slate-900">{formatLastSeenAge(atm)}</div>
+                </div>
+              </div>
+
+              {atm.last_agent_error && (
+                <div className="mt-3 rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {atm.last_agent_error}
+                </div>
+              )}
+
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => openSettings(atm)}
+                  className="focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
+                  title="إعدادات الصراف"
+                >
+                  <Settings2 size={16} />
+                  <span>إعدادات</span>
+                </button>
+                <button
+                  onClick={() => requestSwitchProbe(atm)}
+                  disabled={switchProbeBusyId === atm.atm_id}
+                  className="focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
+                  title={`فحص TCP من الصراف إلى ${atm.switch_probe_host}:${atm.switch_probe_port}`}
+                >
+                  <Network size={16} />
+                  <span>{switchProbeBusyId === atm.atm_id ? "جار الطلب" : "فحص السويتش"}</span>
+                </button>
+                <button
+                  onClick={() => deleteAtm(atm)}
+                  disabled={deletingAtmId === atm.atm_id}
+                  className="focus-ring col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-sm text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+                  title="حذف الصراف"
+                >
+                  <Trash2 size={16} />
+                  <span>{deletingAtmId === atm.atm_id ? "جار الحذف" : "حذف الصراف"}</span>
+                </button>
+              </div>
+            </article>
+          );
+        })}
+        {atms.length === 0 && (
+          <div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-sm">
+            لا توجد صرافات بعد
+          </div>
+        )}
+      </div>
+
+      <div className="hidden overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm lg:block">
+        <table className="min-w-[1280px] divide-y divide-slate-200 text-sm">
           <thead className="bg-slate-50 text-slate-600">
             <tr>
               <th className="px-4 py-3 text-right font-medium">ATM ID</th>
