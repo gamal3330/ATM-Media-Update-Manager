@@ -25,8 +25,6 @@ const settingsFields = [
   ["check_interval_seconds", "Media Check Interval", "300"],
   ["heartbeat_interval_seconds", "Heartbeat Interval Seconds", "60"],
   ["config_sync_interval_seconds", "Config Sync Interval", "120"],
-  ["switch_probe_host", "Switch Host", "172.16.25.75"],
-  ["switch_probe_port", "Switch Port", "10200"],
   ["cash_read_interval_seconds", "Cash Read Interval", "120"],
   ["cash_stale_after_minutes", "Cash Stale After Minutes", "10"],
 ];
@@ -541,6 +539,82 @@ export default function Atms({ atms, onChanged }) {
                   className="h-4 w-4"
                 />
               </label>
+            </div>
+
+            <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 font-semibold text-slate-950">
+                    <Network size={17} />
+                    <span>إعدادات فحص السويتش</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    يتم الفحص من داخل الـAgent باستخدام TCP فقط، بدون Telnet أو CMD.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => requestSwitchProbe(selectedAtm)}
+                  disabled={switchProbeBusyId === selectedAtm.atm_id}
+                  className="focus-ring inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-60"
+                  title="فحص الوصول إلى السويتش من داخل الصراف"
+                >
+                  <Network size={15} />
+                  <span>{switchProbeBusyId === selectedAtm.atm_id ? "جار الطلب" : "فحص الآن"}</span>
+                </button>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-slate-700">Switch IP / Host</span>
+                  <input
+                    className={`focus-ring w-full rounded-lg border px-3 py-2 ${
+                      fieldErrors.switch_probe_host ? "border-rose-400 bg-rose-50" : "border-slate-300 bg-white"
+                    }`}
+                    dir="ltr"
+                    value={settingsForm.switch_probe_host || ""}
+                    onChange={(event) =>
+                      setSettingsForm((current) => ({ ...current, switch_probe_host: event.target.value }))
+                    }
+                    placeholder="172.16.25.75"
+                  />
+                  {fieldErrors.switch_probe_host && (
+                    <span className="mt-1 block text-xs text-rose-700">{fieldErrors.switch_probe_host}</span>
+                  )}
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-slate-700">Switch Port</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="65535"
+                    className={`focus-ring w-full rounded-lg border px-3 py-2 ${
+                      fieldErrors.switch_probe_port ? "border-rose-400 bg-rose-50" : "border-slate-300 bg-white"
+                    }`}
+                    dir="ltr"
+                    value={settingsForm.switch_probe_port || ""}
+                    onChange={(event) =>
+                      setSettingsForm((current) => ({ ...current, switch_probe_port: event.target.value }))
+                    }
+                    placeholder="10200"
+                  />
+                  {fieldErrors.switch_probe_port && (
+                    <span className="mt-1 block text-xs text-rose-700">{fieldErrors.switch_probe_port}</span>
+                  )}
+                </label>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+                <span className={`rounded-full px-2 py-1 text-xs ${getSwitchProbeTone(selectedAtm.last_switch_probe_status)}`}>
+                  {formatSwitchProbe(selectedAtm)}
+                </span>
+                {selectedAtm.last_switch_probe_at && (
+                  <span className="text-xs text-slate-500">{formatApiDate(selectedAtm.last_switch_probe_at)}</span>
+                )}
+                {selectedAtm.last_switch_probe_error && (
+                  <span className="max-w-full truncate text-xs text-rose-700" title={selectedAtm.last_switch_probe_error}>
+                    {selectedAtm.last_switch_probe_error}
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="mb-4 grid gap-3 md:grid-cols-3">
