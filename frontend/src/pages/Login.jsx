@@ -1,4 +1,4 @@
-import { Activity, ArrowLeft, Gauge, Image, LockKeyhole, Monitor, Network, Server, ShieldCheck, Wifi } from "lucide-react";
+import { ArrowLeft, Gauge, Image, LockKeyhole, Monitor, Network } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 
@@ -24,102 +24,21 @@ export default function Login({ onLogin }) {
   }
 
   return (
-    <div className="login-screen min-h-screen px-4 py-8" dir="rtl">
-      <div className="mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-6xl items-center gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <section className="login-visual relative min-h-[560px] overflow-hidden rounded-lg border border-slate-200 bg-white/88 p-6 shadow-sm backdrop-blur">
-          <div className="absolute inset-0 login-grid" />
-          <div className="relative z-10 flex h-full flex-col justify-between gap-6">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="inline-flex h-12 w-12 items-center justify-center rounded-lg bg-teal-700 text-white shadow-sm">
-                  <Monitor size={25} />
-                </div>
-                <h1 className="mt-4 text-4xl font-semibold leading-tight text-slate-950">
-                  ATM Media Update Manager
-                </h1>
-              </div>
-              <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-700">
-                <ShieldCheck size={16} />
-                Pull / VPN
-              </span>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-lg border border-slate-200 bg-white/92 p-4 shadow-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm font-semibold text-slate-500">Online</div>
-                  <Wifi className="text-emerald-700" size={20} />
-                </div>
-                <div className="mt-3 text-4xl font-semibold text-emerald-900">24</div>
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-                  <div className="h-full w-4/5 rounded-full bg-emerald-500" />
-                </div>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-white/92 p-4 shadow-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm font-semibold text-slate-500">Updates</div>
-                  <Activity className="text-amber-700" size={20} />
-                </div>
-                <div className="mt-3 text-4xl font-semibold text-slate-950">03</div>
-                <div className="mt-3 grid grid-cols-3 gap-1">
-                  <span className="h-2 rounded-full bg-teal-500" />
-                  <span className="h-2 rounded-full bg-amber-400" />
-                  <span className="h-2 rounded-full bg-slate-200" />
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-slate-200 bg-slate-950 p-4 text-white shadow-sm">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div className="font-semibold">Agent</div>
-                <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-200">running</span>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-3">
-                  <Server className="mb-2 text-teal-300" size={19} />
-                  <div className="text-xs text-slate-400">Server</div>
-                  <div className="mt-1 font-semibold">8001</div>
-                </div>
-                <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-3">
-                  <Image className="mb-2 text-amber-300" size={19} />
-                  <div className="text-xs text-slate-400">Media</div>
-                  <div className="mt-1 font-semibold">Synced</div>
-                </div>
-                <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-3">
-                  <Gauge className="mb-2 text-emerald-300" size={19} />
-                  <div className="text-xs text-slate-400">Cash</div>
-                  <div className="mt-1 font-semibold">CDM</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-lg border border-slate-200 bg-white/92 px-4 py-3 shadow-sm">
-                <div className="text-xs font-semibold text-slate-500">VPN</div>
-                <div className="mt-2 flex items-center gap-2 text-teal-800">
-                  <Network size={18} />
-                  <span className="font-semibold">Active</span>
-                </div>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-white/92 px-4 py-3 shadow-sm">
-                <div className="text-xs font-semibold text-slate-500">SHA256</div>
-                <div className="mt-2 font-mono text-sm font-semibold text-slate-950">Verified</div>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-white/92 px-4 py-3 shadow-sm">
-                <div className="text-xs font-semibold text-slate-500">Audit</div>
-                <div className="mt-2 font-semibold text-slate-950">Enabled</div>
-              </div>
-            </div>
+    <div className="login-screen flex min-h-screen items-center justify-center px-4 py-8" dir="rtl">
+      <div className="w-full max-w-md">
+        <div className="mb-5 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-lg bg-teal-700 text-white shadow-sm">
+            <Monitor size={27} />
           </div>
-        </section>
+          <h1 className="text-2xl font-semibold text-slate-950">ATM Media Update Manager</h1>
+        </div>
 
         <form onSubmit={submit} className="w-full rounded-lg border border-slate-200 bg-white p-6 shadow-sm lg:p-7">
           <div className="mb-7 flex items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-semibold text-teal-700">Secure Access</div>
               <h2 className="mt-1 text-2xl font-semibold text-slate-950">تسجيل الدخول</h2>
             </div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-teal-700 text-white shadow-sm">
+            <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-slate-50 text-teal-700 ring-1 ring-slate-200">
               <LockKeyhole size={22} />
             </div>
           </div>
@@ -156,9 +75,18 @@ export default function Login({ onLogin }) {
           </button>
 
           <div className="mt-6 grid grid-cols-3 gap-2 text-center text-xs font-semibold text-slate-500">
-            <span className="rounded-lg bg-slate-50 px-2 py-2">Agent</span>
-            <span className="rounded-lg bg-slate-50 px-2 py-2">Media</span>
-            <span className="rounded-lg bg-slate-50 px-2 py-2">Cash</span>
+            <span className="inline-flex items-center justify-center gap-1 rounded-lg bg-slate-50 px-2 py-2">
+              <Network size={14} />
+              VPN
+            </span>
+            <span className="inline-flex items-center justify-center gap-1 rounded-lg bg-slate-50 px-2 py-2">
+              <Image size={14} />
+              Media
+            </span>
+            <span className="inline-flex items-center justify-center gap-1 rounded-lg bg-slate-50 px-2 py-2">
+              <Gauge size={14} />
+              CDM
+            </span>
           </div>
         </form>
       </div>
