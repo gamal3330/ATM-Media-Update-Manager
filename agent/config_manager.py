@@ -44,6 +44,8 @@ class CashMonitoringConfig:
     provider: str
     xfs_profile: str
     xfs_logical_service: str
+    xfs_msxfs_path: str | None
+    xfs_version_range: str
     read_interval_seconds: int
     cash_layout: list[CashLayoutItem]
     stale_after_minutes: int
@@ -129,6 +131,8 @@ def parse_remote_config(payload: dict[str, Any]) -> RemoteConfig:
         "provider": "mock",
         "xfs_profile": "ncr_aptra",
         "xfs_logical_service": "MediaDispenser1",
+        "xfs_msxfs_path": None,
+        "xfs_version_range": "0x00031E03",
         "read_interval_seconds": 120,
         "cash_layout": [],
         "stale_after_minutes": 10,
@@ -168,6 +172,8 @@ def parse_remote_config(payload: dict[str, Any]) -> RemoteConfig:
             xfs_profile=xfs_profile,
             xfs_logical_service=str(cash_payload.get("xfs_logical_service") or default_logical_service).strip()
             or default_logical_service,
+            xfs_msxfs_path=str(cash_payload.get("xfs_msxfs_path") or "").strip() or None,
+            xfs_version_range=str(cash_payload.get("xfs_version_range") or "0x00031E03").strip() or "0x00031E03",
             read_interval_seconds=int(cash_payload.get("read_interval_seconds") or 120),
             cash_layout=cash_layout,
             stale_after_minutes=int(cash_payload.get("stale_after_minutes") or 10),

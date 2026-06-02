@@ -128,16 +128,28 @@ class MockDispenseProvider:
 class XfsCdmProvider:
     source = "xfs_cdm"
 
-    def __init__(self, logical_service: str | None = None, xfs_profile: str = "ncr_aptra") -> None:
+    def __init__(
+        self,
+        logical_service: str | None = None,
+        xfs_profile: str = "ncr_aptra",
+        msxfs_path: str | None = None,
+        version_range: str = "0x00031E03",
+    ) -> None:
         self.xfs_profile = (xfs_profile or "ncr_aptra").strip().lower()
         default_logical_service = "CDM" if self.xfs_profile == "grg" else "MediaDispenser1"
         self.logical_service = (
             logical_service or os.environ.get("ATM_XFS_CDM_LOGICAL_SERVICE", default_logical_service)
         ).strip() or default_logical_service
+        self.msxfs_path = (msxfs_path or os.environ.get("ATM_MSXFS_PATH") or "").strip() or None
+        self.version_range = int(str(version_range or "0x00031E03"), 0)
         self.last_result: XfsCdmReadResult | None = None
 
     def _read(self) -> XfsCdmReadResult:
-        self.last_result = read_cash_units(self.logical_service)
+        self.last_result = read_cash_units(
+            self.logical_service,
+            msxfs_path=self.msxfs_path,
+            version_range=self.version_range,
+        )
         return self.last_result
 
     @staticmethod
@@ -266,7 +278,12 @@ class CashMonitoringModule:
 
         provider_name = self.config.provider
         if provider_name == "xfs_cdm":
-            self.provider = XfsCdmProvider(self.config.xfs_logical_service, self.config.xfs_profile)
+            self.provider = XfsCdmProvider(
+                self.config.xfs_logical_service,
+                self.config.xfs_profile,
+                self.config.xfs_msxfs_path,
+                self.config.xfs_version_range,
+            )
         elif provider_name == "vendor_cdm":
             self.provider = VendorCdmProvider()
         else:

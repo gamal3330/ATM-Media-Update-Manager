@@ -255,8 +255,10 @@ def test_cash_monitoring_module_mock_provider_sends_snapshot():
 
 
 def test_cash_monitoring_xfs_provider_sends_dispense_only_snapshot(monkeypatch):
-    def fake_read_cash_units(logical_service):
+    def fake_read_cash_units(logical_service, **kwargs):
         assert logical_service == "MediaDispenser1"
+        assert kwargs["msxfs_path"] is None
+        assert kwargs["version_range"] == int("0x00031E03", 0)
         return SimpleNamespace(
             cash_units=[
                 SimpleNamespace(
@@ -326,8 +328,10 @@ def test_cash_monitoring_xfs_provider_sends_dispense_only_snapshot(monkeypatch):
 
 
 def test_cash_monitoring_xfs_provider_normalizes_grg_cash_units(monkeypatch):
-    def fake_read_cash_units(logical_service):
+    def fake_read_cash_units(logical_service, **kwargs):
         assert logical_service == "CDM"
+        assert kwargs["msxfs_path"] == r"C:\Windows\SysWOW64\msxfs.dll"
+        assert kwargs["version_range"] == int("0x00031E03", 0)
         return SimpleNamespace(
             cash_units=[
                 SimpleNamespace(
@@ -430,6 +434,7 @@ def test_cash_monitoring_xfs_provider_normalizes_grg_cash_units(monkeypatch):
     payload = remote_payload(cash_enabled=True)
     payload["modules"]["cash_monitoring"]["provider"] = "xfs_cdm"
     payload["modules"]["cash_monitoring"]["xfs_profile"] = "grg"
+    payload["modules"]["cash_monitoring"]["xfs_msxfs_path"] = r"C:\Windows\SysWOW64\msxfs.dll"
     del payload["modules"]["cash_monitoring"]["xfs_logical_service"]
     module.configure(parse_remote_config(payload))
     module.tick(999999.0)

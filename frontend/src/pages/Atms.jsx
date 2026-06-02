@@ -38,6 +38,9 @@ const xfsProfileDefaults = {
   ncr_aptra: "MediaDispenser1",
   grg: "CDM",
 };
+const xfsMsxfsPathDefaults = {
+  grg: "C:\\Windows\\SysWOW64\\msxfs.dll",
+};
 const settingsFields = [
   ["media_path", "Media Path", "C:/ATM/Media"],
   ["backup_path", "Backup Path", "C:/ATM/Media_Backup"],
@@ -186,6 +189,8 @@ function buildSettingsForm(atm) {
     cash_provider: atm?.cash_provider || "mock",
     xfs_profile: atm?.xfs_profile || "ncr_aptra",
     xfs_logical_service: atm?.xfs_logical_service || xfsProfileDefaults[atm?.xfs_profile] || "MediaDispenser1",
+    xfs_msxfs_path: atm?.xfs_msxfs_path || "",
+    xfs_version_range: atm?.xfs_version_range || "0x00031E03",
     cash_layout: normalizeCashLayout(atm?.cash_layout_json),
     cash_read_interval_seconds: String(atm?.cash_read_interval_seconds || 120),
     cash_stale_after_minutes: String(atm?.cash_stale_after_minutes || 10),
@@ -627,6 +632,8 @@ export default function Atms({ atms, onChanged }) {
         cash_provider: settingsForm.cash_provider || "mock",
         xfs_profile: settingsForm.xfs_profile || "ncr_aptra",
         xfs_logical_service: (settingsForm.xfs_logical_service || "").trim() || "MediaDispenser1",
+        xfs_msxfs_path: (settingsForm.xfs_msxfs_path || "").trim() || null,
+        xfs_version_range: (settingsForm.xfs_version_range || "").trim() || "0x00031E03",
         cash_layout: normalizeCashLayout(settingsForm.cash_layout),
         cash_read_interval_seconds: Number(settingsForm.cash_read_interval_seconds),
         cash_stale_after_minutes: Number(settingsForm.cash_stale_after_minutes),
@@ -1110,6 +1117,7 @@ export default function Atms({ atms, onChanged }) {
                             ...current,
                             xfs_profile: nextProfile,
                             xfs_logical_service: xfsProfileDefaults[nextProfile] || current.xfs_logical_service,
+                            xfs_msxfs_path: current.xfs_msxfs_path || xfsMsxfsPathDefaults[nextProfile] || "",
                           }));
                         }}
                       >
@@ -1134,6 +1142,40 @@ export default function Atms({ atms, onChanged }) {
                       />
                       {fieldErrors.xfs_logical_service && (
                         <span className="mt-1 block text-xs text-rose-700">{fieldErrors.xfs_logical_service}</span>
+                      )}
+                    </label>
+                    <label className="block sm:col-span-2">
+                      <span className="mb-1 block text-sm font-medium text-slate-700">XFS msxfs.dll Path</span>
+                      <input
+                        className={`focus-ring w-full rounded-lg border px-3 py-2 ${
+                          fieldErrors.xfs_msxfs_path ? "border-rose-400 bg-rose-50" : "border-slate-300"
+                        }`}
+                        dir="ltr"
+                        value={settingsForm.xfs_msxfs_path || ""}
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({ ...current, xfs_msxfs_path: event.target.value }))
+                        }
+                        placeholder="C:\\Windows\\SysWOW64\\msxfs.dll"
+                      />
+                      {fieldErrors.xfs_msxfs_path && (
+                        <span className="mt-1 block text-xs text-rose-700">{fieldErrors.xfs_msxfs_path}</span>
+                      )}
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-sm font-medium text-slate-700">XFS Version Range</span>
+                      <input
+                        className={`focus-ring w-full rounded-lg border px-3 py-2 ${
+                          fieldErrors.xfs_version_range ? "border-rose-400 bg-rose-50" : "border-slate-300"
+                        }`}
+                        dir="ltr"
+                        value={settingsForm.xfs_version_range || ""}
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({ ...current, xfs_version_range: event.target.value }))
+                        }
+                        placeholder="0x00031E03"
+                      />
+                      {fieldErrors.xfs_version_range && (
+                        <span className="mt-1 block text-xs text-rose-700">{fieldErrors.xfs_version_range}</span>
                       )}
                     </label>
                   </div>

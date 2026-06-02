@@ -474,6 +474,8 @@ def status_command(args: argparse.Namespace) -> None:
             print(f"CDM Provider: {cash.get('provider', '-')}")
             print(f"XFS Profile: {cash.get('xfs_profile', 'ncr_aptra')}")
             print(f"XFS Logical Service: {cash.get('xfs_logical_service', 'MediaDispenser1')}")
+            print(f"XFS msxfs.dll Path: {cash.get('xfs_msxfs_path') or '-'}")
+            print(f"XFS Version Range: {cash.get('xfs_version_range', '0x00031E03')}")
             print(f"Dispense Cassette Layout Count: {len(cash.get('cash_layout') or [])}")
         else:
             print(f"Server Connectivity: Failed HTTP {response.status_code}")

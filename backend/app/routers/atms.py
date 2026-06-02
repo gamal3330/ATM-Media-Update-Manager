@@ -48,6 +48,8 @@ CONFIG_FIELDS = {
     "cash_provider",
     "xfs_profile",
     "xfs_logical_service",
+    "xfs_msxfs_path",
+    "xfs_version_range",
     "atm_cash_mode",
     "cash_layout_json",
     "cash_read_interval_seconds",
@@ -79,6 +81,8 @@ def record_agent_config_snapshot(db: Session, atm: ATM, updated_by: str | None) 
             cash_provider=atm.cash_provider,
             xfs_profile=atm.xfs_profile,
             xfs_logical_service=atm.xfs_logical_service,
+            xfs_msxfs_path=atm.xfs_msxfs_path,
+            xfs_version_range=atm.xfs_version_range,
             atm_cash_mode=atm.atm_cash_mode,
             cash_layout_json=atm.cash_layout_json,
             cash_read_interval_seconds=atm.cash_read_interval_seconds,
@@ -125,6 +129,8 @@ def create_atm(
         cash_provider=payload.cash_provider or "mock",
         xfs_profile=xfs_profile,
         xfs_logical_service=payload.xfs_logical_service or default_xfs_logical_service(xfs_profile),
+        xfs_msxfs_path=payload.xfs_msxfs_path,
+        xfs_version_range=payload.xfs_version_range or "0x00031E03",
         atm_cash_mode=payload.atm_cash_mode or "DISPENSE_ONLY",
         cash_layout_json=normalized_cash_layout(
             [item.model_dump() for item in payload.cash_layout] if payload.cash_layout is not None else None

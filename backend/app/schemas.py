@@ -55,6 +55,33 @@ def validate_xfs_logical_service(value: str | None) -> str | None:
     return cleaned
 
 
+def validate_xfs_msxfs_path(value: str | None) -> str | None:
+    if value is None:
+        return value
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    normalized = cleaned.replace("/", "\\").lower()
+    if not normalized.endswith("\\msxfs.dll") and normalized != "msxfs.dll":
+        raise ValueError("XFS msxfs path must point to msxfs.dll")
+    if any(char in cleaned for char in "|&<>`$"):
+        raise ValueError("XFS msxfs path contains unsupported characters")
+    return cleaned
+
+
+def validate_xfs_version_range(value: str | None) -> str | None:
+    if value is None:
+        return value
+    cleaned = value.strip()
+    if not cleaned:
+        return "0x00031E03"
+    try:
+        int(cleaned, 0)
+    except ValueError as exc:
+        raise ValueError("XFS Version Range must be a number such as 0x00031E03") from exc
+    return cleaned
+
+
 class CashLayoutItem(BaseModel):
     cassette_no: int = Field(ge=1, le=12)
     currency: Literal["YER", "USD", "SAR"]
@@ -161,6 +188,8 @@ class ATMCreate(ATMBase):
     cash_provider: CashDispenseProvider | None = None
     xfs_profile: XfsProfile | None = None
     xfs_logical_service: str | None = Field(default=None, min_length=1, max_length=120)
+    xfs_msxfs_path: str | None = Field(default=None, max_length=500)
+    xfs_version_range: str | None = Field(default=None, max_length=20)
     cash_layout: list[CashLayoutItem] | None = None
     cash_read_interval_seconds: int | None = Field(default=None, ge=30, le=86400)
     cash_low_threshold_default: int | None = Field(default=None, ge=0, le=100000)
@@ -188,6 +217,16 @@ class ATMCreate(ATMBase):
     @classmethod
     def validate_xfs_service(cls, value: str | None) -> str | None:
         return validate_xfs_logical_service(value)
+
+    @field_validator("xfs_msxfs_path")
+    @classmethod
+    def validate_xfs_dll_path(cls, value: str | None) -> str | None:
+        return validate_xfs_msxfs_path(value)
+
+    @field_validator("xfs_version_range")
+    @classmethod
+    def validate_xfs_range(cls, value: str | None) -> str | None:
+        return validate_xfs_version_range(value)
 
 
 class ATMUpdate(BaseModel):
@@ -208,6 +247,8 @@ class ATMUpdate(BaseModel):
     cash_provider: CashDispenseProvider | None = None
     xfs_profile: XfsProfile | None = None
     xfs_logical_service: str | None = Field(default=None, min_length=1, max_length=120)
+    xfs_msxfs_path: str | None = Field(default=None, max_length=500)
+    xfs_version_range: str | None = Field(default=None, max_length=20)
     cash_layout: list[CashLayoutItem] | None = None
     cash_read_interval_seconds: int | None = Field(default=None, ge=30, le=86400)
     cash_low_threshold_default: int | None = Field(default=None, ge=0, le=100000)
@@ -235,6 +276,16 @@ class ATMUpdate(BaseModel):
     @classmethod
     def validate_xfs_service(cls, value: str | None) -> str | None:
         return validate_xfs_logical_service(value)
+
+    @field_validator("xfs_msxfs_path")
+    @classmethod
+    def validate_xfs_dll_path(cls, value: str | None) -> str | None:
+        return validate_xfs_msxfs_path(value)
+
+    @field_validator("xfs_version_range")
+    @classmethod
+    def validate_xfs_range(cls, value: str | None) -> str | None:
+        return validate_xfs_version_range(value)
 
 
 class ATMRead(ATMBase):
@@ -266,6 +317,8 @@ class ATMRead(ATMBase):
     cash_provider: str
     xfs_profile: str
     xfs_logical_service: str
+    xfs_msxfs_path: str | None = None
+    xfs_version_range: str = "0x00031E03"
     cash_layout_json: list[dict[str, Any]] = Field(default_factory=list)
     cash_read_interval_seconds: int
     cash_low_threshold_default: int
@@ -482,6 +535,8 @@ class CashMonitoringRemoteConfig(BaseModel):
     provider: CashDispenseProvider = "mock"
     xfs_profile: XfsProfile = "ncr_aptra"
     xfs_logical_service: str = "MediaDispenser1"
+    xfs_msxfs_path: str | None = None
+    xfs_version_range: str = "0x00031E03"
     read_interval_seconds: int
     cash_layout: list[CashLayoutItem] = Field(default_factory=list)
     stale_after_minutes: int

@@ -94,6 +94,8 @@ def migrate_existing_schema() -> None:
                 "cash_provider": "VARCHAR(40) NOT NULL DEFAULT 'mock'",
                 "xfs_profile": "VARCHAR(40) NOT NULL DEFAULT 'ncr_aptra'",
                 "xfs_logical_service": "VARCHAR(120) NOT NULL DEFAULT 'MediaDispenser1'",
+                "xfs_msxfs_path": "VARCHAR(500)",
+                "xfs_version_range": "VARCHAR(20) NOT NULL DEFAULT '0x00031E03'",
                 "atm_cash_mode": "VARCHAR(40) NOT NULL DEFAULT 'DISPENSE_ONLY'",
                 "cash_layout_json": "JSON NOT NULL DEFAULT '[]'",
                 "cash_read_interval_seconds": "INTEGER NOT NULL DEFAULT 120",
@@ -130,6 +132,8 @@ def migrate_existing_schema() -> None:
                 "atm_cash_mode": "VARCHAR(40) NOT NULL DEFAULT 'DISPENSE_ONLY'",
                 "xfs_profile": "VARCHAR(40) NOT NULL DEFAULT 'ncr_aptra'",
                 "xfs_logical_service": "VARCHAR(120) NOT NULL DEFAULT 'MediaDispenser1'",
+                "xfs_msxfs_path": "VARCHAR(500)",
+                "xfs_version_range": "VARCHAR(20) NOT NULL DEFAULT '0x00031E03'",
                 "cash_layout_json": "JSON NOT NULL DEFAULT '[]'",
             }
             for name, definition in config_columns.items():
