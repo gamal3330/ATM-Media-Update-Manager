@@ -490,6 +490,30 @@ def test_cash_snapshot_updates_units_and_alerts() -> None:
         alert_types = {alert["alert_type"] for alert in details.json()["alerts"]}
         assert {"CASH_LOW", "CASH_CRITICAL", "CASH_EMPTY", "REJECT_BIN_HIGH", "RETRACT_OCCURRED"}.issubset(alert_types)
 
+        layout_update = client.put(
+            "/api/atms/ATM-CASH",
+            json={
+                "cash_layout": [
+                    {"cassette_no": 1, "currency": "YER", "denomination": 1000},
+                    {"cassette_no": 2, "currency": "YER", "denomination": 1000},
+                    {"cassette_no": 3, "currency": "USD", "denomination": 100, "low_threshold": 100, "critical_threshold": 30},
+                    {"cassette_no": 4, "currency": "SAR", "denomination": 100, "low_threshold": 100, "critical_threshold": 30},
+                ]
+            },
+            headers=headers,
+        )
+        assert layout_update.status_code == 200
+
+        updated_details = client.get("/api/cash/atms/ATM-CASH", headers=headers)
+        assert updated_details.status_code == 200
+        cassette_three = next(unit for unit in updated_details.json()["units"] if unit["cassette_no"] == 3)
+        assert cassette_three["expected_currency"] == "USD"
+        assert cassette_three["expected_denomination"] == 100
+        assert cassette_three["low_threshold"] == 100
+        assert cassette_three["critical_threshold"] == 30
+        assert cassette_three["reported_currency"] == "YER"
+        assert cassette_three["layout_match_status"] == "CURRENCY_MISMATCH"
+
         summary = client.get("/api/cash/summary", headers=headers)
         assert summary.status_code == 200
         assert summary.json()["open_alerts"] >= 1

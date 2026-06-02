@@ -41,6 +41,21 @@ def layout_by_cassette(atm: ATM) -> dict[int, dict[str, Any]]:
     return {int(item["cassette_no"]): item for item in normalized_cash_layout(atm.cash_layout_json)}
 
 
+def apply_current_layout_to_units(atm: ATM, units: list[AtmCashUnit]) -> list[AtmCashUnit]:
+    layout_map = layout_by_cassette(atm)
+    for unit in units:
+        layout = layout_map.get(unit.cassette_no)
+        if layout is None:
+            continue
+        unit.expected_currency = layout["currency"]
+        unit.expected_denomination = int(layout["denomination"])
+        unit.low_threshold = int(layout["low_threshold"])
+        unit.critical_threshold = int(layout["critical_threshold"])
+        unit.max_capacity = int(layout["max_capacity"])
+        unit.layout_match_status = layout_match_status(unit, layout)[0]
+    return units
+
+
 def sync_alert(
     db: Session,
     atm: ATM,
@@ -335,6 +350,12 @@ def cash_summary(
     current_user: User = Depends(get_current_user),
 ) -> CashSummary:
     units = db.query(AtmCashUnit).order_by(AtmCashUnit.updated_at.desc()).all()
+    atms_by_id = {atm.id: atm for atm in db.query(ATM).all()}
+    for unit in units:
+        atm = atms_by_id.get(unit.atm_id)
+        if atm is not None:
+            apply_current_layout_to_units(atm, [unit])
+
     open_alerts = db.query(AtmCashAlert).filter(AtmCashAlert.status == "open").all()
     low_atms = {alert.atm_id for alert in open_alerts if alert.alert_type == "CASH_LOW"}
     critical_atms = {alert.atm_id for alert in open_alerts if alert.alert_type == "CASH_CRITICAL"}
@@ -378,9 +399,11 @@ def cash_atm_details(
     atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
     if not atm:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ATM not found")
+    units = db.query(AtmCashUnit).filter(AtmCashUnit.atm_id == atm.id).order_by(AtmCashUnit.cassette_no.asc()).all()
+    apply_current_layout_to_units(atm, units)
     return CashAtmDetails(
         atm=atm,
-        units=db.query(AtmCashUnit).filter(AtmCashUnit.atm_id == atm.id).order_by(AtmCashUnit.cassette_no.asc()).all(),
+        units=units,
         reject_retract=(
             db.query(AtmRejectRetractStatus)
             .filter(AtmRejectRetractStatus.atm_id == atm.id)

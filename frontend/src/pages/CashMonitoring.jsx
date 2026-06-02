@@ -35,8 +35,8 @@ export default function CashMonitoring({ atms }) {
   const availableByCurrency = useMemo(() => {
     const totals = {};
     (details?.units || []).forEach((unit) => {
-      const currency = unit.reported_currency || unit.expected_currency || "N/A";
-      const denomination = Number(unit.reported_denomination || unit.expected_denomination || 0);
+      const currency = unit.expected_currency || unit.reported_currency || "N/A";
+      const denomination = Number(unit.expected_denomination || unit.reported_denomination || 0);
       totals[currency] = (totals[currency] || 0) + Number(unit.current_count || 0) * denomination;
     });
     return Object.entries(totals);
