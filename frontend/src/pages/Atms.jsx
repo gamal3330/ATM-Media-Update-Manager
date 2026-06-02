@@ -181,6 +181,18 @@ function formatSwitchProbe(atm) {
   return atm.last_switch_probe_status;
 }
 
+function formatSwitchProbeStatus(status) {
+  if (status === "success") return "نجح";
+  if (status === "failed") return "فشل";
+  if (status === "running") return "قيد الفحص";
+  if (status === "pending") return "بانتظار Agent";
+  return status || "لم يفحص";
+}
+
+function isFinalSwitchProbe(status) {
+  return status === "success" || status === "failed";
+}
+
 function formatSeconds(seconds) {
   if (typeof seconds !== "number") return "لا يوجد اتصال";
   if (seconds < 60) return `قبل ${seconds} ثانية`;
@@ -204,6 +216,12 @@ async function copyText(text) {
   element.select();
   document.execCommand("copy");
   document.body.removeChild(element);
+}
+
+function wait(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 }
 
 function CassetteLayoutEditor({ layout, onChange, title = "تخطيط الكاسيتات", fieldError }) {
@@ -260,6 +278,7 @@ export default function Atms({ atms, onChanged }) {
   const [diagnostics, setDiagnostics] = useState(null);
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
   const [switchProbeBusyId, setSwitchProbeBusyId] = useState("");
+  const [switchProbeDialog, setSwitchProbeDialog] = useState(null);
 
   const selectedAtm = useMemo(
     () => atms.find((atm) => atm.atm_id === selectedAtmId) || null,
@@ -443,12 +462,73 @@ export default function Atms({ atms, onChanged }) {
     setSettingsMessage("");
     try {
       const probe = await api.requestSwitchProbe(atm.atm_id);
+      setSwitchProbeDialog({
+        open: true,
+        atm: { atm_id: atm.atm_id, name: atm.name },
+        probe,
+        error: "",
+        refreshing: false,
+      });
       setSettingsMessage(`تم إرسال طلب فحص السويتش للصراف ${atm.atm_id}: ${probe.host}:${probe.port}`);
-      onChanged();
+      await pollSwitchProbeResult(atm, probe);
     } catch (err) {
       setError(err.message || "تعذر إرسال طلب فحص السويتش");
+      setSwitchProbeDialog({
+        open: true,
+        atm: { atm_id: atm.atm_id, name: atm.name },
+        probe: {
+          host: atm.switch_probe_host,
+          port: atm.switch_probe_port,
+          status: "failed",
+          error_message: err.message || "تعذر إرسال طلب فحص السويتش",
+        },
+        error: err.message || "تعذر إرسال طلب فحص السويتش",
+        refreshing: false,
+      });
     } finally {
       setSwitchProbeBusyId("");
+    }
+  }
+
+  async function pollSwitchProbeResult(atm, initialProbe) {
+    let latest = initialProbe;
+    for (let attempt = 0; attempt < 18 && !isFinalSwitchProbe(latest.status); attempt += 1) {
+      await wait(attempt === 0 ? 1000 : 2000);
+      try {
+        const probes = await api.listSwitchProbes(atm.atm_id);
+        latest = probes.find((item) => item.id === initialProbe.id) || latest;
+        setSwitchProbeDialog((current) => {
+          if (!current?.open || current.probe?.id !== initialProbe.id) return current;
+          return { ...current, probe: latest, error: "" };
+        });
+        if (isFinalSwitchProbe(latest.status)) {
+          onChanged();
+          return;
+        }
+      } catch (err) {
+        setSwitchProbeDialog((current) => {
+          if (!current?.open || current.probe?.id !== initialProbe.id) return current;
+          return { ...current, error: err.message || "تعذر تحديث نتيجة الفحص" };
+        });
+        return;
+      }
+    }
+    onChanged();
+  }
+
+  async function refreshSwitchProbeDialog() {
+    const current = switchProbeDialog;
+    if (!current?.atm?.atm_id || !current?.probe?.id) return;
+    setSwitchProbeDialog((value) => (value ? { ...value, refreshing: true, error: "" } : value));
+    try {
+      const probes = await api.listSwitchProbes(current.atm.atm_id);
+      const latest = probes.find((item) => item.id === current.probe.id) || current.probe;
+      setSwitchProbeDialog((value) => (value ? { ...value, probe: latest, refreshing: false, error: "" } : value));
+      onChanged();
+    } catch (err) {
+      setSwitchProbeDialog((value) =>
+        value ? { ...value, refreshing: false, error: err.message || "تعذر تحديث نتيجة الفحص" } : value,
+      );
     }
   }
 
@@ -1218,6 +1298,121 @@ export default function Atms({ atms, onChanged }) {
           </tbody>
         </table>
       </div>
+
+      {switchProbeDialog?.open && (() => {
+        const probe = switchProbeDialog.probe || {};
+        const pending = !isFinalSwitchProbe(probe.status);
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6"
+            role="dialog"
+            aria-modal="true"
+            onClick={() => setSwitchProbeDialog(null)}
+          >
+            <div
+              className="w-full max-w-lg rounded-lg border border-slate-200 bg-white shadow-xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+                <div>
+                  <div className="flex items-center gap-2 font-semibold text-slate-950">
+                    <Network size={18} />
+                    <span>نتيجة فحص السويتش</span>
+                  </div>
+                  <div className="mt-1 text-sm text-slate-500">
+                    {switchProbeDialog.atm?.name || switchProbeDialog.atm?.atm_id} · {switchProbeDialog.atm?.atm_id}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSwitchProbeDialog(null)}
+                  className="focus-ring rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                  title="إغلاق"
+                >
+                  <XCircle size={18} />
+                </button>
+              </div>
+
+              <div className="space-y-4 p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`rounded-full px-3 py-1 text-sm ${getSwitchProbeTone(probe.status)}`}>
+                    {formatSwitchProbeStatus(probe.status)}
+                  </span>
+                  <span className="rounded-full bg-slate-100 px-3 py-1 font-mono text-sm text-slate-700" dir="ltr">
+                    {probe.host || "-"}:{probe.port || "-"}
+                  </span>
+                </div>
+
+                {pending && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    تم إرسال طلب الفحص. بانتظار أن يسحبه الـ Agent وينفذه عبر TCP.
+                  </div>
+                )}
+
+                {probe.status === "success" && (
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                    تم الوصول إلى السويتش بنجاح.
+                  </div>
+                )}
+
+                {probe.status === "failed" && (
+                  <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                    فشل الوصول إلى السويتش.
+                    {probe.error_message && <div className="mt-1 break-words">{probe.error_message}</div>}
+                  </div>
+                )}
+
+                {switchProbeDialog.error && (
+                  <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                    {switchProbeDialog.error}
+                  </div>
+                )}
+
+                <div className="grid gap-3 text-sm sm:grid-cols-2">
+                  <div className="rounded-lg bg-slate-50 px-3 py-2">
+                    <div className="text-xs text-slate-500">Latency</div>
+                    <div className="mt-1 font-semibold text-slate-950" dir="ltr">
+                      {probe.latency_ms == null ? "-" : `${probe.latency_ms} ms`}
+                    </div>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 px-3 py-2">
+                    <div className="text-xs text-slate-500">Status</div>
+                    <div className="mt-1 font-semibold text-slate-950">{formatSwitchProbeStatus(probe.status)}</div>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 px-3 py-2">
+                    <div className="text-xs text-slate-500">وقت الطلب</div>
+                    <div className="mt-1 text-slate-950">{formatApiDate(probe.requested_at)}</div>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 px-3 py-2">
+                    <div className="text-xs text-slate-500">وقت النتيجة</div>
+                    <div className="mt-1 text-slate-950">{formatApiDate(probe.completed_at)}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 px-4 py-3">
+                <button
+                  type="button"
+                  onClick={refreshSwitchProbeDialog}
+                  disabled={switchProbeDialog.refreshing}
+                  className="focus-ring inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
+                  title="تحديث نتيجة الفحص"
+                >
+                  <RefreshCw size={16} className={switchProbeDialog.refreshing ? "animate-spin" : ""} />
+                  <span>{switchProbeDialog.refreshing ? "جار التحديث..." : "تحديث"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSwitchProbeDialog(null)}
+                  className="focus-ring rounded-lg bg-teal-700 px-4 py-2 text-sm text-white hover:bg-teal-800"
+                >
+                  إغلاق
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </section>
   );
 }
