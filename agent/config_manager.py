@@ -42,6 +42,7 @@ class CashMonitoringConfig:
     enabled: bool
     atm_cash_mode: str
     provider: str
+    xfs_logical_service: str
     read_interval_seconds: int
     cash_layout: list[CashLayoutItem]
     stale_after_minutes: int
@@ -125,6 +126,7 @@ def parse_remote_config(payload: dict[str, Any]) -> RemoteConfig:
         "enabled": False,
         "atm_cash_mode": "DISPENSE_ONLY",
         "provider": "mock",
+        "xfs_logical_service": "MediaDispenser1",
         "read_interval_seconds": 120,
         "cash_layout": [],
         "stale_after_minutes": 10,
@@ -157,6 +159,8 @@ def parse_remote_config(payload: dict[str, Any]) -> RemoteConfig:
             enabled=bool(cash_payload.get("enabled", False)),
             atm_cash_mode=str(cash_payload.get("atm_cash_mode") or "DISPENSE_ONLY"),
             provider=str(cash_payload.get("provider") or "mock"),
+            xfs_logical_service=str(cash_payload.get("xfs_logical_service") or "MediaDispenser1").strip()
+            or "MediaDispenser1",
             read_interval_seconds=int(cash_payload.get("read_interval_seconds") or 120),
             cash_layout=cash_layout,
             stale_after_minutes=int(cash_payload.get("stale_after_minutes") or 10),

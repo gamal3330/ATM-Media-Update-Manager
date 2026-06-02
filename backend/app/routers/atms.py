@@ -45,6 +45,7 @@ CONFIG_FIELDS = {
     "media_update_enabled",
     "cash_monitoring_enabled",
     "cash_provider",
+    "xfs_logical_service",
     "atm_cash_mode",
     "cash_layout_json",
     "cash_read_interval_seconds",
@@ -68,6 +69,7 @@ def record_agent_config_snapshot(db: Session, atm: ATM, updated_by: str | None) 
             media_check_interval_seconds=atm.check_interval_seconds,
             cash_monitoring_enabled=atm.cash_monitoring_enabled,
             cash_provider=atm.cash_provider,
+            xfs_logical_service=atm.xfs_logical_service,
             atm_cash_mode=atm.atm_cash_mode,
             cash_layout_json=atm.cash_layout_json,
             cash_read_interval_seconds=atm.cash_read_interval_seconds,
@@ -111,6 +113,7 @@ def create_atm(
         media_update_enabled=True if payload.media_update_enabled is None else payload.media_update_enabled,
         cash_monitoring_enabled=False if payload.cash_monitoring_enabled is None else payload.cash_monitoring_enabled,
         cash_provider=payload.cash_provider or "mock",
+        xfs_logical_service=payload.xfs_logical_service or "MediaDispenser1",
         atm_cash_mode=payload.atm_cash_mode or "DISPENSE_ONLY",
         cash_layout_json=normalized_cash_layout(
             [item.model_dump() for item in payload.cash_layout] if payload.cash_layout is not None else None

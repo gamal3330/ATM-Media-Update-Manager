@@ -128,6 +128,7 @@ function buildSettingsForm(atm) {
     cash_monitoring_enabled: atm?.cash_monitoring_enabled ?? false,
     atm_cash_mode: atm?.atm_cash_mode || "DISPENSE_ONLY",
     cash_provider: atm?.cash_provider || "mock",
+    xfs_logical_service: atm?.xfs_logical_service || "MediaDispenser1",
     cash_layout: normalizeCashLayout(atm?.cash_layout_json),
     cash_read_interval_seconds: String(atm?.cash_read_interval_seconds || 120),
     cash_stale_after_minutes: String(atm?.cash_stale_after_minutes || 10),
@@ -369,6 +370,7 @@ export default function Atms({ atms, onChanged }) {
         cash_monitoring_enabled: Boolean(settingsForm.cash_monitoring_enabled),
         atm_cash_mode: "DISPENSE_ONLY",
         cash_provider: settingsForm.cash_provider || "mock",
+        xfs_logical_service: (settingsForm.xfs_logical_service || "").trim() || "MediaDispenser1",
         cash_layout: normalizeCashLayout(settingsForm.cash_layout),
         cash_read_interval_seconds: Number(settingsForm.cash_read_interval_seconds),
         cash_stale_after_minutes: Number(settingsForm.cash_stale_after_minutes),
@@ -803,6 +805,26 @@ export default function Atms({ atms, onChanged }) {
                   <option value="xfs_cdm">XFS CDM Provider</option>
                   <option value="vendor_cdm">Vendor CDM Provider</option>
                 </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">XFS Logical Service</span>
+                <input
+                  className={`focus-ring w-full rounded-lg border px-3 py-2 ${
+                    fieldErrors.xfs_logical_service ? "border-rose-400 bg-rose-50" : "border-slate-300"
+                  }`}
+                  dir="ltr"
+                  value={settingsForm.xfs_logical_service || ""}
+                  onChange={(event) =>
+                    setSettingsForm((current) => ({ ...current, xfs_logical_service: event.target.value }))
+                  }
+                  placeholder="MediaDispenser1 أو CDM"
+                />
+                <span className="mt-1 block text-xs text-slate-500">
+                  NCR غالبًا MediaDispenser1، وGRG من الفحص الحالي CDM.
+                </span>
+                {fieldErrors.xfs_logical_service && (
+                  <span className="mt-1 block text-xs text-rose-700">{fieldErrors.xfs_logical_service}</span>
+                )}
               </label>
             </div>
 

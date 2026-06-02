@@ -230,6 +230,7 @@ sc.exe query ATMUnifiedAgent
     "enabled": true,
     "atm_cash_mode": "DISPENSE_ONLY",
     "provider": "xfs_cdm",
+    "xfs_logical_service": "CDM",
     "read_interval_seconds": 120,
     "cash_layout": [
       { "cassette_no": 1, "currency": "YER", "denomination": 1000, "max_capacity": 2000, "low_threshold": 300, "critical_threshold": 100 },
@@ -240,6 +241,12 @@ sc.exe query ATMUnifiedAgent
     "stale_after_minutes": 10
   }
 }
+```
+
+استخدم `MediaDispenser1` غالبًا لصرافات NCR APTRA، واستخدم `CDM` لصراف GRG الذي نجح معه أمر القراءة:
+
+```powershell
+.\atm-agent.exe xfs-cdm-read --logical-service "CDM" --msxfs-path "C:\Windows\SysWOW64\msxfs.dll" --json
 ```
 
 ## ملاحظات أمنية مهمة

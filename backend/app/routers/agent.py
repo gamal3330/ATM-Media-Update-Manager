@@ -73,6 +73,7 @@ def get_agent_config(atm: ATM = Depends(get_agent_atm)) -> AgentConfigResponse:
                 enabled=atm.cash_monitoring_enabled,
                 atm_cash_mode=atm.atm_cash_mode,
                 provider=atm.cash_provider,
+                xfs_logical_service=atm.xfs_logical_service,
                 read_interval_seconds=atm.cash_read_interval_seconds,
                 cash_layout=normalized_cash_layout(atm.cash_layout_json),
                 stale_after_minutes=atm.cash_stale_after_minutes,

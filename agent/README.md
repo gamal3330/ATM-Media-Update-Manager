@@ -108,15 +108,18 @@ If you know the GRG XFS installation root, pass it explicitly:
 atm-agent.exe xfs-cdm-diagnose --xfs-root "C:\Program Files (x86)\GRG"
 ```
 
-After diagnostics confirm the logical service name, the first cassette read test is also read-only:
+After diagnostics confirm the logical service name, the first cassette read test is also read-only. Typical values are
+`MediaDispenser1` for NCR APTRA and `CDM` for the tested GRG installation:
 
 ```bat
 atm-agent.exe xfs-cdm-read --logical-service MediaDispenser1 --json
+atm-agent.exe xfs-cdm-read --logical-service CDM --msxfs-path "C:\Windows\SysWOW64\msxfs.dll" --json
 ```
 
 For 32-bit XFS providers installed under `Program Files (x86)`, build and run this command with a 32-bit `atm-agent.exe`.
 The command calls `WFSGetInfo` for CDM cash unit information only. It does not dispense, reset, exchange, or change any
 ATM state.
+When the real provider is enabled, set the same logical service in the ATM dashboard settings under `XFS Logical Service`.
 
 If you need machine-readable output:
 

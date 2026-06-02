@@ -115,6 +115,7 @@ def remote_payload(media_enabled=True, cash_enabled=True):
                 "enabled": cash_enabled,
                 "atm_cash_mode": "DISPENSE_ONLY",
                 "provider": "mock",
+                "xfs_logical_service": "MediaDispenser1",
                 "read_interval_seconds": 30,
                 "cash_layout": [
                     {
@@ -163,6 +164,7 @@ def test_core_parse_remote_config_modules():
     assert config.cash_monitoring.enabled is True
     assert config.cash_monitoring.atm_cash_mode == "DISPENSE_ONLY"
     assert config.cash_monitoring.provider == "mock"
+    assert config.cash_monitoring.xfs_logical_service == "MediaDispenser1"
     assert config.cash_monitoring.cash_layout[2].currency == "USD"
     assert "gif" in config.media_update.allowed_extensions
 
@@ -323,7 +325,7 @@ def test_cash_monitoring_xfs_provider_sends_dispense_only_snapshot(monkeypatch):
 
 def test_cash_monitoring_xfs_provider_normalizes_grg_cash_units(monkeypatch):
     def fake_read_cash_units(logical_service):
-        assert logical_service == "MediaDispenser1"
+        assert logical_service == "CDM"
         return SimpleNamespace(
             cash_units=[
                 SimpleNamespace(
@@ -425,6 +427,7 @@ def test_cash_monitoring_xfs_provider_normalizes_grg_cash_units(monkeypatch):
     module = CashMonitoringModule(api, "ATM001", logger)
     payload = remote_payload(cash_enabled=True)
     payload["modules"]["cash_monitoring"]["provider"] = "xfs_cdm"
+    payload["modules"]["cash_monitoring"]["xfs_logical_service"] = "CDM"
     module.configure(parse_remote_config(payload))
     module.tick(999999.0)
 

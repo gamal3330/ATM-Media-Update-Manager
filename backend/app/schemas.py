@@ -41,6 +41,19 @@ def validate_probe_host(value: str | None) -> str | None:
     return cleaned
 
 
+def validate_xfs_logical_service(value: str | None) -> str | None:
+    if value is None:
+        return value
+    cleaned = value.strip()
+    if not cleaned:
+        raise ValueError("XFS Logical Service is required")
+    if any(ord(char) < 32 for char in cleaned):
+        raise ValueError("XFS Logical Service must not contain control characters")
+    if any(char in cleaned for char in "\\/:;|&<>`$"):
+        raise ValueError("XFS Logical Service must be a service name, not a path or command")
+    return cleaned
+
+
 class CashLayoutItem(BaseModel):
     cassette_no: int = Field(ge=1, le=12)
     currency: Literal["YER", "USD", "SAR"]
@@ -145,6 +158,7 @@ class ATMCreate(ATMBase):
     cash_monitoring_enabled: bool | None = None
     atm_cash_mode: Literal["DISPENSE_ONLY"] | None = None
     cash_provider: CashDispenseProvider | None = None
+    xfs_logical_service: str | None = Field(default=None, min_length=1, max_length=120)
     cash_layout: list[CashLayoutItem] | None = None
     cash_read_interval_seconds: int | None = Field(default=None, ge=30, le=86400)
     cash_low_threshold_default: int | None = Field(default=None, ge=0, le=100000)
@@ -167,6 +181,11 @@ class ATMCreate(ATMBase):
     @classmethod
     def validate_switch_probe_host(cls, value: str | None) -> str | None:
         return validate_probe_host(value)
+
+    @field_validator("xfs_logical_service")
+    @classmethod
+    def validate_xfs_service(cls, value: str | None) -> str | None:
+        return validate_xfs_logical_service(value)
 
 
 class ATMUpdate(BaseModel):
@@ -185,6 +204,7 @@ class ATMUpdate(BaseModel):
     cash_monitoring_enabled: bool | None = None
     atm_cash_mode: Literal["DISPENSE_ONLY"] | None = None
     cash_provider: CashDispenseProvider | None = None
+    xfs_logical_service: str | None = Field(default=None, min_length=1, max_length=120)
     cash_layout: list[CashLayoutItem] | None = None
     cash_read_interval_seconds: int | None = Field(default=None, ge=30, le=86400)
     cash_low_threshold_default: int | None = Field(default=None, ge=0, le=100000)
@@ -207,6 +227,11 @@ class ATMUpdate(BaseModel):
     @classmethod
     def validate_switch_probe_host(cls, value: str | None) -> str | None:
         return validate_probe_host(value)
+
+    @field_validator("xfs_logical_service")
+    @classmethod
+    def validate_xfs_service(cls, value: str | None) -> str | None:
+        return validate_xfs_logical_service(value)
 
 
 class ATMRead(ATMBase):
@@ -236,6 +261,7 @@ class ATMRead(ATMBase):
     module_status_json: dict[str, Any] = Field(default_factory=dict)
     atm_cash_mode: str
     cash_provider: str
+    xfs_logical_service: str
     cash_layout_json: list[dict[str, Any]] = Field(default_factory=list)
     cash_read_interval_seconds: int
     cash_low_threshold_default: int
@@ -440,6 +466,7 @@ class CashMonitoringRemoteConfig(BaseModel):
     enabled: bool
     atm_cash_mode: Literal["DISPENSE_ONLY"] = "DISPENSE_ONLY"
     provider: CashDispenseProvider = "mock"
+    xfs_logical_service: str = "MediaDispenser1"
     read_interval_seconds: int
     cash_layout: list[CashLayoutItem] = Field(default_factory=list)
     stale_after_minutes: int

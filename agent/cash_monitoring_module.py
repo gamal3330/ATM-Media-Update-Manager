@@ -129,7 +129,9 @@ class XfsCdmProvider:
     source = "xfs_cdm"
 
     def __init__(self, logical_service: str | None = None) -> None:
-        self.logical_service = logical_service or os.environ.get("ATM_XFS_CDM_LOGICAL_SERVICE", "MediaDispenser1")
+        self.logical_service = (
+            logical_service or os.environ.get("ATM_XFS_CDM_LOGICAL_SERVICE", "MediaDispenser1")
+        ).strip() or "MediaDispenser1"
         self.last_result: XfsCdmReadResult | None = None
 
     def _read(self) -> XfsCdmReadResult:
@@ -262,7 +264,7 @@ class CashMonitoringModule:
 
         provider_name = self.config.provider
         if provider_name == "xfs_cdm":
-            self.provider = XfsCdmProvider()
+            self.provider = XfsCdmProvider(self.config.xfs_logical_service)
         elif provider_name == "vendor_cdm":
             self.provider = VendorCdmProvider()
         else:
