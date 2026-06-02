@@ -39,6 +39,35 @@ function formatDays(value) {
   return `${Number(value).toFixed(1)} يوم`;
 }
 
+function getCashModuleStatus(atm) {
+  return String(atm?.module_status_json?.cash_monitoring || (atm?.cash_monitoring_enabled ? "pending" : "disabled"));
+}
+
+function cashStatusTone(status) {
+  const value = String(status || "").toLowerCase();
+  if (value === "running") return "bg-emerald-50 text-emerald-700";
+  if (value === "error") return "bg-rose-50 text-rose-700";
+  if (value === "disabled") return "bg-slate-100 text-slate-600";
+  return "bg-amber-50 text-amber-700";
+}
+
+function configSyncLabel(atm) {
+  if (!atm) return "-";
+  return Number(atm.config_version) === Number(atm.applied_config_version) ? "Synced" : "Pending";
+}
+
+function getNoCashReason(details) {
+  const atm = details?.atm;
+  if (!atm) return "اختر صرافاً لعرض بيانات النقد.";
+  if (!atm.cash_monitoring_enabled) return "مراقبة النقد غير مفعلة لهذا الصراف.";
+  if (!atm.last_heartbeat_at) return "لم يصل Heartbeat من الـ Agent بعد. ثبّت الخدمة أو تأكد أنها تعمل.";
+  if (Number(atm.config_version) !== Number(atm.applied_config_version)) return "إعدادات الصراف لم تطبق بعد. انتظر مزامنة الـ Agent أو أعد تشغيل الخدمة.";
+  const status = getCashModuleStatus(atm).toLowerCase();
+  if (status === "error") return atm.last_agent_error || "Cash Monitoring يعمل بخطأ. راجع Agent Logs أو جرّب xfs-cdm-read على الصراف.";
+  if (status === "disabled") return "Cash Monitoring غير مفعل في إعدادات الصراف.";
+  return `لا توجد snapshot نقد بعد. انتظر ${atm.cash_read_interval_seconds || 120} ثانية أو شغّل atm-agent.exe status على الصراف.`;
+}
+
 function downloadCsv(filename, rows) {
   const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
   const blob = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" });
@@ -74,6 +103,8 @@ export default function CashMonitoring({ atms }) {
     if (!selectedInternalId) return [];
     return alerts.filter((alert) => Number(alert.atm_id) === Number(selectedInternalId));
   }, [alerts, details]);
+  const selectedAtmDiagnostics = details?.atm;
+  const cashModuleStatus = getCashModuleStatus(selectedAtmDiagnostics);
 
   async function load() {
     setLoading(true);
@@ -187,6 +218,38 @@ export default function CashMonitoring({ atms }) {
         </div>
 
         <div className="space-y-4">
+          {selectedAtmDiagnostics && (
+            <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-sm md:grid-cols-4">
+              <div>
+                <div className="text-xs text-slate-500">Cash Module</div>
+                <span className={`mt-1 inline-flex rounded-full px-2 py-1 text-xs font-semibold ${cashStatusTone(cashModuleStatus)}`}>
+                  {cashModuleStatus}
+                </span>
+              </div>
+              <div>
+                <div className="text-xs text-slate-500">Last Heartbeat</div>
+                <div className="mt-1 font-medium text-slate-950">{formatApiDate(selectedAtmDiagnostics.last_heartbeat_at)}</div>
+              </div>
+              <div>
+                <div className="text-xs text-slate-500">Config</div>
+                <div className="mt-1 font-medium text-slate-950">
+                  {configSyncLabel(selectedAtmDiagnostics)} · {selectedAtmDiagnostics.applied_config_version}/{selectedAtmDiagnostics.config_version}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-slate-500">XFS</div>
+                <div className="mt-1 font-medium text-slate-950" dir="ltr">
+                  {selectedAtmDiagnostics.xfs_profile || "-"} · {selectedAtmDiagnostics.xfs_logical_service || "-"}
+                </div>
+              </div>
+              {(!details.units || details.units.length === 0) && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800 md:col-span-4">
+                  {getNoCashReason(details)}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="grid gap-4 lg:grid-cols-3">
             <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
@@ -282,7 +345,7 @@ export default function CashMonitoring({ atms }) {
                 {(!details || details.units.length === 0) && (
                   <tr>
                     <td colSpan="9" className="px-4 py-8 text-center text-slate-500">
-                      لا توجد بيانات CDM بعد. فعّل Cash Monitoring وانتظر أول snapshot من الـ Agent.
+                      {getNoCashReason(details)}
                     </td>
                   </tr>
                 )}

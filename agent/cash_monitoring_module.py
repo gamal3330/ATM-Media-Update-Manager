@@ -322,6 +322,18 @@ class CashMonitoringModule:
             self.status = "error"
             self.last_error = str(exc)
             self.logger.exception("Cash snapshot failed: %s", exc)
+            self.api.log(
+                "error",
+                "Cash snapshot failed",
+                {
+                    "error": str(exc),
+                    "provider": self.provider.source,
+                    "xfs_profile": self.config.xfs_profile,
+                    "xfs_logical_service": self.config.xfs_logical_service,
+                    "xfs_msxfs_path": self.config.xfs_msxfs_path,
+                    "xfs_version_range": self.config.xfs_version_range,
+                },
+            )
             raise
 
         self.last_read = now
