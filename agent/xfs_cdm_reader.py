@@ -99,6 +99,7 @@ CU_STATUSES = {
 
 
 class SYSTEMTIME(ctypes.Structure):
+    _pack_ = 1
     _fields_ = [
         ("wYear", ctypes.c_ushort),
         ("wMonth", ctypes.c_ushort),
@@ -112,6 +113,7 @@ class SYSTEMTIME(ctypes.Structure):
 
 
 class WFSVERSION(ctypes.Structure):
+    _pack_ = 1
     _fields_ = [
         ("wVersion", ctypes.c_ushort),
         ("wLowVersion", ctypes.c_ushort),
@@ -122,6 +124,7 @@ class WFSVERSION(ctypes.Structure):
 
 
 class WFSRESULT(ctypes.Structure):
+    _pack_ = 1
     _fields_ = [
         ("RequestID", ctypes.c_ulong),
         ("hService", ctypes.c_ushort),
@@ -133,6 +136,7 @@ class WFSRESULT(ctypes.Structure):
 
 
 class WFSCDMPHCU(ctypes.Structure):
+    _pack_ = 1
     pass
 
 
@@ -154,6 +158,7 @@ WFSCDMPHCU._fields_ = [
 
 
 class WFSCDMCASHUNIT(ctypes.Structure):
+    _pack_ = 1
     pass
 
 
@@ -182,6 +187,7 @@ WFSCDMCASHUNIT._fields_ = [
 
 
 class WFSCDMCUINFO(ctypes.Structure):
+    _pack_ = 1
     _fields_ = [
         ("usTellerID", ctypes.c_ushort),
         ("usCount", ctypes.c_ushort),
