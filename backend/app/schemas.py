@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .page_permissions import ALL_PAGE_IDS
 
@@ -228,6 +228,12 @@ class ATMCreate(ATMBase):
     def validate_xfs_range(cls, value: str | None) -> str | None:
         return validate_xfs_version_range(value)
 
+    @model_validator(mode="after")
+    def validate_real_cash_provider(self):
+        if self.cash_monitoring_enabled and self.cash_provider == "vendor_cdm":
+            raise ValueError("Vendor CDM provider is not available yet. Use XFS CDM Provider for real ATMs.")
+        return self
+
 
 class ATMUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=160)
@@ -286,6 +292,12 @@ class ATMUpdate(BaseModel):
     @classmethod
     def validate_xfs_range(cls, value: str | None) -> str | None:
         return validate_xfs_version_range(value)
+
+    @model_validator(mode="after")
+    def validate_real_cash_provider(self):
+        if self.cash_monitoring_enabled and self.cash_provider == "vendor_cdm":
+            raise ValueError("Vendor CDM provider is not available yet. Use XFS CDM Provider for real ATMs.")
+        return self
 
 
 class ATMRead(ATMBase):

@@ -52,6 +52,11 @@ const settingsFields = [
   ["cash_stale_after_minutes", "Cash Stale After Minutes", "10"],
 ];
 
+function normalizeCashProvider(value, cashEnabled = false) {
+  if (value === "xfs_cdm" || value === "mock") return value;
+  return cashEnabled ? "xfs_cdm" : "mock";
+}
+
 const fields = [
   ["atm_id", "ATM ID", "ATM-001", 2],
   ["name", "الاسم", "صراف الفرع الرئيسي", 2],
@@ -186,7 +191,7 @@ function buildSettingsForm(atm) {
     media_update_enabled: atm?.media_update_enabled ?? true,
     cash_monitoring_enabled: atm?.cash_monitoring_enabled ?? false,
     atm_cash_mode: atm?.atm_cash_mode || "DISPENSE_ONLY",
-    cash_provider: atm?.cash_provider || "mock",
+    cash_provider: normalizeCashProvider(atm?.cash_provider, atm?.cash_monitoring_enabled),
     xfs_profile: atm?.xfs_profile || "ncr_aptra",
     xfs_logical_service: atm?.xfs_logical_service || xfsProfileDefaults[atm?.xfs_profile] || "MediaDispenser1",
     xfs_msxfs_path: atm?.xfs_msxfs_path || "",
@@ -629,7 +634,7 @@ export default function Atms({ atms, onChanged }) {
         media_update_enabled: Boolean(settingsForm.media_update_enabled),
         cash_monitoring_enabled: Boolean(settingsForm.cash_monitoring_enabled),
         atm_cash_mode: "DISPENSE_ONLY",
-        cash_provider: settingsForm.cash_provider || "mock",
+        cash_provider: normalizeCashProvider(settingsForm.cash_provider, settingsForm.cash_monitoring_enabled),
         xfs_profile: settingsForm.xfs_profile || "ncr_aptra",
         xfs_logical_service: (settingsForm.xfs_logical_service || "").trim() || "MediaDispenser1",
         xfs_msxfs_path: (settingsForm.xfs_msxfs_path || "").trim() || null,
@@ -1096,12 +1101,11 @@ export default function Atms({ atms, onChanged }) {
                       <span className="mb-1 block text-sm font-medium text-slate-700">CDM Provider</span>
                       <select
                         className="focus-ring w-full rounded-lg border border-slate-300 px-3 py-2"
-                        value={settingsForm.cash_provider || "mock"}
+                        value={normalizeCashProvider(settingsForm.cash_provider, settingsForm.cash_monitoring_enabled)}
                         onChange={(event) => setSettingsForm((current) => ({ ...current, cash_provider: event.target.value }))}
                       >
                         <option value="mock">Mock Dispense Provider</option>
                         <option value="xfs_cdm">XFS CDM Provider</option>
-                        <option value="vendor_cdm">Vendor CDM Provider</option>
                       </select>
                     </label>
                     <label className="block">
@@ -1118,6 +1122,7 @@ export default function Atms({ atms, onChanged }) {
                             xfs_profile: nextProfile,
                             xfs_logical_service: xfsProfileDefaults[nextProfile] || current.xfs_logical_service,
                             xfs_msxfs_path: current.xfs_msxfs_path || xfsMsxfsPathDefaults[nextProfile] || "",
+                            cash_provider: nextProfile === "custom" ? normalizeCashProvider(current.cash_provider, current.cash_monitoring_enabled) : "xfs_cdm",
                           }));
                         }}
                       >
