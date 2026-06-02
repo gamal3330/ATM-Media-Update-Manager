@@ -41,6 +41,11 @@ export default function CashMonitoring({ atms }) {
     });
     return Object.entries(totals);
   }, [details]);
+  const selectedAlerts = useMemo(() => {
+    const selectedInternalId = details?.atm?.id;
+    if (!selectedInternalId) return [];
+    return alerts.filter((alert) => Number(alert.atm_id) === Number(selectedInternalId));
+  }, [alerts, details]);
 
   async function load() {
     setLoading(true);
@@ -245,7 +250,7 @@ export default function CashMonitoring({ atms }) {
           <span>التنبيهات المفتوحة</span>
         </div>
         <div className="divide-y divide-slate-100">
-          {alerts.slice(0, 20).map((alert) => (
+          {selectedAlerts.slice(0, 20).map((alert) => (
             <div key={alert.id} className="px-4 py-3 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="font-medium text-slate-950">{alert.message}</div>
@@ -256,7 +261,7 @@ export default function CashMonitoring({ atms }) {
               </div>
             </div>
           ))}
-          {alerts.length === 0 && <div className="px-4 py-8 text-center text-sm text-slate-500">لا توجد تنبيهات مفتوحة</div>}
+          {selectedAlerts.length === 0 && <div className="px-4 py-8 text-center text-sm text-slate-500">لا توجد تنبيهات مفتوحة لهذا الصراف</div>}
         </div>
       </div>
     </section>

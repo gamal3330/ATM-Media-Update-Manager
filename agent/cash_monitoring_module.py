@@ -270,6 +270,9 @@ class CashMonitoringModule:
         self.provider: ICashDispenseProvider = MockDispenseProvider()
         self.last_read = 0.0
         self.status = "disabled"
+        self.last_snapshot_at: str | None = None
+        self.last_unit_count = 0
+        self.last_error: str | None = None
 
     def configure(self, config: RemoteConfig) -> None:
         self.config = config.cash_monitoring
@@ -297,16 +300,38 @@ class CashMonitoringModule:
         if now - self.last_read < self.config.read_interval_seconds:
             return
 
-        cash_units = self.provider.get_dispense_cash_snapshot(self.atm_id, self.config)
-        reject_retract = self.provider.get_reject_retract_status(self.config)
-        snapshot = DispenseCashSnapshot(
-            atm_id=self.atm_id,
-            source=self.provider.source,
-            atm_cash_mode=self.config.atm_cash_mode,
-            read_at=utc_now_iso(),
-            cash_units=cash_units,
-            reject_retract=reject_retract,
-        )
-        self.api.cash_snapshot(snapshot.to_payload())
+        try:
+            self.logger.info(
+                "Reading cash snapshot: provider=%s profile=%s logical_service=%s",
+                self.provider.source,
+                self.config.xfs_profile,
+                self.config.xfs_logical_service,
+            )
+            cash_units = self.provider.get_dispense_cash_snapshot(self.atm_id, self.config)
+            reject_retract = self.provider.get_reject_retract_status(self.config)
+            snapshot = DispenseCashSnapshot(
+                atm_id=self.atm_id,
+                source=self.provider.source,
+                atm_cash_mode=self.config.atm_cash_mode,
+                read_at=utc_now_iso(),
+                cash_units=cash_units,
+                reject_retract=reject_retract,
+            )
+            self.api.cash_snapshot(snapshot.to_payload())
+        except Exception as exc:
+            self.status = "error"
+            self.last_error = str(exc)
+            self.logger.exception("Cash snapshot failed: %s", exc)
+            raise
+
         self.last_read = now
+        self.last_snapshot_at = snapshot.read_at
+        self.last_unit_count = len(cash_units)
+        self.last_error = None
         self.status = "running"
+        self.logger.info(
+            "Cash snapshot sent: units=%s reject=%s retract=%s",
+            self.last_unit_count,
+            reject_retract.reject_count,
+            reject_retract.retract_count,
+        )

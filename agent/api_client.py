@@ -163,7 +163,11 @@ class ApiClient:
 
     def cash_snapshot(self, payload: dict[str, Any]) -> None:
         response = self.session.post(self.url("/api/agent/cash-snapshot"), json=payload, timeout=30)
-        response.raise_for_status()
+        if not response.ok:
+            raise requests.HTTPError(
+                f"cash-snapshot failed HTTP {response.status_code}: {response.text[:800]}",
+                response=response,
+            )
 
     def get_switch_probe(self) -> dict[str, Any] | None:
         response = self.session.get(self.url("/api/agent/switch-probe"), timeout=15)

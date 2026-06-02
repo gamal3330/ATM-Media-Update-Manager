@@ -24,7 +24,7 @@ from network_probe import tcp_connect_probe
 from xfs_cdm_diagnostics import diagnose_xfs_cdm, format_diagnostics
 from xfs_cdm_reader import read_cash_units, format_read_result
 
-AGENT_VERSION = "2.0.2"
+AGENT_VERSION = "2.0.3"
 DEFAULT_INSTALL_DIR = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "ATM Media Agent"
 DEFAULT_CONFIG = DEFAULT_INSTALL_DIR / "config.json"
 SERVICE_NAME = "ATMUnifiedAgent"
@@ -194,6 +194,16 @@ class AtmAgent:
         self.remote_config: RemoteConfig | None = None
         self.applied_config_version = 0
 
+    def write_runtime_state(self) -> None:
+        write_state(
+            self.local_config,
+            module_statuses=self.modules.module_statuses(),
+            current_package_version=self.media_module.current_package_version,
+            last_cash_snapshot_at=self.cash_module.last_snapshot_at,
+            last_cash_unit_count=self.cash_module.last_unit_count,
+            last_cash_error=self.cash_module.last_error,
+        )
+
     def handle_switch_probe(self) -> None:
         probe = self.api.get_switch_probe()
         if not probe:
@@ -261,6 +271,7 @@ class AtmAgent:
         )
         self.handle_switch_probe()
         self.modules.tick(time.monotonic())
+        self.write_runtime_state()
 
     def run_forever(self) -> None:
         last_heartbeat = 0.0
@@ -306,11 +317,7 @@ class AtmAgent:
                 if config:
                     self.handle_switch_probe()
                     self.modules.tick(now)
-                    write_state(
-                        self.local_config,
-                        module_statuses=self.modules.module_statuses(),
-                        current_package_version=self.media_module.current_package_version,
-                    )
+                    self.write_runtime_state()
             except requests.RequestException as exc:
                 response = getattr(exc, "response", None)
                 if response is not None:
@@ -453,6 +460,10 @@ def status_command(args: argparse.Namespace) -> None:
         print(f"Last Server Error: {state['last_server_error']}")
     if state.get("last_update_error"):
         print(f"Last Update Error: {state['last_update_error']}")
+    print(f"Last Cash Snapshot: {state.get('last_cash_snapshot_at', '-')}")
+    print(f"Last Cash Unit Count: {state.get('last_cash_unit_count', '-')}")
+    if state.get("last_cash_error"):
+        print(f"Last Cash Error: {state['last_cash_error']}")
 
     session = requests.Session()
     session.headers.update({"X-ATM-ID": config.atm_id, "X-API-Key": config.api_key})
