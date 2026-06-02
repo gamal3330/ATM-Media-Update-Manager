@@ -29,6 +29,7 @@ from ..schemas import (
     ATMRead,
     ATMRebootRequest,
     ATMUpdate,
+    SwitchProbeRequest,
     SwitchProbeRead,
 )
 from ..services.audit_service import write_audit
@@ -333,12 +334,37 @@ def update_atm(
 @router.post("/{atm_id}/switch-probe", response_model=SwitchProbeRead, status_code=status.HTTP_202_ACCEPTED)
 def request_switch_probe(
     atm_id: str,
+    payload: SwitchProbeRequest | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AtmSwitchProbe:
     atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
     if not atm:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ATM not found")
+
+    host = payload.host if payload and payload.host else atm.switch_probe_host
+    port = payload.port if payload and payload.port else atm.switch_probe_port
+    host_or_port_changed = host != atm.switch_probe_host or port != atm.switch_probe_port
+    if host_or_port_changed:
+        previous = {"switch_probe_host": atm.switch_probe_host, "switch_probe_port": atm.switch_probe_port}
+        atm.switch_probe_host = host
+        atm.switch_probe_port = port
+        atm.config_version += 1
+        atm.config_updated_at = datetime.now(timezone.utc)
+        record_agent_config_snapshot(db, atm, current_user.username)
+        write_audit(
+            db,
+            actor_type="user",
+            actor_id=current_user.username,
+            action="atm_switch_probe_target_updated",
+            entity_type="atm",
+            entity_id=atm.atm_id,
+            details={
+                "previous": previous,
+                "current": {"switch_probe_host": host, "switch_probe_port": port},
+                "config_version": atm.config_version,
+            },
+        )
 
     existing = (
         db.query(AtmSwitchProbe)
@@ -347,12 +373,17 @@ def request_switch_probe(
         .first()
     )
     if existing:
-        return existing
+        if existing.host == host and existing.port == port:
+            return existing
+        existing.status = "cancelled"
+        existing.error_message = "Superseded by a new switch probe target"
+        existing.completed_at = datetime.now(timezone.utc)
+        db.flush()
 
     probe = AtmSwitchProbe(
         atm_id=atm.id,
-        host=atm.switch_probe_host,
-        port=atm.switch_probe_port,
+        host=host,
+        port=port,
         status="pending",
         requested_by=current_user.username,
     )

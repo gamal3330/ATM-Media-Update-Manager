@@ -241,8 +241,11 @@ export const api = {
     request(`/api/atms/${encodeURIComponent(atmId)}`, { method: "PUT", body: JSON.stringify(payload) }),
   regenerateAtmApiKey: (atmId) =>
     request(`/api/atms/${encodeURIComponent(atmId)}/regenerate-api-key`, { method: "POST" }),
-  requestSwitchProbe: (atmId) =>
-    request(`/api/atms/${encodeURIComponent(atmId)}/switch-probe`, { method: "POST" }),
+  requestSwitchProbe: (atmId, payload = null) =>
+    request(`/api/atms/${encodeURIComponent(atmId)}/switch-probe`, {
+      method: "POST",
+      ...(payload ? { body: JSON.stringify(payload) } : {}),
+    }),
   listSwitchProbes: (atmId) => request(`/api/atms/${encodeURIComponent(atmId)}/switch-probes`),
   deleteAtm: (atmId, force = false) =>
     request(`/api/atms/${encodeURIComponent(atmId)}${force ? "?force=true" : ""}`, { method: "DELETE" }),

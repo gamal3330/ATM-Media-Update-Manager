@@ -383,6 +383,16 @@ class SwitchProbeRead(BaseModel):
     error_message: str | None = None
 
 
+class SwitchProbeRequest(BaseModel):
+    host: str | None = Field(default=None, min_length=1, max_length=120)
+    port: int | None = Field(default=None, ge=1, le=65535)
+
+    @field_validator("host")
+    @classmethod
+    def validate_host(cls, value: str | None) -> str | None:
+        return validate_probe_host(value)
+
+
 class AgentSwitchProbeRequest(BaseModel):
     has_probe: bool
     probe: SwitchProbeRead | None = None

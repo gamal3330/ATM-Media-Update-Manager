@@ -355,6 +355,47 @@ def test_switch_probe_request_and_agent_result() -> None:
         assert history.json()[0]["status"] == "success"
 
 
+def test_switch_probe_new_target_supersedes_existing_pending_probe() -> None:
+    with TestClient(app) as client:
+        headers = login(client)
+        atm_response = client.post(
+            "/api/atms",
+            json={
+                "atm_id": "ATM-SWITCH-CHANGE",
+                "name": "Switch Change ATM",
+                "vpn_ip": "10.10.0.49",
+                "branch": "HQ",
+                "switch_probe_host": "172.16.25.75",
+                "switch_probe_port": 10200,
+            },
+            headers=headers,
+        )
+        assert atm_response.status_code == 201
+
+        first = client.post("/api/atms/ATM-SWITCH-CHANGE/switch-probe", headers=headers)
+        assert first.status_code == 202
+        assert first.json()["host"] == "172.16.25.75"
+
+        second = client.post(
+            "/api/atms/ATM-SWITCH-CHANGE/switch-probe",
+            json={"host": "172.16.75.25", "port": 10200},
+            headers=headers,
+        )
+        assert second.status_code == 202
+        assert second.json()["id"] != first.json()["id"]
+        assert second.json()["host"] == "172.16.75.25"
+
+        history = client.get("/api/atms/ATM-SWITCH-CHANGE/switch-probes", headers=headers)
+        assert history.status_code == 200
+        statuses = {item["id"]: item["status"] for item in history.json()}
+        assert statuses[first.json()["id"]] == "cancelled"
+        assert statuses[second.json()["id"]] == "pending"
+
+        atm = client.get("/api/atms/ATM-SWITCH-CHANGE", headers=headers)
+        assert atm.status_code == 200
+        assert atm.json()["switch_probe_host"] == "172.16.75.25"
+
+
 def test_cash_layout_validation_allows_duplicate_denomination_but_not_duplicate_cassette() -> None:
     with TestClient(app) as client:
         headers = login(client)

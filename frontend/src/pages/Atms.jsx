@@ -708,12 +708,12 @@ export default function Atms({ atms, onChanged }) {
     }
   }
 
-  async function requestSwitchProbe(atm) {
+  async function requestSwitchProbe(atm, target = null) {
     setSwitchProbeBusyId(atm.atm_id);
     setError("");
     setSettingsMessage("");
     try {
-      const probe = await api.requestSwitchProbe(atm.atm_id);
+      const probe = await api.requestSwitchProbe(atm.atm_id, target);
       setSwitchProbeDialog({
         open: true,
         atm: { atm_id: atm.atm_id, name: atm.name },
@@ -1144,19 +1144,18 @@ export default function Atms({ atms, onChanged }) {
                     <div className="font-semibold text-slate-950">Switch Probe</div>
                     <button
                       type="button"
-                      onClick={() => requestSwitchProbe(selectedAtm)}
-                      disabled={switchProbeBusyId === selectedAtm.atm_id || isSwitchTargetDirty(selectedAtm, settingsForm)}
+                      onClick={() =>
+                        requestSwitchProbe(selectedAtm, {
+                          host: (settingsForm.switch_probe_host || "").trim(),
+                          port: Number(settingsForm.switch_probe_port),
+                        })
+                      }
+                      disabled={switchProbeBusyId === selectedAtm.atm_id}
                       className="focus-ring inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-60"
                       title="فحص الوصول إلى السويتش من داخل الصراف"
                     >
                       <Network size={15} />
-                      <span>
-                        {isSwitchTargetDirty(selectedAtm, settingsForm)
-                          ? "احفظ أولاً"
-                          : switchProbeBusyId === selectedAtm.atm_id
-                            ? "جار الطلب"
-                            : "فحص الآن"}
-                      </span>
+                      <span>{switchProbeBusyId === selectedAtm.atm_id ? "جار الطلب" : "فحص الآن"}</span>
                     </button>
                   </div>
                   <div className="grid gap-3 p-4 sm:grid-cols-2">
