@@ -28,6 +28,10 @@ const currencyOptions = [
   ["USD", "دولار"],
 ];
 const cassetteNumbers = [1, 2, 3, 4];
+const xfsProfileDefaults = {
+  ncr_aptra: "MediaDispenser1",
+  grg: "CDM",
+};
 const settingsFields = [
   ["media_path", "Media Path", "C:/ATM/Media"],
   ["backup_path", "Backup Path", "C:/ATM/Media_Backup"],
@@ -128,7 +132,8 @@ function buildSettingsForm(atm) {
     cash_monitoring_enabled: atm?.cash_monitoring_enabled ?? false,
     atm_cash_mode: atm?.atm_cash_mode || "DISPENSE_ONLY",
     cash_provider: atm?.cash_provider || "mock",
-    xfs_logical_service: atm?.xfs_logical_service || "MediaDispenser1",
+    xfs_profile: atm?.xfs_profile || "ncr_aptra",
+    xfs_logical_service: atm?.xfs_logical_service || xfsProfileDefaults[atm?.xfs_profile] || "MediaDispenser1",
     cash_layout: normalizeCashLayout(atm?.cash_layout_json),
     cash_read_interval_seconds: String(atm?.cash_read_interval_seconds || 120),
     cash_stale_after_minutes: String(atm?.cash_stale_after_minutes || 10),
@@ -370,6 +375,7 @@ export default function Atms({ atms, onChanged }) {
         cash_monitoring_enabled: Boolean(settingsForm.cash_monitoring_enabled),
         atm_cash_mode: "DISPENSE_ONLY",
         cash_provider: settingsForm.cash_provider || "mock",
+        xfs_profile: settingsForm.xfs_profile || "ncr_aptra",
         xfs_logical_service: (settingsForm.xfs_logical_service || "").trim() || "MediaDispenser1",
         cash_layout: normalizeCashLayout(settingsForm.cash_layout),
         cash_read_interval_seconds: Number(settingsForm.cash_read_interval_seconds),
@@ -805,6 +811,30 @@ export default function Atms({ atms, onChanged }) {
                   <option value="xfs_cdm">XFS CDM Provider</option>
                   <option value="vendor_cdm">Vendor CDM Provider</option>
                 </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">XFS Profile</span>
+                <select
+                  className={`focus-ring w-full rounded-lg border px-3 py-2 ${
+                    fieldErrors.xfs_profile ? "border-rose-400 bg-rose-50" : "border-slate-300"
+                  }`}
+                  value={settingsForm.xfs_profile || "ncr_aptra"}
+                  onChange={(event) => {
+                    const nextProfile = event.target.value;
+                    setSettingsForm((current) => ({
+                      ...current,
+                      xfs_profile: nextProfile,
+                      xfs_logical_service: xfsProfileDefaults[nextProfile] || current.xfs_logical_service,
+                    }));
+                  }}
+                >
+                  <option value="ncr_aptra">NCR APTRA</option>
+                  <option value="grg">GRG</option>
+                  <option value="custom">Custom</option>
+                </select>
+                {fieldErrors.xfs_profile && (
+                  <span className="mt-1 block text-xs text-rose-700">{fieldErrors.xfs_profile}</span>
+                )}
               </label>
               <label className="block">
                 <span className="mb-1 block text-sm font-medium text-slate-700">XFS Logical Service</span>

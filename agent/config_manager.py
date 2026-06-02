@@ -42,6 +42,7 @@ class CashMonitoringConfig:
     enabled: bool
     atm_cash_mode: str
     provider: str
+    xfs_profile: str
     xfs_logical_service: str
     read_interval_seconds: int
     cash_layout: list[CashLayoutItem]
@@ -126,6 +127,7 @@ def parse_remote_config(payload: dict[str, Any]) -> RemoteConfig:
         "enabled": False,
         "atm_cash_mode": "DISPENSE_ONLY",
         "provider": "mock",
+        "xfs_profile": "ncr_aptra",
         "xfs_logical_service": "MediaDispenser1",
         "read_interval_seconds": 120,
         "cash_layout": [],
@@ -142,6 +144,10 @@ def parse_remote_config(payload: dict[str, Any]) -> RemoteConfig:
         )
         for item in cash_payload.get("cash_layout", [])
     ]
+    xfs_profile = str(cash_payload.get("xfs_profile") or "ncr_aptra").strip().lower() or "ncr_aptra"
+    if xfs_profile not in {"ncr_aptra", "grg", "custom"}:
+        xfs_profile = "custom"
+    default_logical_service = "CDM" if xfs_profile == "grg" else "MediaDispenser1"
     return RemoteConfig(
         atm_id=str(payload["atm_id"]),
         config_version=int(payload["config_version"]),
@@ -159,8 +165,9 @@ def parse_remote_config(payload: dict[str, Any]) -> RemoteConfig:
             enabled=bool(cash_payload.get("enabled", False)),
             atm_cash_mode=str(cash_payload.get("atm_cash_mode") or "DISPENSE_ONLY"),
             provider=str(cash_payload.get("provider") or "mock"),
-            xfs_logical_service=str(cash_payload.get("xfs_logical_service") or "MediaDispenser1").strip()
-            or "MediaDispenser1",
+            xfs_profile=xfs_profile,
+            xfs_logical_service=str(cash_payload.get("xfs_logical_service") or default_logical_service).strip()
+            or default_logical_service,
             read_interval_seconds=int(cash_payload.get("read_interval_seconds") or 120),
             cash_layout=cash_layout,
             stale_after_minutes=int(cash_payload.get("stale_after_minutes") or 10),

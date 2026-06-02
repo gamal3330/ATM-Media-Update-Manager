@@ -45,6 +45,7 @@ CONFIG_FIELDS = {
     "media_update_enabled",
     "cash_monitoring_enabled",
     "cash_provider",
+    "xfs_profile",
     "xfs_logical_service",
     "atm_cash_mode",
     "cash_layout_json",
@@ -53,6 +54,10 @@ CONFIG_FIELDS = {
     "cash_critical_threshold_default",
     "cash_stale_after_minutes",
 }
+
+
+def default_xfs_logical_service(xfs_profile: str | None) -> str:
+    return "CDM" if xfs_profile == "grg" else "MediaDispenser1"
 
 
 def record_agent_config_snapshot(db: Session, atm: ATM, updated_by: str | None) -> None:
@@ -69,6 +74,7 @@ def record_agent_config_snapshot(db: Session, atm: ATM, updated_by: str | None) 
             media_check_interval_seconds=atm.check_interval_seconds,
             cash_monitoring_enabled=atm.cash_monitoring_enabled,
             cash_provider=atm.cash_provider,
+            xfs_profile=atm.xfs_profile,
             xfs_logical_service=atm.xfs_logical_service,
             atm_cash_mode=atm.atm_cash_mode,
             cash_layout_json=atm.cash_layout_json,
@@ -97,6 +103,7 @@ def create_atm(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ATM ID already exists")
 
     api_key = generate_api_key()
+    xfs_profile = payload.xfs_profile or "ncr_aptra"
     atm = ATM(
         atm_id=payload.atm_id,
         name=payload.name,
@@ -113,7 +120,8 @@ def create_atm(
         media_update_enabled=True if payload.media_update_enabled is None else payload.media_update_enabled,
         cash_monitoring_enabled=False if payload.cash_monitoring_enabled is None else payload.cash_monitoring_enabled,
         cash_provider=payload.cash_provider or "mock",
-        xfs_logical_service=payload.xfs_logical_service or "MediaDispenser1",
+        xfs_profile=xfs_profile,
+        xfs_logical_service=payload.xfs_logical_service or default_xfs_logical_service(xfs_profile),
         atm_cash_mode=payload.atm_cash_mode or "DISPENSE_ONLY",
         cash_layout_json=normalized_cash_layout(
             [item.model_dump() for item in payload.cash_layout] if payload.cash_layout is not None else None
@@ -278,6 +286,10 @@ def update_atm(
     changes = payload.model_dump(exclude_unset=True)
     if "cash_layout" in changes:
         changes["cash_layout_json"] = normalized_cash_layout(changes.pop("cash_layout"))
+    if "xfs_profile" in changes and "xfs_logical_service" not in changes:
+        old_default = default_xfs_logical_service(atm.xfs_profile)
+        if atm.xfs_logical_service == old_default:
+            changes["xfs_logical_service"] = default_xfs_logical_service(changes["xfs_profile"])
     config_changes = {
         key: value for key, value in changes.items() if key in CONFIG_FIELDS and getattr(atm, key) != value
     }

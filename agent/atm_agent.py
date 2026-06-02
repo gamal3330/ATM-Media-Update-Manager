@@ -452,6 +452,7 @@ def status_command(args: argparse.Namespace) -> None:
             print(f"Cash Monitoring Enabled: {cash.get('enabled', False)}")
             print(f"ATM Cash Mode: {cash.get('atm_cash_mode', 'DISPENSE_ONLY')}")
             print(f"CDM Provider: {cash.get('provider', '-')}")
+            print(f"XFS Profile: {cash.get('xfs_profile', 'ncr_aptra')}")
             print(f"XFS Logical Service: {cash.get('xfs_logical_service', 'MediaDispenser1')}")
             print(f"Dispense Cassette Layout Count: {len(cash.get('cash_layout') or [])}")
         else:

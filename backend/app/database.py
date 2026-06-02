@@ -92,6 +92,7 @@ def migrate_existing_schema() -> None:
                 "cash_monitoring_enabled": "BOOLEAN NOT NULL DEFAULT 0",
                 "module_status_json": "JSON NOT NULL DEFAULT '{}'",
                 "cash_provider": "VARCHAR(40) NOT NULL DEFAULT 'mock'",
+                "xfs_profile": "VARCHAR(40) NOT NULL DEFAULT 'ncr_aptra'",
                 "xfs_logical_service": "VARCHAR(120) NOT NULL DEFAULT 'MediaDispenser1'",
                 "atm_cash_mode": "VARCHAR(40) NOT NULL DEFAULT 'DISPENSE_ONLY'",
                 "cash_layout_json": "JSON NOT NULL DEFAULT '[]'",
@@ -127,6 +128,7 @@ def migrate_existing_schema() -> None:
             existing_columns = {column["name"] for column in inspector.get_columns("atm_agent_configs")}
             config_columns = {
                 "atm_cash_mode": "VARCHAR(40) NOT NULL DEFAULT 'DISPENSE_ONLY'",
+                "xfs_profile": "VARCHAR(40) NOT NULL DEFAULT 'ncr_aptra'",
                 "xfs_logical_service": "VARCHAR(120) NOT NULL DEFAULT 'MediaDispenser1'",
                 "cash_layout_json": "JSON NOT NULL DEFAULT '[]'",
             }

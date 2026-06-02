@@ -230,6 +230,7 @@ sc.exe query ATMUnifiedAgent
     "enabled": true,
     "atm_cash_mode": "DISPENSE_ONLY",
     "provider": "xfs_cdm",
+    "xfs_profile": "grg",
     "xfs_logical_service": "CDM",
     "read_interval_seconds": 120,
     "cash_layout": [
@@ -243,7 +244,12 @@ sc.exe query ATMUnifiedAgent
 }
 ```
 
-استخدم `MediaDispenser1` غالبًا لصرافات NCR APTRA، واستخدم `CDM` لصراف GRG الذي نجح معه أمر القراءة:
+نفس ملف `atm-agent.exe` يعمل على NCR و GRG. الاختلاف من إعدادات الصراف في لوحة التحكم فقط:
+
+- NCR APTRA: `xfs_profile = ncr_aptra` و `xfs_logical_service = MediaDispenser1`
+- GRG: `xfs_profile = grg` و `xfs_logical_service = CDM`
+
+استخدم `CDM` لصراف GRG الذي نجح معه أمر القراءة:
 
 ```powershell
 .\atm-agent.exe xfs-cdm-read --logical-service "CDM" --msxfs-path "C:\Windows\SysWOW64\msxfs.dll" --json

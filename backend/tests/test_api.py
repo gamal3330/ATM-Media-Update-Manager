@@ -241,6 +241,7 @@ def test_agent_config_ack_and_atm_settings_version() -> None:
                 "media_path": "C:/ATM/NewMedia",
                 "backup_path": "C:/ATM/NewBackup",
                 "temp_path": "C:/ATM/NewTemp",
+                "xfs_profile": "grg",
                 "xfs_logical_service": "CDM",
             },
             headers=headers,
@@ -254,6 +255,7 @@ def test_agent_config_ack_and_atm_settings_version() -> None:
         assert config.json()["modules"]["media_update"]["enabled"] is True
         assert config.json()["modules"]["cash_monitoring"]["enabled"] is False
         assert config.json()["modules"]["cash_monitoring"]["atm_cash_mode"] == "DISPENSE_ONLY"
+        assert config.json()["modules"]["cash_monitoring"]["xfs_profile"] == "grg"
         assert config.json()["modules"]["cash_monitoring"]["xfs_logical_service"] == "CDM"
         assert config.json()["modules"]["cash_monitoring"]["cash_layout"][0]["cassette_no"] == 1
 

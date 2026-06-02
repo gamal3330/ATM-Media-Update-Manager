@@ -13,6 +13,7 @@ ALLOWED_CURRENCIES = {"YER", "USD", "SAR"}
 ALLOWED_DENOMINATIONS = {"YER": {1000}, "USD": {100}, "SAR": {100}}
 CASH_MODE_DISPENSE_ONLY = "DISPENSE_ONLY"
 CashDispenseProvider = Literal["mock", "xfs_cdm", "vendor_cdm"]
+XfsProfile = Literal["ncr_aptra", "grg", "custom"]
 
 
 def validate_atm_managed_path(value: str | None) -> str | None:
@@ -158,6 +159,7 @@ class ATMCreate(ATMBase):
     cash_monitoring_enabled: bool | None = None
     atm_cash_mode: Literal["DISPENSE_ONLY"] | None = None
     cash_provider: CashDispenseProvider | None = None
+    xfs_profile: XfsProfile | None = None
     xfs_logical_service: str | None = Field(default=None, min_length=1, max_length=120)
     cash_layout: list[CashLayoutItem] | None = None
     cash_read_interval_seconds: int | None = Field(default=None, ge=30, le=86400)
@@ -204,6 +206,7 @@ class ATMUpdate(BaseModel):
     cash_monitoring_enabled: bool | None = None
     atm_cash_mode: Literal["DISPENSE_ONLY"] | None = None
     cash_provider: CashDispenseProvider | None = None
+    xfs_profile: XfsProfile | None = None
     xfs_logical_service: str | None = Field(default=None, min_length=1, max_length=120)
     cash_layout: list[CashLayoutItem] | None = None
     cash_read_interval_seconds: int | None = Field(default=None, ge=30, le=86400)
@@ -261,6 +264,7 @@ class ATMRead(ATMBase):
     module_status_json: dict[str, Any] = Field(default_factory=dict)
     atm_cash_mode: str
     cash_provider: str
+    xfs_profile: str
     xfs_logical_service: str
     cash_layout_json: list[dict[str, Any]] = Field(default_factory=list)
     cash_read_interval_seconds: int
@@ -466,6 +470,7 @@ class CashMonitoringRemoteConfig(BaseModel):
     enabled: bool
     atm_cash_mode: Literal["DISPENSE_ONLY"] = "DISPENSE_ONLY"
     provider: CashDispenseProvider = "mock"
+    xfs_profile: XfsProfile = "ncr_aptra"
     xfs_logical_service: str = "MediaDispenser1"
     read_interval_seconds: int
     cash_layout: list[CashLayoutItem] = Field(default_factory=list)

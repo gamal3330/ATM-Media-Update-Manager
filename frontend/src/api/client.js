@@ -39,6 +39,7 @@ const fieldLabels = {
   switch_probe_port: "Switch Port",
   atm_cash_mode: "ATM Cash Mode",
   cash_provider: "Cash Provider",
+  xfs_profile: "XFS Profile",
   xfs_logical_service: "XFS Logical Service",
   cash_layout: "Cash Layout",
   cash_read_interval_seconds: "Cash Read Interval",
