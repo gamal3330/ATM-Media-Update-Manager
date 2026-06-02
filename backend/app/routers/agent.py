@@ -33,6 +33,12 @@ from ..services.package_service import ALLOWED_IMAGE_EXTENSIONS
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
 
+def effective_cash_provider(atm: ATM) -> str:
+    if atm.cash_monitoring_enabled and atm.cash_provider == "vendor_cdm":
+        return "xfs_cdm"
+    return atm.cash_provider
+
+
 def update_target_progress(
     target: UpdateTarget,
     *,
@@ -72,7 +78,7 @@ def get_agent_config(atm: ATM = Depends(get_agent_atm)) -> AgentConfigResponse:
             cash_monitoring=CashMonitoringRemoteConfig(
                 enabled=atm.cash_monitoring_enabled,
                 atm_cash_mode=atm.atm_cash_mode,
-                provider=atm.cash_provider,
+                provider=effective_cash_provider(atm),
                 xfs_profile=atm.xfs_profile,
                 xfs_logical_service=atm.xfs_logical_service,
                 xfs_msxfs_path=atm.xfs_msxfs_path,
