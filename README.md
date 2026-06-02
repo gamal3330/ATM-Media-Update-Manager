@@ -110,7 +110,7 @@ agent\dist\atm-agent.exe
 تثبيت الخدمة مرة واحدة فقط كمسؤول:
 
 ```bat
-atm-agent.exe install --server-url https://atm-update-server.local --atm-id ATM001 --api-key XXXXX
+atm-agent.exe install --server-url="https://atm-update-server.local" --atm-id="ATM001" --api-key="XXXXX"
 ```
 
 بعد التثبيت تعمل الخدمة تلقائياً مع Windows باسم:
@@ -184,7 +184,7 @@ dist\atm-agent.exe
 6. على الصراف افتح Command Prompt كمسؤول وشغّل أمر التثبيت المنسوخ من لوحة التحكم:
 
 ```bat
-atm-agent.exe install --server-url http://SERVER:8001 --atm-id ATM001 --api-key "KEY"
+atm-agent.exe install --server-url="http://SERVER:8001" --atm-id="ATM001" --api-key="KEY"
 ```
 
 7. للتحقق:

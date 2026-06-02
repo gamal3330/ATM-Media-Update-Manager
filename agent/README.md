@@ -43,7 +43,7 @@ agent\dist\atm-agent.exe
 Run Command Prompt as Administrator:
 
 ```bat
-atm-agent.exe install --server-url https://atm-update-server.local --atm-id ATM001 --api-key CHANGE_ME
+atm-agent.exe install --server-url="https://atm-update-server.local" --atm-id="ATM001" --api-key="CHANGE_ME"
 ```
 
 If a previous agent is already installed, `install` validates the server/API key first, stops and deletes
@@ -71,7 +71,7 @@ ATMUnifiedAgent
 ## Commands
 
 ```bat
-atm-agent.exe install --server-url https://server --atm-id ATM001 --api-key XXXXX
+atm-agent.exe install --server-url="https://server" --atm-id="ATM001" --api-key="XXXXX"
 atm-agent.exe uninstall
 atm-agent.exe status
 atm-agent.exe version

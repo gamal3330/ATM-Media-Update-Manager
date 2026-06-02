@@ -205,7 +205,7 @@ function buildSettingsForm(atm) {
 }
 
 function buildInstallCommand(atmId, apiKey) {
-  return `atm-agent.exe install --server-url ${apiBaseUrl} --atm-id ${atmId} --api-key "${apiKey}"`;
+  return `atm-agent.exe install --server-url="${apiBaseUrl}" --atm-id="${atmId}" --api-key="${apiKey}"`;
 }
 
 function getLatencyTone(latencyMs) {

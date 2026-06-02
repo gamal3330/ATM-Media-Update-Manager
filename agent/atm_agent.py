@@ -24,12 +24,53 @@ from network_probe import tcp_connect_probe
 from xfs_cdm_diagnostics import diagnose_xfs_cdm, format_diagnostics
 from xfs_cdm_reader import read_cash_units, format_read_result
 
-AGENT_VERSION = "2.0.3"
+AGENT_VERSION = "2.0.4"
 DEFAULT_INSTALL_DIR = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "ATM Media Agent"
 DEFAULT_CONFIG = DEFAULT_INSTALL_DIR / "config.json"
 SERVICE_NAME = "ATMUnifiedAgent"
 LEGACY_SERVICE_NAMES = ["ATMMediaAgent"]
 SERVICE_DISPLAY_NAME = "ATM Unified Agent Service"
+
+ARGS_THAT_MAY_START_WITH_DASH = {"--api-key"}
+KNOWN_OPTION_ARGS = {
+    "--server-url",
+    "--atm-id",
+    "--api-key",
+    "--install-dir",
+    "--config",
+    "--local-log-path",
+    "--fallback-check-interval-seconds",
+    "--fallback-heartbeat-interval-seconds",
+    "--fallback-config-sync-interval-seconds",
+    "--aptra-root",
+    "--xfs-root",
+    "--msxfs-path",
+    "--logical-service",
+    "--version-range",
+    "--timeout-ms",
+    "--json",
+    "--once",
+}
+
+
+def normalize_dash_prefixed_cli_values(argv: list[str]) -> list[str]:
+    normalized: list[str] = []
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        next_token = argv[index + 1] if index + 1 < len(argv) else None
+        if (
+            token in ARGS_THAT_MAY_START_WITH_DASH
+            and next_token
+            and next_token.startswith("-")
+            and next_token not in KNOWN_OPTION_ARGS
+        ):
+            normalized.append(f"{token}={next_token}")
+            index += 2
+            continue
+        normalized.append(token)
+        index += 1
+    return normalized
 
 
 def utc_now_iso() -> str:
@@ -596,7 +637,7 @@ def main() -> None:
     service_parser.add_argument("--config", default=str(DEFAULT_CONFIG))
     service_parser.set_defaults(func=service_main)
 
-    args = parser.parse_args()
+    args = parser.parse_args(normalize_dash_prefixed_cli_values(sys.argv[1:]))
     args.func(args)
 
 

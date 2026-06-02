@@ -48,7 +48,7 @@ def hash_api_key(api_key: str) -> str:
 
 
 def generate_api_key() -> str:
-    return secrets.token_urlsafe(32)
+    return f"ak_{secrets.token_urlsafe(32)}"
 
 
 def create_access_token(subject: str, extra: dict[str, Any] | None = None) -> str:

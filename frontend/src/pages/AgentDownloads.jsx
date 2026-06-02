@@ -131,7 +131,7 @@ cd .\\ATM-Agent
             </div>
             <div>
               <div className="mb-1 font-medium text-slate-950">4. على الصراف كمسؤول</div>
-              <pre className="overflow-x-auto rounded-lg bg-slate-950 p-3 text-xs text-white" dir="ltr">{`atm-agent.exe install --server-url http://SERVER:8001 --atm-id ATM001 --api-key "KEY"`}</pre>
+              <pre className="overflow-x-auto rounded-lg bg-slate-950 p-3 text-xs text-white" dir="ltr">{`atm-agent.exe install --server-url="http://SERVER:8001" --atm-id="ATM001" --api-key="KEY"`}</pre>
             </div>
           </div>
         </aside>
