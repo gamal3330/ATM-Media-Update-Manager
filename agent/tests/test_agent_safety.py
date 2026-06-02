@@ -321,6 +321,123 @@ def test_cash_monitoring_xfs_provider_sends_dispense_only_snapshot(monkeypatch):
     assert snapshot["reject_retract"]["reject_count"] == 2
 
 
+def test_cash_monitoring_xfs_provider_normalizes_grg_cash_units(monkeypatch):
+    def fake_read_cash_units(logical_service):
+        assert logical_service == "MediaDispenser1"
+        return SimpleNamespace(
+            cash_units=[
+                SimpleNamespace(
+                    cassette_no=1,
+                    unit_type="REJECT_CASSETTE",
+                    cassette_name="",
+                    unit_id="S0_I0",
+                    denomination=0,
+                    initial_count=0,
+                    current_count=1,
+                    reject_count=0,
+                    max_capacity=170,
+                    status="OK",
+                    dispensed_count=0,
+                    presented_count=0,
+                    retracted_count=1207553650,
+                ),
+                SimpleNamespace(
+                    cassette_no=2,
+                    unit_type="COUPON",
+                    cassette_name="",
+                    unit_id="S0_I1",
+                    denomination=0,
+                    initial_count=0,
+                    current_count=0,
+                    reject_count=0,
+                    max_capacity=150,
+                    status="OK",
+                    dispensed_count=0,
+                    presented_count=0,
+                    retracted_count=1177363481,
+                ),
+                SimpleNamespace(
+                    cassette_no=3,
+                    unit_type="BILL_CASSETTE",
+                    cassette_name="",
+                    unit_id="00001",
+                    denomination=1000,
+                    initial_count=1500,
+                    current_count=1281,
+                    reject_count=0,
+                    max_capacity=2000,
+                    status="OK",
+                    dispensed_count=0,
+                    presented_count=0,
+                    retracted_count=1177560082,
+                ),
+                SimpleNamespace(
+                    cassette_no=4,
+                    unit_type="BILL_CASSETTE",
+                    cassette_name="",
+                    unit_id="00002",
+                    denomination=1000,
+                    initial_count=1500,
+                    current_count=1280,
+                    reject_count=1,
+                    max_capacity=2000,
+                    status="OK",
+                    dispensed_count=0,
+                    presented_count=0,
+                    retracted_count=1197600389,
+                ),
+                SimpleNamespace(
+                    cassette_no=5,
+                    unit_type="BILL_CASSETTE",
+                    cassette_name="",
+                    unit_id="00003",
+                    denomination=100,
+                    initial_count=100,
+                    current_count=92,
+                    reject_count=0,
+                    max_capacity=2000,
+                    status="OK",
+                    dispensed_count=0,
+                    presented_count=0,
+                    retracted_count=1199566571,
+                ),
+                SimpleNamespace(
+                    cassette_no=6,
+                    unit_type="BILL_CASSETTE",
+                    cassette_name="",
+                    unit_id="00004",
+                    denomination=100,
+                    initial_count=100,
+                    current_count=100,
+                    reject_count=0,
+                    max_capacity=2000,
+                    status="OK",
+                    dispensed_count=0,
+                    presented_count=0,
+                    retracted_count=1195241129,
+                ),
+            ]
+        )
+
+    monkeypatch.setattr("cash_monitoring_module.read_cash_units", fake_read_cash_units)
+    api = FakeApi()
+    logger = __import__("logging").getLogger("test")
+    module = CashMonitoringModule(api, "ATM001", logger)
+    payload = remote_payload(cash_enabled=True)
+    payload["modules"]["cash_monitoring"]["provider"] = "xfs_cdm"
+    module.configure(parse_remote_config(payload))
+    module.tick(999999.0)
+
+    snapshot = api.snapshots[0]
+    assert [unit["cassette_no"] for unit in snapshot["cash_units"]] == [1, 2, 3, 4]
+    assert [unit["cassette_id"] for unit in snapshot["cash_units"]] == ["00001", "00002", "00003", "00004"]
+    assert snapshot["cash_units"][0]["current_count"] == 1281
+    assert snapshot["cash_units"][2]["reported_currency"] == "USD"
+    assert snapshot["cash_units"][3]["reported_currency"] == "SAR"
+    assert snapshot["reject_retract"]["reject_count"] == 1
+    assert snapshot["reject_retract"]["retract_count"] == 0
+
+
 def test_xfs_cdm_diagnostics_detects_ncr_aptra_files(tmp_path):
     aptra = tmp_path / "NCR APTRA"
     cdm = aptra / "XFS CDM Service Provider"

@@ -175,25 +175,32 @@ class XfsCdmProvider:
         )
         return max(values or [0])
 
+    @staticmethod
+    def _safe_retract_count(unit: XfsCashUnitRead) -> int:
+        value = int(getattr(unit, "retracted_count", 0) or 0)
+        # Some GRG XFS providers expose uninitialized high-order values here.
+        if value < 0 or value > 100000:
+            return 0
+        return value
+
     def get_dispense_cash_snapshot(self, atm_id: str, config: CashMonitoringConfig) -> list[DispenseCashUnit]:
         result = self._read()
         units: list[DispenseCashUnit] = []
-        for xfs_unit in result.cash_units:
-            if self._is_reject_or_retract_unit(xfs_unit):
-                continue
-            layout = self._layout_for(config, xfs_unit.cassette_no)
+        dispense_units = [unit for unit in result.cash_units if not self._is_reject_or_retract_unit(unit)]
+        for logical_cassette_no, xfs_unit in enumerate(dispense_units, start=1):
+            layout = self._layout_for(config, logical_cassette_no)
             current_count = int(xfs_unit.current_count)
             units.append(
                 DispenseCashUnit(
-                    cassette_no=xfs_unit.cassette_no,
+                    cassette_no=logical_cassette_no,
                     cassette_id=xfs_unit.unit_id or f"CST{xfs_unit.cassette_no:02d}",
-                    cassette_name=xfs_unit.cassette_name or f"Dispense Cassette {xfs_unit.cassette_no}",
+                    cassette_name=xfs_unit.cassette_name or f"Dispense Cassette {logical_cassette_no}",
                     reported_currency=layout.currency,
                     reported_denomination=layout.denomination,
                     initial_count=int(xfs_unit.initial_count),
                     current_count=current_count,
                     reject_count=int(xfs_unit.reject_count),
-                    retract_count=int(xfs_unit.retracted_count),
+                    retract_count=self._safe_retract_count(xfs_unit),
                     dispensed_count=int(xfs_unit.dispensed_count),
                     presented_count=int(xfs_unit.presented_count),
                     status=self._cash_status(current_count, layout, xfs_unit.status),
@@ -209,7 +216,7 @@ class XfsCdmProvider:
         reject_count = sum(int(unit.current_count) for unit in reject_units)
         if reject_count <= 0:
             reject_count = sum(int(unit.reject_count) for unit in dispense_units)
-        retract_count = sum(int(unit.retracted_count) for unit in result.cash_units)
+        retract_count = sum(self._safe_retract_count(unit) for unit in result.cash_units)
         reject_status = "OK"
         retract_status = "OK"
         for unit in reject_units:
