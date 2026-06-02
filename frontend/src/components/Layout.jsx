@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 
 export const nav = [
-  { id: "dashboard", label: "لوحة التحكم", icon: Home },
+  { id: "dashboard", label: "لوحة المراقبة", icon: Home },
   { id: "atms", label: "الصرافات", icon: MonitorCog },
   { id: "upload", label: "رفع الحزمة", icon: Upload },
   { id: "packages", label: "التحديثات", icon: FileArchive },
@@ -75,7 +75,7 @@ export default function Layout({ activePage, setActivePage, onLogout, allowedPag
       </aside>
 
       <main className="min-w-0 flex-1">
-        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">{children}</div>
+        <div className="mx-auto max-w-[1800px] px-4 py-6 sm:px-6 lg:px-8">{children}</div>
       </main>
     </div>
   );
