@@ -43,10 +43,18 @@ function getSwitchStatus(atm) {
   return { label: "جاري", tone: "bg-amber-50 text-amber-700" };
 }
 
+function hasRecentAgentError(atm) {
+  if (!atm.last_agent_error_at) return false;
+  const timestamp = new Date(atm.last_agent_error_at).getTime();
+  if (!Number.isFinite(timestamp)) return false;
+  return Date.now() - timestamp <= 10 * 60 * 1000;
+}
+
 function getAtmHealth(atm) {
   const online = isRecentlyOnline(atm);
   const moduleStatuses = atm.module_status_json || {};
   const hasModuleError = Object.values(moduleStatuses).some((status) => String(status).toLowerCase() === "error");
+  const recentAgentError = hasRecentAgentError(atm);
 
   if (!online) {
     return {
@@ -61,7 +69,7 @@ function getAtmHealth(atm) {
     };
   }
 
-  if (atm.last_config_error || atm.last_agent_error || hasModuleError) {
+  if (atm.last_config_error || recentAgentError || hasModuleError) {
     return {
       rank: 1,
       label: "Error",
@@ -152,7 +160,7 @@ function AtmMonitorCard({ atm }) {
   const health = getAtmHealth(atm);
   const HealthIcon = health.icon;
   const switchStatus = getSwitchStatus(atm);
-  const lastProblem = atm.last_config_error || atm.last_agent_error || atm.last_switch_probe_error;
+  const lastProblem = atm.last_config_error || (hasRecentAgentError(atm) ? atm.last_agent_error : null) || atm.last_switch_probe_error;
 
   return (
     <article className={`relative overflow-hidden rounded-lg border p-4 shadow-sm ${health.shell}`}>

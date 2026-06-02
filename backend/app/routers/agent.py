@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from ..auth import get_agent_atm
 from ..cash_layout import normalized_cash_layout
 from ..database import get_db
-from ..models import ATM, AgentCommand, AgentLog, AtmSwitchProbe, UpdatePackage, UpdateResult, UpdateTarget
+from ..models import ATM, AgentCommand, AgentLog, AtmCashSnapshot, AtmSwitchProbe, UpdatePackage, UpdateResult, UpdateTarget
 from ..schemas import (
     AgentCommandAckRequest,
     AgentCommandRead,
@@ -37,6 +37,21 @@ def effective_cash_provider(atm: ATM) -> str:
     if atm.cash_monitoring_enabled and atm.cash_provider == "vendor_cdm":
         return "xfs_cdm"
     return atm.cash_provider
+
+
+def has_recent_cash_snapshot(db: Session, atm: ATM, now: datetime) -> bool:
+    latest = (
+        db.query(AtmCashSnapshot)
+        .filter(AtmCashSnapshot.atm_id == atm.id)
+        .order_by(AtmCashSnapshot.read_at.desc())
+        .first()
+    )
+    if latest is None:
+        return False
+    read_at = latest.read_at
+    if read_at.tzinfo is None:
+        read_at = read_at.replace(tzinfo=timezone.utc)
+    return now - read_at <= timedelta(minutes=atm.cash_stale_after_minutes)
 
 
 def update_target_progress(
@@ -140,7 +155,12 @@ def heartbeat(
     if payload.latency_ms is not None:
         atm.latency_ms = payload.latency_ms
     if payload.module_statuses:
-        atm.module_status_json = payload.module_statuses
+        statuses = dict(atm.module_status_json or {})
+        incoming_statuses = dict(payload.module_statuses)
+        if incoming_statuses.get("cash_monitoring") == "error" and has_recent_cash_snapshot(db, atm, now):
+            incoming_statuses["cash_monitoring"] = "running"
+        statuses.update(incoming_statuses)
+        atm.module_status_json = statuses
     if payload.service_status:
         atm.status = payload.service_status
     current_version = payload.current_package_version or payload.current_version
