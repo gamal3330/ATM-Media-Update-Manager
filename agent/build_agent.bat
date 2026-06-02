@@ -93,6 +93,12 @@ if exist atm-agent.spec del /f /q atm-agent.spec
   --hidden-import safe_zip ^
   --hidden-import service ^
   --hidden-import update_manager ^
+  --hidden-import pythoncom ^
+  --hidden-import pywintypes ^
+  --hidden-import servicemanager ^
+  --hidden-import win32event ^
+  --hidden-import win32service ^
+  --hidden-import win32serviceutil ^
   --hidden-import win32timezone ^
   --hidden-import xfs_cdm_diagnostics ^
   --hidden-import xfs_cdm_reader ^

@@ -24,7 +24,7 @@ from network_probe import tcp_connect_probe
 from xfs_cdm_diagnostics import diagnose_xfs_cdm, format_diagnostics
 from xfs_cdm_reader import read_cash_units, format_read_result
 
-AGENT_VERSION = "2.0.1"
+AGENT_VERSION = "2.0.2"
 DEFAULT_INSTALL_DIR = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "ATM Media Agent"
 DEFAULT_CONFIG = DEFAULT_INSTALL_DIR / "config.json"
 SERVICE_NAME = "ATMUnifiedAgent"
@@ -513,11 +513,27 @@ def service_main(args: argparse.Namespace) -> None:
     if os.name != "nt":
         AtmAgent(Path(args.config)).run_forever()
         return
+    config_path = Path(args.config)
+    bootstrap_log = config_path.parent / "logs" / "service-bootstrap.log"
+    try:
+        bootstrap_log.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        bootstrap_log.write_text(
+            f"{timestamp} service command entered. exe={sys.executable} frozen={getattr(sys, 'frozen', False)}\n",
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
     try:
         from service import run_service
-    except ImportError as exc:
+    except Exception as exc:
+        try:
+            with bootstrap_log.open("a", encoding="utf-8", errors="replace") as handle:
+                handle.write(f"Failed to import Windows service host: {exc}\n")
+        except Exception:
+            pass
         raise SystemExit("pywin32 is required for Windows Service mode. Build the agent with build_agent.bat.") from exc
-    run_service(Path(args.config))
+    run_service(config_path)
 
 
 def main() -> None:
