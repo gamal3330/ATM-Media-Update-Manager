@@ -270,6 +270,14 @@ function getModuleStatus(atm, moduleName) {
   return (atm.module_status_json && atm.module_status_json[moduleName]) || "-";
 }
 
+function isSwitchTargetDirty(atm, form) {
+  if (!atm) return false;
+  return (
+    String(form.switch_probe_host || "").trim() !== String(atm.switch_probe_host || "") ||
+    String(form.switch_probe_port || "") !== String(atm.switch_probe_port || "")
+  );
+}
+
 async function copyText(text) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
@@ -626,7 +634,7 @@ export default function Atms({ atms, onChanged }) {
       const updated = await api.updateAtm(selectedAtm.atm_id, payload);
       setSettingsForm(buildSettingsForm(updated));
       setSettingsMessage(`تم الحفظ. Config Version الآن ${updated.config_version}.`);
-      onChanged();
+      await onChanged();
     } catch (err) {
       setFieldErrors(err.fieldErrors || {});
       setError(err.message || "تعذر حفظ إعدادات الصراف");
@@ -1137,12 +1145,18 @@ export default function Atms({ atms, onChanged }) {
                     <button
                       type="button"
                       onClick={() => requestSwitchProbe(selectedAtm)}
-                      disabled={switchProbeBusyId === selectedAtm.atm_id}
+                      disabled={switchProbeBusyId === selectedAtm.atm_id || isSwitchTargetDirty(selectedAtm, settingsForm)}
                       className="focus-ring inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-60"
                       title="فحص الوصول إلى السويتش من داخل الصراف"
                     >
                       <Network size={15} />
-                      <span>{switchProbeBusyId === selectedAtm.atm_id ? "جار الطلب" : "فحص الآن"}</span>
+                      <span>
+                        {isSwitchTargetDirty(selectedAtm, settingsForm)
+                          ? "احفظ أولاً"
+                          : switchProbeBusyId === selectedAtm.atm_id
+                            ? "جار الطلب"
+                            : "فحص الآن"}
+                      </span>
                     </button>
                   </div>
                   <div className="grid gap-3 p-4 sm:grid-cols-2">
@@ -1185,8 +1199,14 @@ export default function Atms({ atms, onChanged }) {
                     </label>
                     <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm sm:col-span-2">
                       <div className="font-semibold text-slate-950" dir="ltr">
-                        {selectedAtm.switch_probe_host}:{selectedAtm.switch_probe_port}
+                        {(settingsForm.switch_probe_host || selectedAtm.switch_probe_host || "-").trim()}:
+                        {settingsForm.switch_probe_port || selectedAtm.switch_probe_port || "-"}
                       </div>
+                      {isSwitchTargetDirty(selectedAtm, settingsForm) ? (
+                        <div className="mt-1 text-xs font-medium text-amber-700">
+                          يوجد تغيير غير محفوظ في هدف فحص السويتش.
+                        </div>
+                      ) : null}
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         <span className={`rounded-full px-2 py-1 text-xs ${getSwitchProbeTone(selectedAtm.last_switch_probe_status)}`}>
                           {formatSwitchProbe(selectedAtm)}

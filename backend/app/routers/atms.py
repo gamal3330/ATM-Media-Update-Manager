@@ -53,6 +53,8 @@ CONFIG_FIELDS = {
     "cash_low_threshold_default",
     "cash_critical_threshold_default",
     "cash_stale_after_minutes",
+    "switch_probe_host",
+    "switch_probe_port",
 }
 
 
