@@ -11,7 +11,7 @@ from ..services.audit_service import write_audit
 router = APIRouter(prefix="/api/users", tags=["users"])
 
 PAGE_LABELS = {
-    "dashboard": "لوحة التحكم",
+    "dashboard": "لوحة المراقبة",
     "atms": "الصرافات",
     "upload": "رفع الحزمة",
     "packages": "التحديثات",

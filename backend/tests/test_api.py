@@ -105,6 +105,7 @@ def test_admin_can_manage_users_and_page_visibility() -> None:
         pages = client.get("/api/users/pages", headers=headers)
         assert pages.status_code == 200
         assert any(page["id"] == "atms" for page in pages.json())
+        assert any(page["id"] == "dashboard" and page["label"] == "لوحة المراقبة" for page in pages.json())
 
         created = client.post(
             "/api/users",
