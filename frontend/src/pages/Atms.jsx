@@ -17,7 +17,17 @@ import { useMemo, useState } from "react";
 import { api, apiBaseUrl } from "../api/client";
 import { formatApiDate, formatLastSeenAge, isRecentlyOnline } from "../api/time";
 
-const emptyForm = { atm_id: "", name: "", vpn_ip: "", branch: "" };
+const currencyDefaults = {
+  YER: { label: "يمني", denomination: 1000, low_threshold: 300, critical_threshold: 100 },
+  SAR: { label: "سعودي", denomination: 100, low_threshold: 100, critical_threshold: 30 },
+  USD: { label: "دولار", denomination: 100, low_threshold: 100, critical_threshold: 30 },
+};
+const currencyOptions = [
+  ["YER", "يمني"],
+  ["SAR", "سعودي"],
+  ["USD", "دولار"],
+];
+const cassetteNumbers = [1, 2, 3, 4];
 const settingsFields = [
   ["media_path", "Media Path", "C:/ATM/Media"],
   ["backup_path", "Backup Path", "C:/ATM/Media_Backup"],
@@ -28,20 +38,56 @@ const settingsFields = [
   ["cash_read_interval_seconds", "Cash Read Interval", "120"],
   ["cash_stale_after_minutes", "Cash Stale After Minutes", "10"],
 ];
-const cashLayoutProfiles = {
-  yer_1000_4: [
-    { cassette_no: 1, currency: "YER", denomination: 1000, max_capacity: 2000, low_threshold: 300, critical_threshold: 100 },
-    { cassette_no: 2, currency: "YER", denomination: 1000, max_capacity: 2000, low_threshold: 300, critical_threshold: 100 },
-    { cassette_no: 3, currency: "YER", denomination: 1000, max_capacity: 2000, low_threshold: 300, critical_threshold: 100 },
-    { cassette_no: 4, currency: "YER", denomination: 1000, max_capacity: 2000, low_threshold: 300, critical_threshold: 100 },
-  ],
-  mixed_yer_usd_sar: [
-    { cassette_no: 1, currency: "YER", denomination: 1000, max_capacity: 2000, low_threshold: 300, critical_threshold: 100 },
-    { cassette_no: 2, currency: "YER", denomination: 1000, max_capacity: 2000, low_threshold: 300, critical_threshold: 100 },
-    { cassette_no: 3, currency: "USD", denomination: 100, max_capacity: 2000, low_threshold: 100, critical_threshold: 30 },
-    { cassette_no: 4, currency: "SAR", denomination: 100, max_capacity: 2000, low_threshold: 100, critical_threshold: 30 },
-  ],
-};
+function buildCashLayout(currencies = ["YER", "YER", "YER", "YER"]) {
+  return cassetteNumbers.map((cassetteNo, index) => {
+    const currency = currencies[index] || "YER";
+    const defaults = currencyDefaults[currency] || currencyDefaults.YER;
+    return {
+      cassette_no: cassetteNo,
+      currency,
+      denomination: defaults.denomination,
+      max_capacity: 2000,
+      low_threshold: defaults.low_threshold,
+      critical_threshold: defaults.critical_threshold,
+    };
+  });
+}
+
+function normalizeCashLayout(layout) {
+  return cassetteNumbers.map((cassetteNo) => {
+    const existing = Array.isArray(layout) ? layout.find((item) => Number(item.cassette_no) === cassetteNo) : null;
+    const currency = currencyDefaults[existing?.currency] ? existing.currency : "YER";
+    const defaults = currencyDefaults[currency];
+    return {
+      cassette_no: cassetteNo,
+      currency,
+      denomination: defaults.denomination,
+      max_capacity: Number(existing?.max_capacity) || 2000,
+      low_threshold: Number(existing?.low_threshold) || defaults.low_threshold,
+      critical_threshold: Number(existing?.critical_threshold) || defaults.critical_threshold,
+    };
+  });
+}
+
+function updateCashLayoutCurrency(layout, cassetteNo, currency) {
+  const defaults = currencyDefaults[currency] || currencyDefaults.YER;
+  return normalizeCashLayout(layout).map((item) =>
+    item.cassette_no === cassetteNo
+      ? {
+          ...item,
+          currency,
+          denomination: defaults.denomination,
+          low_threshold: defaults.low_threshold,
+          critical_threshold: defaults.critical_threshold,
+        }
+      : item,
+  );
+}
+
+function buildEmptyForm() {
+  return { atm_id: "", name: "", vpn_ip: "", branch: "", cash_layout: buildCashLayout() };
+}
+
 const fields = [
   ["atm_id", "ATM ID", "مثال: ATM-001", 2],
   ["name", "الاسم", "مثال: صراف الفرع الرئيسي", 2],
@@ -71,8 +117,6 @@ function getConfigStatus(atm) {
 }
 
 function buildSettingsForm(atm) {
-  const currentLayout = JSON.stringify(atm?.cash_layout_json || []);
-  const mixedLayout = JSON.stringify(cashLayoutProfiles.mixed_yer_usd_sar);
   return {
     media_path: atm?.media_path || "",
     backup_path: atm?.backup_path || "",
@@ -84,7 +128,7 @@ function buildSettingsForm(atm) {
     cash_monitoring_enabled: atm?.cash_monitoring_enabled ?? false,
     atm_cash_mode: atm?.atm_cash_mode || "DISPENSE_ONLY",
     cash_provider: atm?.cash_provider || "mock",
-    cash_layout_profile: currentLayout === mixedLayout ? "mixed_yer_usd_sar" : "yer_1000_4",
+    cash_layout: normalizeCashLayout(atm?.cash_layout_json),
     cash_read_interval_seconds: String(atm?.cash_read_interval_seconds || 120),
     cash_stale_after_minutes: String(atm?.cash_stale_after_minutes || 10),
     switch_probe_host: atm?.switch_probe_host || "172.16.25.75",
@@ -162,8 +206,45 @@ async function copyText(text) {
   document.body.removeChild(element);
 }
 
+function CassetteLayoutEditor({ layout, onChange, title = "تخطيط الكاسيتات", fieldError }) {
+  const normalized = normalizeCashLayout(layout);
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white">
+      <div className="border-b border-slate-200 bg-slate-50 px-3 py-2">
+        <div className="text-sm font-semibold text-slate-950">{title}</div>
+      </div>
+      <div className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-4">
+        {normalized.map((item) => {
+          const defaults = currencyDefaults[item.currency] || currencyDefaults.YER;
+          return (
+            <label key={item.cassette_no} className="block rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <span className="mb-1 block text-sm font-medium text-slate-700">Cassette {item.cassette_no}</span>
+              <select
+                className="focus-ring w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                value={item.currency}
+                onChange={(event) => onChange(updateCashLayoutCurrency(normalized, item.cassette_no, event.target.value))}
+              >
+                {currencyOptions.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                <span className="rounded-full bg-white px-2 py-1">{item.currency}</span>
+                <span className="rounded-full bg-white px-2 py-1">{defaults.denomination}</span>
+              </div>
+            </label>
+          );
+        })}
+      </div>
+      {fieldError && <div className="border-t border-rose-100 px-3 py-2 text-xs text-rose-700">{fieldError}</div>}
+    </div>
+  );
+}
+
 export default function Atms({ atms, onChanged }) {
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState(() => buildEmptyForm());
   const [selectedAtmId, setSelectedAtmId] = useState("");
   const [settingsForm, setSettingsForm] = useState({});
   const [settingsMessage, setSettingsMessage] = useState("");
@@ -207,10 +288,11 @@ export default function Atms({ atms, onChanged }) {
         name: form.name.trim(),
         vpn_ip: form.vpn_ip.trim(),
         branch: form.branch.trim(),
+        cash_layout: normalizeCashLayout(form.cash_layout),
       });
       setGeneratedKey(result.api_key);
       setGeneratedKeyAtmId(result.atm.atm_id);
-      setForm(emptyForm);
+      setForm(buildEmptyForm());
       setSelectedAtmId(result.atm.atm_id);
       setSettingsForm(buildSettingsForm(result.atm));
       onChanged();
@@ -268,7 +350,7 @@ export default function Atms({ atms, onChanged }) {
         cash_monitoring_enabled: Boolean(settingsForm.cash_monitoring_enabled),
         atm_cash_mode: "DISPENSE_ONLY",
         cash_provider: settingsForm.cash_provider || "mock",
-        cash_layout: cashLayoutProfiles[settingsForm.cash_layout_profile] || cashLayoutProfiles.yer_1000_4,
+        cash_layout: normalizeCashLayout(settingsForm.cash_layout),
         cash_read_interval_seconds: Number(settingsForm.cash_read_interval_seconds),
         cash_stale_after_minutes: Number(settingsForm.cash_stale_after_minutes),
       };
@@ -426,6 +508,14 @@ export default function Atms({ atms, onChanged }) {
               {fieldErrors[key] && <span className="mt-1 block text-xs text-rose-700">{fieldErrors[key]}</span>}
             </label>
           ))}
+        </div>
+        <div className="mt-4">
+          <CassetteLayoutEditor
+            layout={form.cash_layout}
+            onChange={(nextLayout) => setForm((current) => ({ ...current, cash_layout: nextLayout }))}
+            title="تحديد عملة كل Cassette"
+            fieldError={fieldErrors.cash_layout}
+          />
         </div>
         {error && (
           <div className="mt-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -617,7 +707,7 @@ export default function Atms({ atms, onChanged }) {
               </div>
             </div>
 
-            <div className="mb-4 grid gap-3 md:grid-cols-3">
+            <div className="mb-4 grid gap-3 md:grid-cols-2">
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
                 <div className="text-slate-500">ATM Cash Mode</div>
                 <div className="font-semibold text-slate-950">DISPENSE_ONLY</div>
@@ -634,54 +724,16 @@ export default function Atms({ atms, onChanged }) {
                   <option value="vendor_cdm">Vendor CDM Provider</option>
                 </select>
               </label>
-              <label className="block">
-                <span className="mb-1 block text-sm font-medium text-slate-700">Cash Layout Profile</span>
-                <select
-                  className="focus-ring w-full rounded-lg border border-slate-300 px-3 py-2"
-                  value={settingsForm.cash_layout_profile || "yer_1000_4"}
-                  onChange={(event) =>
-                    setSettingsForm((current) => ({ ...current, cash_layout_profile: event.target.value }))
-                  }
-                >
-                  <option value="yer_1000_4">YER 1000 Only - 4 Cassettes</option>
-                  <option value="mixed_yer_usd_sar">YER 1000 / USD 100 / SAR 100 Mixed</option>
-                </select>
-              </label>
             </div>
 
-            {settingsForm.cash_monitoring_enabled && (
-              <div className="mb-4 overflow-hidden rounded-lg border border-slate-200">
-                <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">
-                  Dispense cassette layout
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-slate-200 text-sm">
-                    <thead className="bg-white text-slate-500">
-                      <tr>
-                        <th className="px-3 py-2 text-right font-medium">Cassette</th>
-                        <th className="px-3 py-2 text-right font-medium">Currency</th>
-                        <th className="px-3 py-2 text-right font-medium">Denomination</th>
-                        <th className="px-3 py-2 text-right font-medium">Max</th>
-                        <th className="px-3 py-2 text-right font-medium">Low</th>
-                        <th className="px-3 py-2 text-right font-medium">Critical</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {(cashLayoutProfiles[settingsForm.cash_layout_profile] || cashLayoutProfiles.yer_1000_4).map((item) => (
-                        <tr key={item.cassette_no}>
-                          <td className="px-3 py-2">{item.cassette_no}</td>
-                          <td className="px-3 py-2">{item.currency}</td>
-                          <td className="px-3 py-2">{item.denomination}</td>
-                          <td className="px-3 py-2">{item.max_capacity}</td>
-                          <td className="px-3 py-2">{item.low_threshold}</td>
-                          <td className="px-3 py-2">{item.critical_threshold}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+            <div className="mb-4">
+              <CassetteLayoutEditor
+                layout={settingsForm.cash_layout}
+                onChange={(nextLayout) => setSettingsForm((current) => ({ ...current, cash_layout: nextLayout }))}
+                title="تحديد عملة كل Cassette"
+                fieldError={fieldErrors.cash_layout}
+              />
+            </div>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {settingsFields.map(([key, label, placeholder]) => (
