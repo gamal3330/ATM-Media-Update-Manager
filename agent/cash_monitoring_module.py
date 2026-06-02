@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Protocol
 
 from config_manager import CashLayoutItem, CashMonitoringConfig, RemoteConfig
+from xfs_cdm_reader import CashUnitRead as XfsCashUnitRead
+from xfs_cdm_reader import XfsCdmReadResult, read_cash_units
 
 if TYPE_CHECKING:
     from api_client import ApiClient
@@ -125,11 +128,102 @@ class MockDispenseProvider:
 class XfsCdmProvider:
     source = "xfs_cdm"
 
+    def __init__(self, logical_service: str | None = None) -> None:
+        self.logical_service = logical_service or os.environ.get("ATM_XFS_CDM_LOGICAL_SERVICE", "MediaDispenser1")
+        self.last_result: XfsCdmReadResult | None = None
+
+    def _read(self) -> XfsCdmReadResult:
+        self.last_result = read_cash_units(self.logical_service)
+        return self.last_result
+
+    @staticmethod
+    def _layout_for(config: CashMonitoringConfig, cassette_no: int) -> CashLayoutItem:
+        for item in config.cash_layout:
+            if item.cassette_no == cassette_no:
+                return item
+        return CashLayoutItem(cassette_no, "YER", 1000, 2000, 300, 100)
+
+    @staticmethod
+    def _is_reject_or_retract_unit(unit: XfsCashUnitRead) -> bool:
+        text = f"{unit.unit_type} {unit.cassette_name} {unit.unit_id}".upper()
+        return unit.denomination <= 0 or "REJECT" in text or "RETRACT" in text
+
+    @staticmethod
+    def _cash_status(current_count: int, layout: CashLayoutItem, xfs_status: str) -> str:
+        upper_status = xfs_status.upper()
+        if upper_status in {"MISSING", "INOPERATIVE", "INOP", "EMPTY"}:
+            return upper_status
+        if current_count <= 0:
+            return "EMPTY"
+        if current_count <= layout.low_threshold:
+            return "LOW"
+        return "OK"
+
+    @staticmethod
+    def _physical_status(xfs_status: str) -> str:
+        upper_status = xfs_status.upper()
+        if upper_status in {"MISSING", "INOPERATIVE", "INOP"}:
+            return upper_status
+        return "PRESENT"
+
+    @staticmethod
+    def _unit_max_capacity(unit: XfsCashUnitRead) -> int:
+        values = [int(getattr(unit, "max_capacity", 0) or 0)]
+        values.extend(
+            int(getattr(physical, "max_capacity", 0) or 0)
+            for physical in getattr(unit, "physical_units", []) or []
+        )
+        return max(values or [0])
+
     def get_dispense_cash_snapshot(self, atm_id: str, config: CashMonitoringConfig) -> list[DispenseCashUnit]:
-        raise NotImplementedError("XFS CDM provider is not enabled yet. Run xfs-cdm-diagnose first.")
+        result = self._read()
+        units: list[DispenseCashUnit] = []
+        for xfs_unit in result.cash_units:
+            if self._is_reject_or_retract_unit(xfs_unit):
+                continue
+            layout = self._layout_for(config, xfs_unit.cassette_no)
+            current_count = int(xfs_unit.current_count)
+            units.append(
+                DispenseCashUnit(
+                    cassette_no=xfs_unit.cassette_no,
+                    cassette_id=xfs_unit.unit_id or f"CST{xfs_unit.cassette_no:02d}",
+                    cassette_name=xfs_unit.cassette_name or f"Dispense Cassette {xfs_unit.cassette_no}",
+                    reported_currency=layout.currency,
+                    reported_denomination=layout.denomination,
+                    initial_count=int(xfs_unit.initial_count),
+                    current_count=current_count,
+                    reject_count=int(xfs_unit.reject_count),
+                    retract_count=int(xfs_unit.retracted_count),
+                    dispensed_count=int(xfs_unit.dispensed_count),
+                    presented_count=int(xfs_unit.presented_count),
+                    status=self._cash_status(current_count, layout, xfs_unit.status),
+                    physical_status=self._physical_status(xfs_unit.status),
+                )
+            )
+        return units
 
     def get_reject_retract_status(self, config: CashMonitoringConfig) -> RejectRetractStatus:
-        raise NotImplementedError("XFS CDM provider is not enabled yet. Run xfs-cdm-diagnose first.")
+        result = self.last_result or self._read()
+        reject_units = [unit for unit in result.cash_units if self._is_reject_or_retract_unit(unit)]
+        dispense_units = [unit for unit in result.cash_units if not self._is_reject_or_retract_unit(unit)]
+        reject_count = sum(int(unit.current_count) for unit in reject_units)
+        if reject_count <= 0:
+            reject_count = sum(int(unit.reject_count) for unit in dispense_units)
+        retract_count = sum(int(unit.retracted_count) for unit in result.cash_units)
+        reject_status = "OK"
+        retract_status = "OK"
+        for unit in reject_units:
+            if unit.status.upper() not in {"OK", "LOW"}:
+                reject_status = unit.status.upper()
+                break
+        return RejectRetractStatus(
+            reject_count=max(0, reject_count),
+            retract_count=max(0, retract_count),
+            reject_status=reject_status,
+            retract_status=retract_status,
+            reject_max_capacity=max([self._unit_max_capacity(unit) for unit in reject_units if self._unit_max_capacity(unit) > 0] or [100]),
+            retract_max_capacity=50,
+        )
 
 
 class VendorCdmProvider:

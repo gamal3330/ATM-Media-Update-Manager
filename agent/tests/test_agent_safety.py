@@ -3,6 +3,7 @@ import json
 import socket
 import threading
 import zipfile
+from types import SimpleNamespace
 
 import pytest
 
@@ -247,6 +248,77 @@ def test_cash_monitoring_module_mock_provider_sends_snapshot():
     assert api.snapshots[0]["cash_units"][0]["cassette_no"] == 1
     assert api.snapshots[0]["cash_units"][2]["reported_currency"] == "USD"
     assert api.snapshots[0]["reject_retract"]["retract_count"] == 1
+
+
+def test_cash_monitoring_xfs_provider_sends_dispense_only_snapshot(monkeypatch):
+    def fake_read_cash_units(logical_service):
+        assert logical_service == "MediaDispenser1"
+        return SimpleNamespace(
+            cash_units=[
+                SimpleNamespace(
+                    cassette_no=1,
+                    unit_type="BILL_CASSETTE",
+                    cassette_name="Cash Bin 1",
+                    unit_id="1",
+                    denomination=5,
+                    initial_count=3000,
+                    current_count=1014,
+                    reject_count=1,
+                    max_capacity=0,
+                    status="OK",
+                    dispensed_count=1986,
+                    presented_count=1985,
+                    retracted_count=0,
+                ),
+                SimpleNamespace(
+                    cassette_no=2,
+                    unit_type="BILL_CASSETTE",
+                    cassette_name="Cash Bin 2",
+                    unit_id="2",
+                    denomination=10,
+                    initial_count=3000,
+                    current_count=50,
+                    reject_count=1,
+                    max_capacity=0,
+                    status="LOW",
+                    dispensed_count=1985,
+                    presented_count=1984,
+                    retracted_count=0,
+                ),
+                SimpleNamespace(
+                    cassette_no=5,
+                    unit_type="REJECT_CASSETTE",
+                    cassette_name="Reject Bin",
+                    unit_id="0",
+                    denomination=0,
+                    initial_count=0,
+                    current_count=2,
+                    reject_count=0,
+                    max_capacity=215,
+                    status="OK",
+                    dispensed_count=0,
+                    presented_count=0,
+                    retracted_count=0,
+                ),
+            ]
+        )
+
+    monkeypatch.setattr("cash_monitoring_module.read_cash_units", fake_read_cash_units)
+    api = FakeApi()
+    logger = __import__("logging").getLogger("test")
+    module = CashMonitoringModule(api, "ATM001", logger)
+    payload = remote_payload(cash_enabled=True)
+    payload["modules"]["cash_monitoring"]["provider"] = "xfs_cdm"
+    module.configure(parse_remote_config(payload))
+    module.tick(999999.0)
+
+    snapshot = api.snapshots[0]
+    assert snapshot["source"] == "xfs_cdm"
+    assert len(snapshot["cash_units"]) == 2
+    assert snapshot["cash_units"][0]["reported_currency"] == "YER"
+    assert snapshot["cash_units"][0]["reported_denomination"] == 1000
+    assert snapshot["cash_units"][1]["status"] == "LOW"
+    assert snapshot["reject_retract"]["reject_count"] == 2
 
 
 def test_xfs_cdm_diagnostics_detects_ncr_aptra_files(tmp_path):

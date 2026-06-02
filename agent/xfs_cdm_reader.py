@@ -73,10 +73,10 @@ XFS_ERRORS = {
 
 CU_TYPES = {
     0: "NA",
-    1: "REJECT_CASSETTE",
-    2: "BILL_CASSETTE",
-    3: "COIN_CYLINDER",
-    4: "COIN_DISPENSER",
+    1: "NA",
+    2: "REJECT_CASSETTE",
+    3: "BILL_CASSETTE",
+    4: "COIN_CYLINDER",
     5: "RETRACT_CASSETTE",
     6: "COUPON",
     7: "DOCUMENT",
