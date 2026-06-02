@@ -158,6 +158,27 @@ def remove_previous_agent(target_exe: Path, source_exe: Path) -> None:
             ) from exc
 
 
+def start_windows_service_or_explain(config_path: Path) -> None:
+    result = run_sc("start", SERVICE_NAME)
+    if result.returncode == 0:
+        print(f"Installed and started {SERVICE_DISPLAY_NAME}.")
+        return
+
+    bootstrap_log = config_path.parent / "logs" / "service-bootstrap.log"
+    agent_log = config_path.parent / "logs" / "agent.log"
+    details = "\n".join(part.strip() for part in [result.stdout, result.stderr] if part.strip())
+    raise SystemExit(
+        f"Installed {SERVICE_DISPLAY_NAME}, but Windows could not start it.\n"
+        f"sc.exe start returned exit code {result.returncode}.\n"
+        f"{details}\n\n"
+        "Run these commands on the ATM to diagnose:\n"
+        f"  sc.exe query {SERVICE_NAME}\n"
+        f"  Get-Content \"{bootstrap_log}\" -Tail 50\n"
+        f"  Get-Content \"{agent_log}\" -Tail 50\n"
+        f"  .\\atm-agent.exe run --config \"{config_path}\" --once\n"
+    )
+
+
 class AtmAgent:
     def __init__(self, config_path: Path, stop_event: threading.Event | None = None) -> None:
         self.config_path = config_path
@@ -380,8 +401,7 @@ def install(args: argparse.Namespace) -> None:
         ["sc.exe", "failure", SERVICE_NAME, "reset=", "86400", "actions=", "restart/60000/restart/60000/restart/60000"],
         check=True,
     )
-    subprocess.run(["sc.exe", "start", SERVICE_NAME], check=True)
-    print(f"Installed and started {SERVICE_DISPLAY_NAME}.")
+    start_windows_service_or_explain(config_path)
 
 
 def uninstall(_: argparse.Namespace) -> None:
