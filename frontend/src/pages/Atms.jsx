@@ -9,8 +9,14 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Search,
+  Server,
   Settings2,
+  ShieldAlert,
+  SlidersHorizontal,
   Trash2,
+  Wifi,
+  WifiOff,
   XCircle,
 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -37,11 +43,19 @@ const settingsFields = [
   ["backup_path", "Backup Path", "C:/ATM/Media_Backup"],
   ["temp_path", "Temp Path", "C:/ATM/Temp"],
   ["check_interval_seconds", "Media Check Interval", "300"],
-  ["heartbeat_interval_seconds", "Heartbeat Interval Seconds", "60"],
+  ["heartbeat_interval_seconds", "Heartbeat Interval", "60"],
   ["config_sync_interval_seconds", "Config Sync Interval", "120"],
   ["cash_read_interval_seconds", "Cash Read Interval", "120"],
   ["cash_stale_after_minutes", "Cash Stale After Minutes", "10"],
 ];
+
+const fields = [
+  ["atm_id", "ATM ID", "ATM-001", 2],
+  ["name", "الاسم", "صراف الفرع الرئيسي", 2],
+  ["vpn_ip", "IP عبر VPN", "192.168.2.35", 3],
+  ["branch", "الفرع", "lab1", 2],
+];
+
 function buildCashLayout(currencies = ["YER", "YER", "YER", "YER"]) {
   return cassetteNumbers.map((cassetteNo, index) => {
     const currency = currencies[index] || "YER";
@@ -92,13 +106,6 @@ function buildEmptyForm() {
   return { atm_id: "", name: "", vpn_ip: "", branch: "", cash_layout: buildCashLayout() };
 }
 
-const fields = [
-  ["atm_id", "ATM ID", "مثال: ATM-001", 2],
-  ["name", "الاسم", "مثال: صراف الفرع الرئيسي", 2],
-  ["vpn_ip", "IP عبر VPN", "مثال: 192.168.2.35", 3],
-  ["branch", "الفرع", "مثال: lab1", 2],
-];
-
 function validateForm(form) {
   const errors = {};
   fields.forEach(([key, label, , minLength]) => {
@@ -115,9 +122,54 @@ function validateForm(form) {
 function getConfigStatus(atm) {
   if (atm.last_config_error) return { label: "Failed", tone: "bg-rose-50 text-rose-700", icon: XCircle };
   if ((atm.applied_config_version || 0) < (atm.config_version || 0)) {
-    return { label: "Pending Config Sync", tone: "bg-amber-50 text-amber-700", icon: Clock3 };
+    return { label: "Pending", tone: "bg-amber-50 text-amber-700", icon: Clock3 };
   }
   return { label: "Synced", tone: "bg-emerald-50 text-emerald-700", icon: CheckCircle2 };
+}
+
+function getAtmHealth(atm) {
+  const online = isRecentlyOnline(atm);
+  const moduleStatuses = Object.values(atm.module_status_json || {});
+  const hasError = atm.last_agent_error || atm.last_config_error || moduleStatuses.some((status) => status === "error");
+
+  if (!online) {
+    return {
+      rank: 0,
+      label: "offline",
+      title: "غير متصل",
+      tone: "bg-rose-50 text-rose-700",
+      border: "border-rose-200",
+      icon: WifiOff,
+    };
+  }
+  if (hasError) {
+    return {
+      rank: 1,
+      label: "error",
+      title: "خطأ",
+      tone: "bg-rose-50 text-rose-700",
+      border: "border-rose-200",
+      icon: ShieldAlert,
+    };
+  }
+  if ((atm.applied_config_version || 0) < (atm.config_version || 0)) {
+    return {
+      rank: 2,
+      label: "pending",
+      title: "بانتظار Sync",
+      tone: "bg-amber-50 text-amber-700",
+      border: "border-amber-200",
+      icon: Clock3,
+    };
+  }
+  return {
+    rank: 3,
+    label: "online",
+    title: "متصل",
+    tone: "bg-emerald-50 text-emerald-700",
+    border: "border-slate-200",
+    icon: Wifi,
+  };
 }
 
 function buildSettingsForm(atm) {
@@ -208,6 +260,16 @@ function formatSeconds(seconds) {
   return `قبل ${hours} ساعة`;
 }
 
+function getXfsProfileLabel(value) {
+  if (value === "grg") return "GRG";
+  if (value === "custom") return "Custom";
+  return "NCR";
+}
+
+function getModuleStatus(atm, moduleName) {
+  return (atm.module_status_json && atm.module_status_json[moduleName]) || "-";
+}
+
 async function copyText(text) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
@@ -228,6 +290,35 @@ function wait(ms) {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms);
   });
+}
+
+function MetricCard({ label, value, tone = "slate", icon: Icon }) {
+  const tones = {
+    slate: "border-slate-200 bg-white text-slate-950",
+    emerald: "border-emerald-200 bg-emerald-50 text-emerald-900",
+    amber: "border-amber-200 bg-amber-50 text-amber-900",
+    rose: "border-rose-200 bg-rose-50 text-rose-900",
+    teal: "border-teal-200 bg-teal-50 text-teal-900",
+  };
+
+  return (
+    <div className={`rounded-lg border px-4 py-3 shadow-sm ${tones[tone]}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm font-medium text-slate-600">{label}</div>
+        {Icon && <Icon size={18} className="opacity-75" />}
+      </div>
+      <div className="mt-2 text-3xl font-semibold leading-none">{value}</div>
+    </div>
+  );
+}
+
+function ToggleBox({ label, checked, onChange }) {
+  return (
+    <label className="flex min-h-12 items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+      <span className="font-medium text-slate-700">{label}</span>
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4" />
+    </label>
+  );
 }
 
 function CassetteLayoutEditor({ layout, onChange, title = "تخطيط الكاسيتات", fieldError }) {
@@ -267,6 +358,109 @@ function CassetteLayoutEditor({ layout, onChange, title = "تخطيط الكاس
   );
 }
 
+function AtmCard({ atm, onOpenSettings, onDelete, onProbeSwitch, switchProbeBusyId, deletingAtmId }) {
+  const health = getAtmHealth(atm);
+  const HealthIcon = health.icon;
+  const configStatus = getConfigStatus(atm);
+  const ConfigIcon = configStatus.icon;
+  const lastProblem = atm.last_config_error || atm.last_agent_error || atm.last_switch_probe_error;
+
+  return (
+    <article className={`rounded-lg border bg-white p-4 shadow-sm ${health.border}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="truncate text-lg font-semibold text-slate-950">{atm.name}</span>
+            <span className="rounded-full bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700">{atm.atm_id}</span>
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
+            <span>{atm.branch || "-"}</span>
+            <span dir="ltr">{atm.vpn_ip}</span>
+          </div>
+        </div>
+        <span className={`inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-1 text-sm font-semibold ${health.tone}`}>
+          <HealthIcon size={16} />
+          {health.title}
+        </span>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+        <div className="rounded-lg bg-slate-50 px-3 py-2">
+          <div className="text-xs text-slate-500">آخر اتصال</div>
+          <div className="mt-1 font-semibold text-slate-950">{formatLastSeenAge(atm)}</div>
+        </div>
+        <div className="rounded-lg bg-slate-50 px-3 py-2">
+          <div className="text-xs text-slate-500">Latency</div>
+          <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs ${getAtmLatencyTone(atm)}`} dir="ltr">
+            {formatAtmLatency(atm)}
+          </span>
+        </div>
+        <div className="rounded-lg bg-slate-50 px-3 py-2">
+          <div className="text-xs text-slate-500">Agent</div>
+          <div className="mt-1 truncate font-semibold text-slate-950">{atm.agent_version || "-"}</div>
+        </div>
+        <div className="rounded-lg bg-slate-50 px-3 py-2">
+          <div className="text-xs text-slate-500">XFS</div>
+          <div className="mt-1 font-semibold text-slate-950">{getXfsProfileLabel(atm.xfs_profile)}</div>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <span className={`inline-flex min-h-8 items-center gap-1 rounded-full px-3 text-xs font-semibold ${configStatus.tone}`}>
+          <ConfigIcon size={14} />
+          Config: {configStatus.label}
+        </span>
+        <span className={`inline-flex min-h-8 items-center rounded-full px-3 text-xs font-semibold ${getSwitchProbeTone(atm.last_switch_probe_status)}`}>
+          Switch: {formatSwitchProbe(atm)}
+        </span>
+        <span className="inline-flex min-h-8 items-center rounded-full bg-slate-100 px-3 text-xs font-semibold text-slate-700">
+          Media: {getModuleStatus(atm, "media_update")}
+        </span>
+        <span className="inline-flex min-h-8 items-center rounded-full bg-slate-100 px-3 text-xs font-semibold text-slate-700">
+          Cash: {getModuleStatus(atm, "cash_monitoring")}
+        </span>
+      </div>
+
+      {lastProblem && (
+        <div className="mt-3 rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
+          <div className="truncate" title={lastProblem}>
+            {lastProblem}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        <button
+          onClick={() => onOpenSettings(atm)}
+          className="focus-ring inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
+          title="إعدادات الصراف"
+        >
+          <Settings2 size={16} />
+          <span>إعدادات</span>
+        </button>
+        <button
+          onClick={() => onProbeSwitch(atm)}
+          disabled={switchProbeBusyId === atm.atm_id}
+          className="focus-ring inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
+          title={`فحص TCP من الصراف إلى ${atm.switch_probe_host}:${atm.switch_probe_port}`}
+        >
+          <Network size={16} />
+          <span>{switchProbeBusyId === atm.atm_id ? "جار" : "فحص"}</span>
+        </button>
+        <button
+          onClick={() => onDelete(atm)}
+          disabled={deletingAtmId === atm.atm_id}
+          className="focus-ring inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-sm text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+          title="حذف الصراف"
+        >
+          <Trash2 size={16} />
+          <span>{deletingAtmId === atm.atm_id ? "جار" : "حذف"}</span>
+        </button>
+      </div>
+    </article>
+  );
+}
+
 export default function Atms({ atms, onChanged }) {
   const [form, setForm] = useState(() => buildEmptyForm());
   const [selectedAtmId, setSelectedAtmId] = useState("");
@@ -285,11 +479,49 @@ export default function Atms({ atms, onChanged }) {
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
   const [switchProbeBusyId, setSwitchProbeBusyId] = useState("");
   const [switchProbeDialog, setSwitchProbeDialog] = useState(null);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   const selectedAtm = useMemo(
     () => atms.find((atm) => atm.atm_id === selectedAtmId) || null,
     [atms, selectedAtmId],
   );
+
+  const metrics = useMemo(() => {
+    const online = atms.filter(isRecentlyOnline).length;
+    const pendingConfig = atms.filter((atm) => (atm.applied_config_version || 0) < (atm.config_version || 0)).length;
+    const errors = atms.filter((atm) => getAtmHealth(atm).label === "error").length;
+    return {
+      total: atms.length,
+      online,
+      offline: atms.length - online,
+      pendingConfig,
+      errors,
+    };
+  }, [atms]);
+
+  const filteredAtms = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return [...atms]
+      .filter((atm) => {
+        const health = getAtmHealth(atm);
+        if (statusFilter === "online" && !isRecentlyOnline(atm)) return false;
+        if (statusFilter === "offline" && isRecentlyOnline(atm)) return false;
+        if (statusFilter === "pending" && (atm.applied_config_version || 0) >= (atm.config_version || 0)) return false;
+        if (statusFilter === "error" && health.label !== "error") return false;
+        if (!needle) return true;
+        return [atm.atm_id, atm.name, atm.branch, atm.vpn_ip]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(needle));
+      })
+      .sort((first, second) => {
+        const firstHealth = getAtmHealth(first);
+        const secondHealth = getAtmHealth(second);
+        if (firstHealth.rank !== secondHealth.rank) return firstHealth.rank - secondHealth.rank;
+        return String(first.atm_id).localeCompare(String(second.atm_id), "ar");
+      });
+  }, [atms, query, statusFilter]);
 
   async function submit(event) {
     event.preventDefault();
@@ -318,6 +550,7 @@ export default function Atms({ atms, onChanged }) {
       setGeneratedKey(result.api_key);
       setGeneratedKeyAtmId(result.atm.atm_id);
       setForm(buildEmptyForm());
+      setShowCreateForm(false);
       setSelectedAtmId(result.atm.atm_id);
       setSettingsForm(buildSettingsForm(result.atm));
       onChanged();
@@ -337,6 +570,15 @@ export default function Atms({ atms, onChanged }) {
     setFieldErrors({});
     setError("");
     loadDiagnostics(atm.atm_id);
+  }
+
+  function closeSettings() {
+    setSelectedAtmId("");
+    setSettingsForm({});
+    setDiagnostics(null);
+    setSettingsMessage("");
+    setCopyMessage("");
+    setFieldErrors({});
   }
 
   async function loadDiagnostics(atmId = selectedAtm?.atm_id) {
@@ -408,10 +650,7 @@ export default function Atms({ atms, onChanged }) {
 
     try {
       await api.deleteAtm(atm.atm_id);
-      if (selectedAtmId === atm.atm_id) {
-        setSelectedAtmId("");
-        setSettingsForm({});
-      }
+      if (selectedAtmId === atm.atm_id) closeSettings();
       onChanged();
     } catch (err) {
       if (err.status === 409 && err.payload?.detail?.active_update_count) {
@@ -421,10 +660,7 @@ export default function Atms({ atms, onChanged }) {
         if (force) {
           try {
             await api.deleteAtm(atm.atm_id, true);
-            if (selectedAtmId === atm.atm_id) {
-              setSelectedAtmId("");
-              setSettingsForm({});
-            }
+            if (selectedAtmId === atm.atm_id) closeSettings();
             onChanged();
             return;
           } catch (forceErr) {
@@ -477,7 +713,6 @@ export default function Atms({ atms, onChanged }) {
         error: "",
         refreshing: false,
       });
-      setSettingsMessage(`تم إرسال طلب فحص السويتش للصراف ${atm.atm_id}: ${probe.host}:${probe.port}`);
       await pollSwitchProbeResult(atm, probe);
     } catch (err) {
       setError(err.message || "تعذر إرسال طلب فحص السويتش");
@@ -564,771 +799,585 @@ export default function Atms({ atms, onChanged }) {
 
   return (
     <section>
-      <div className="mb-5">
-        <h1 className="text-2xl font-semibold text-slate-950">إدارة الصرافات</h1>
-        <p className="text-sm text-slate-500">إضافة ومتابعة الصرافات المتصلة عبر VPN</p>
-      </div>
-
-      <form noValidate onSubmit={submit} className="mb-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-4">
-          {fields.map(([key, label, placeholder, minLength]) => (
-            <label key={key} className="block">
-              <span className="mb-1 block text-sm font-medium text-slate-700">{label}</span>
-              <input
-                className={`focus-ring w-full rounded-lg border px-3 py-2 ${
-                  fieldErrors[key] ? "border-rose-400 bg-rose-50" : "border-slate-300"
-                }`}
-                value={form[key]}
-                onChange={(event) => {
-                  setForm((current) => ({ ...current, [key]: event.target.value }));
-                  setFieldErrors((current) => {
-                    if (!current[key]) return current;
-                    const next = { ...current };
-                    delete next[key];
-                    return next;
-                  });
-                }}
-                minLength={minLength}
-                placeholder={placeholder}
-                aria-invalid={Boolean(fieldErrors[key])}
-                required
-              />
-              {fieldErrors[key] && <span className="mt-1 block text-xs text-rose-700">{fieldErrors[key]}</span>}
-            </label>
-          ))}
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-semibold text-slate-950">إدارة الصرافات</h1>
+          <p className="text-sm text-slate-500">إدارة الاتصال والـ Agent وإعدادات XFS لكل صراف</p>
         </div>
-        <div className="mt-4">
-          <CassetteLayoutEditor
-            layout={form.cash_layout}
-            onChange={(nextLayout) => setForm((current) => ({ ...current, cash_layout: nextLayout }))}
-            title="تحديد عملة كل Cassette"
-            fieldError={fieldErrors.cash_layout}
-          />
-        </div>
-        {error && (
-          <div className="mt-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-            <AlertCircle className="mt-0.5 shrink-0" size={17} />
-            <div>
-              <div className="font-medium">{error}</div>
-              {Object.values(fieldErrors).length > 0 && (
-                <ul className="mt-1 space-y-1">
-                  {Object.values(fieldErrors).map((message) => (
-                    <li key={message}>{message}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        )}
-        {generatedKey && (
-          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
-            <div className="font-medium">API Key جديد للصراف {generatedKeyAtmId}</div>
-            <div className="mt-2 overflow-x-auto rounded border border-amber-200 bg-white px-2 py-1 font-mono text-xs" dir="ltr">
-              {generatedKey}
-            </div>
-            <div className="mt-2 overflow-x-auto rounded border border-amber-200 bg-white px-2 py-1 font-mono text-xs" dir="ltr">
-              {installCommand}
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={copyApiKey}
-                className="focus-ring inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs text-amber-900 hover:bg-amber-100"
-                title="نسخ API Key"
-              >
-                <KeyRound size={14} />
-                <span>نسخ API Key</span>
-              </button>
-              <button
-                type="button"
-                onClick={copyInstallCommand}
-                className="focus-ring inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs text-amber-900 hover:bg-amber-100"
-                title="نسخ أمر التثبيت"
-              >
-                <Clipboard size={14} />
-                <span>Copy Install Command</span>
-              </button>
-            </div>
-            {copyMessage && <div className="mt-2 text-xs">{copyMessage}</div>}
-          </div>
-        )}
         <button
-          disabled={loading}
-          className="focus-ring mt-4 flex items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-white hover:bg-teal-800 disabled:opacity-60"
+          onClick={() => setShowCreateForm((current) => !current)}
+          className="focus-ring inline-flex min-h-11 items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800"
           title="إضافة صراف"
         >
-          <Plus size={17} />
-          <span>{loading ? "جار الإضافة..." : "إضافة صراف"}</span>
+          <Plus size={18} />
+          <span>إضافة صراف</span>
         </button>
-      </form>
+      </div>
 
-      <div className="mb-6 rounded-lg border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 px-4 py-3">
-          <div className="flex items-center gap-2 font-semibold text-slate-950">
-            <Settings2 size={18} />
-            <span>ATM Settings</span>
+      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <MetricCard label="الصرافات" value={metrics.total} icon={Server} />
+        <MetricCard label="Online" value={metrics.online} tone="emerald" icon={Wifi} />
+        <MetricCard label="Offline" value={metrics.offline} tone={metrics.offline ? "rose" : "emerald"} icon={WifiOff} />
+        <MetricCard label="Pending Config" value={metrics.pendingConfig} tone={metrics.pendingConfig ? "amber" : "emerald"} icon={Clock3} />
+        <MetricCard label="Errors" value={metrics.errors} tone={metrics.errors ? "rose" : "emerald"} icon={ShieldAlert} />
+      </div>
+
+      {(showCreateForm || generatedKey) && (
+        <div className="mb-5 rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+            <div className="flex items-center gap-2 font-semibold text-slate-950">
+              <Plus size={18} />
+              <span>صراف جديد</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowCreateForm(false)}
+              className="focus-ring rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+              title="إغلاق"
+            >
+              <XCircle size={18} />
+            </button>
           </div>
-          <p className="mt-1 text-sm text-slate-500">تعديل مسارات الصور والنسخ الاحتياطي التي يسحبها الـ Agent تلقائياً</p>
-        </div>
-        {!selectedAtm && (
-          <div className="px-4 py-8 text-center text-sm text-slate-500">اختر صرافاً من الجدول لتعديل الإعدادات</div>
-        )}
-        {selectedAtm && (
-          <form noValidate onSubmit={saveSettings} className="p-4">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="font-medium text-slate-950">{selectedAtm.name}</div>
-                <div className="text-sm text-slate-500">
-                  {selectedAtm.atm_id} · Agent {selectedAtm.agent_version || "-"}
-                </div>
+
+          {showCreateForm && (
+            <form noValidate onSubmit={submit} className="p-4">
+              <div className="grid gap-3 md:grid-cols-4">
+                {fields.map(([key, label, placeholder, minLength]) => (
+                  <label key={key} className="block">
+                    <span className="mb-1 block text-sm font-medium text-slate-700">{label}</span>
+                    <input
+                      className={`focus-ring w-full rounded-lg border px-3 py-2 ${
+                        fieldErrors[key] ? "border-rose-400 bg-rose-50" : "border-slate-300"
+                      }`}
+                      value={form[key]}
+                      onChange={(event) => {
+                        setForm((current) => ({ ...current, [key]: event.target.value }));
+                        setFieldErrors((current) => {
+                          if (!current[key]) return current;
+                          const next = { ...current };
+                          delete next[key];
+                          return next;
+                        });
+                      }}
+                      minLength={minLength}
+                      placeholder={placeholder}
+                      aria-invalid={Boolean(fieldErrors[key])}
+                      required
+                    />
+                    {fieldErrors[key] && <span className="mt-1 block text-xs text-rose-700">{fieldErrors[key]}</span>}
+                  </label>
+                ))}
               </div>
-              {(() => {
-                const status = getConfigStatus(selectedAtm);
-                const Icon = status.icon;
-                return (
-                  <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm ${status.tone}`}>
-                    <Icon size={15} />
-                    {status.label}
-                  </span>
-                );
-              })()}
-            </div>
-
-            <div className="mb-4 grid gap-3 md:grid-cols-2">
-              <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
-                <span className="font-medium text-slate-700">Enable Media Update</span>
-                <input
-                  type="checkbox"
-                  checked={Boolean(settingsForm.media_update_enabled)}
-                  onChange={(event) =>
-                    setSettingsForm((current) => ({ ...current, media_update_enabled: event.target.checked }))
-                  }
-                  className="h-4 w-4"
+              <div className="mt-4">
+                <CassetteLayoutEditor
+                  layout={form.cash_layout}
+                  onChange={(nextLayout) => setForm((current) => ({ ...current, cash_layout: nextLayout }))}
+                  title="عملة الكاسيتات"
+                  fieldError={fieldErrors.cash_layout}
                 />
-              </label>
-              <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
-                <span className="font-medium text-slate-700">Enable Cash Monitoring</span>
-                <input
-                  type="checkbox"
-                  checked={Boolean(settingsForm.cash_monitoring_enabled)}
-                  onChange={(event) =>
-                    setSettingsForm((current) => ({ ...current, cash_monitoring_enabled: event.target.checked }))
-                  }
-                  className="h-4 w-4"
-                />
-              </label>
-            </div>
+              </div>
+              <button
+                disabled={loading}
+                className="focus-ring mt-4 inline-flex min-h-11 items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+                title="إضافة صراف"
+              >
+                <Plus size={17} />
+                <span>{loading ? "جار الإضافة..." : "إضافة صراف"}</span>
+              </button>
+            </form>
+          )}
 
-            <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2 font-semibold text-slate-950">
-                    <Network size={17} />
-                    <span>إعدادات فحص السويتش</span>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500">
-                    يتم الفحص من داخل الـAgent باستخدام TCP فقط، بدون Telnet أو CMD.
-                  </p>
-                </div>
+          {generatedKey && (
+            <div className="border-t border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <div className="font-medium">API Key جديد للصراف {generatedKeyAtmId}</div>
+              <div className="mt-2 overflow-x-auto rounded border border-amber-200 bg-white px-2 py-1 font-mono text-xs" dir="ltr">
+                {generatedKey}
+              </div>
+              <div className="mt-2 overflow-x-auto rounded border border-amber-200 bg-white px-2 py-1 font-mono text-xs" dir="ltr">
+                {installCommand}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => requestSwitchProbe(selectedAtm)}
-                  disabled={switchProbeBusyId === selectedAtm.atm_id}
-                  className="focus-ring inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-60"
-                  title="فحص الوصول إلى السويتش من داخل الصراف"
+                  onClick={copyApiKey}
+                  className="focus-ring inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs text-amber-900 hover:bg-amber-100"
+                  title="نسخ API Key"
                 >
-                  <Network size={15} />
-                  <span>{switchProbeBusyId === selectedAtm.atm_id ? "جار الطلب" : "فحص الآن"}</span>
+                  <KeyRound size={14} />
+                  <span>نسخ API Key</span>
                 </button>
-              </div>
-              <div className="grid gap-3 md:grid-cols-2">
-                <label className="block">
-                  <span className="mb-1 block text-sm font-medium text-slate-700">Switch IP / Host</span>
-                  <input
-                    className={`focus-ring w-full rounded-lg border px-3 py-2 ${
-                      fieldErrors.switch_probe_host ? "border-rose-400 bg-rose-50" : "border-slate-300 bg-white"
-                    }`}
-                    dir="ltr"
-                    value={settingsForm.switch_probe_host || ""}
-                    onChange={(event) =>
-                      setSettingsForm((current) => ({ ...current, switch_probe_host: event.target.value }))
-                    }
-                    placeholder="172.16.25.75"
-                  />
-                  {fieldErrors.switch_probe_host && (
-                    <span className="mt-1 block text-xs text-rose-700">{fieldErrors.switch_probe_host}</span>
-                  )}
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-sm font-medium text-slate-700">Switch Port</span>
-                  <input
-                    type="number"
-                    min="1"
-                    max="65535"
-                    className={`focus-ring w-full rounded-lg border px-3 py-2 ${
-                      fieldErrors.switch_probe_port ? "border-rose-400 bg-rose-50" : "border-slate-300 bg-white"
-                    }`}
-                    dir="ltr"
-                    value={settingsForm.switch_probe_port || ""}
-                    onChange={(event) =>
-                      setSettingsForm((current) => ({ ...current, switch_probe_port: event.target.value }))
-                    }
-                    placeholder="10200"
-                  />
-                  {fieldErrors.switch_probe_port && (
-                    <span className="mt-1 block text-xs text-rose-700">{fieldErrors.switch_probe_port}</span>
-                  )}
-                </label>
-              </div>
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-                <span className={`rounded-full px-2 py-1 text-xs ${getSwitchProbeTone(selectedAtm.last_switch_probe_status)}`}>
-                  {formatSwitchProbe(selectedAtm)}
-                </span>
-                {selectedAtm.last_switch_probe_at && (
-                  <span className="text-xs text-slate-500">{formatApiDate(selectedAtm.last_switch_probe_at)}</span>
-                )}
-                {selectedAtm.last_switch_probe_error && (
-                  <span className="max-w-full truncate text-xs text-rose-700" title={selectedAtm.last_switch_probe_error}>
-                    {selectedAtm.last_switch_probe_error}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="mb-4 grid gap-3 md:grid-cols-2">
-              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
-                <div className="text-slate-500">ATM Cash Mode</div>
-                <div className="font-semibold text-slate-950">DISPENSE_ONLY</div>
-              </div>
-              <label className="block">
-                <span className="mb-1 block text-sm font-medium text-slate-700">CDM Provider</span>
-                <select
-                  className="focus-ring w-full rounded-lg border border-slate-300 px-3 py-2"
-                  value={settingsForm.cash_provider || "mock"}
-                  onChange={(event) => setSettingsForm((current) => ({ ...current, cash_provider: event.target.value }))}
-                >
-                  <option value="mock">Mock Dispense Provider</option>
-                  <option value="xfs_cdm">XFS CDM Provider</option>
-                  <option value="vendor_cdm">Vendor CDM Provider</option>
-                </select>
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-sm font-medium text-slate-700">XFS Profile</span>
-                <select
-                  className={`focus-ring w-full rounded-lg border px-3 py-2 ${
-                    fieldErrors.xfs_profile ? "border-rose-400 bg-rose-50" : "border-slate-300"
-                  }`}
-                  value={settingsForm.xfs_profile || "ncr_aptra"}
-                  onChange={(event) => {
-                    const nextProfile = event.target.value;
-                    setSettingsForm((current) => ({
-                      ...current,
-                      xfs_profile: nextProfile,
-                      xfs_logical_service: xfsProfileDefaults[nextProfile] || current.xfs_logical_service,
-                    }));
-                  }}
-                >
-                  <option value="ncr_aptra">NCR APTRA</option>
-                  <option value="grg">GRG</option>
-                  <option value="custom">Custom</option>
-                </select>
-                {fieldErrors.xfs_profile && (
-                  <span className="mt-1 block text-xs text-rose-700">{fieldErrors.xfs_profile}</span>
-                )}
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-sm font-medium text-slate-700">XFS Logical Service</span>
-                <input
-                  className={`focus-ring w-full rounded-lg border px-3 py-2 ${
-                    fieldErrors.xfs_logical_service ? "border-rose-400 bg-rose-50" : "border-slate-300"
-                  }`}
-                  dir="ltr"
-                  value={settingsForm.xfs_logical_service || ""}
-                  onChange={(event) =>
-                    setSettingsForm((current) => ({ ...current, xfs_logical_service: event.target.value }))
-                  }
-                  placeholder="MediaDispenser1 أو CDM"
-                />
-                <span className="mt-1 block text-xs text-slate-500">
-                  NCR غالبًا MediaDispenser1، وGRG من الفحص الحالي CDM.
-                </span>
-                {fieldErrors.xfs_logical_service && (
-                  <span className="mt-1 block text-xs text-rose-700">{fieldErrors.xfs_logical_service}</span>
-                )}
-              </label>
-            </div>
-
-            <div className="mb-4">
-              <CassetteLayoutEditor
-                layout={settingsForm.cash_layout}
-                onChange={(nextLayout) => setSettingsForm((current) => ({ ...current, cash_layout: nextLayout }))}
-                title="تحديد عملة كل Cassette"
-                fieldError={fieldErrors.cash_layout}
-              />
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {settingsFields.map(([key, label, placeholder]) => (
-                <label key={key} className="block">
-                  <span className="mb-1 block text-sm font-medium text-slate-700">{label}</span>
-                  <input
-                    className={`focus-ring w-full rounded-lg border px-3 py-2 ${
-                      fieldErrors[key] ? "border-rose-400 bg-rose-50" : "border-slate-300"
-                    }`}
-                    dir={key.endsWith("_path") ? "ltr" : "rtl"}
-                    value={settingsForm[key] || ""}
-                    onChange={(event) => setSettingsForm((current) => ({ ...current, [key]: event.target.value }))}
-                    placeholder={placeholder}
-                  />
-                  {fieldErrors[key] && <span className="mt-1 block text-xs text-rose-700">{fieldErrors[key]}</span>}
-                </label>
-              ))}
-            </div>
-
-            <div className="mt-4 grid gap-3 text-sm md:grid-cols-4">
-              <div className="rounded-lg bg-slate-50 px-3 py-2">
-                <div className="text-slate-500">Config Version</div>
-                <div className="font-semibold text-slate-950">{selectedAtm.config_version}</div>
-              </div>
-              <div className="rounded-lg bg-slate-50 px-3 py-2">
-                <div className="text-slate-500">Applied Version</div>
-                <div className="font-semibold text-slate-950">{selectedAtm.applied_config_version}</div>
-              </div>
-              <div className="rounded-lg bg-slate-50 px-3 py-2">
-                <div className="text-slate-500">Last Config Sync</div>
-                <div className="font-semibold text-slate-950">{formatApiDate(selectedAtm.last_config_sync_at)}</div>
-              </div>
-              <div className="rounded-lg bg-slate-50 px-3 py-2">
-                <div className="text-slate-500">Last Heartbeat</div>
-                <div className="font-semibold text-slate-950">{formatApiDate(selectedAtm.last_heartbeat_at)}</div>
-              </div>
-              <div className="rounded-lg bg-slate-50 px-3 py-2">
-                <div className="text-slate-500">Latency</div>
-                <div
-                  className="font-semibold text-slate-950"
-                  dir="ltr"
-                  title={
-                    isRecentlyOnline(selectedAtm)
-                      ? "Latency from latest heartbeat"
-                      : `Last stored latency: ${formatLatency(selectedAtm.latency_ms)}`
-                  }
-                >
-                  {formatAtmLatency(selectedAtm)}
-                </div>
-              </div>
-            </div>
-            <div className="mt-3 grid gap-3 text-sm md:grid-cols-2">
-              <div className="rounded-lg bg-slate-50 px-3 py-2">
-                <div className="text-slate-500">Active Updates</div>
-                <div className="font-semibold text-slate-950">{selectedAtm.active_update_count || 0}</div>
-              </div>
-              <div className="rounded-lg bg-slate-50 px-3 py-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-slate-500">Switch Probe</div>
-                  <button
-                    type="button"
-                    onClick={() => requestSwitchProbe(selectedAtm)}
-                    disabled={switchProbeBusyId === selectedAtm.atm_id}
-                    className="focus-ring inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-60"
-                    title="فحص الوصول إلى السويتش من داخل الصراف"
-                  >
-                    <Network size={13} />
-                    <span>{switchProbeBusyId === selectedAtm.atm_id ? "جار الطلب" : "فحص"}</span>
-                  </button>
-                </div>
-                <div className="mt-1 font-semibold text-slate-950" dir="ltr">
-                  {selectedAtm.switch_probe_host}:{selectedAtm.switch_probe_port}
-                </div>
-                <div className="mt-1 flex flex-wrap items-center gap-2">
-                  <span className={`rounded-full px-2 py-0.5 text-xs ${getSwitchProbeTone(selectedAtm.last_switch_probe_status)}`}>
-                    {formatSwitchProbe(selectedAtm)}
-                  </span>
-                  {selectedAtm.last_switch_probe_at && (
-                    <span className="text-xs text-slate-500">{formatApiDate(selectedAtm.last_switch_probe_at)}</span>
-                  )}
-                </div>
-                {selectedAtm.last_switch_probe_error && (
-                  <div className="mt-1 truncate text-xs text-rose-700" title={selectedAtm.last_switch_probe_error}>
-                    {selectedAtm.last_switch_probe_error}
-                  </div>
-                )}
-              </div>
-              <div className="rounded-lg bg-slate-50 px-3 py-2">
-                <div className="text-slate-500">Last Agent Error</div>
-                <div className="font-semibold text-slate-950">
-                  {selectedAtm.last_agent_error || "-"}
-                </div>
-                {selectedAtm.last_agent_error_at && (
-                  <div className="mt-1 text-xs text-slate-500">{formatApiDate(selectedAtm.last_agent_error_at)}</div>
-                )}
-              </div>
-              <div className="rounded-lg bg-slate-50 px-3 py-2">
-                <div className="text-slate-500">Reboot</div>
-                <div className="font-semibold text-slate-950">
-                  {selectedAtm.pending_reboot_count > 0 ? "Pending" : selectedAtm.last_reboot_status || "-"}
-                </div>
-                {selectedAtm.last_reboot_requested_at && (
-                  <div className="mt-1 text-xs text-slate-500">{formatApiDate(selectedAtm.last_reboot_requested_at)}</div>
-                )}
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-lg border border-slate-200 bg-white">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-3 py-2">
-                <div className="flex items-center gap-2 font-semibold text-slate-950">
-                  <Activity size={17} />
-                  <span>Agent Diagnostics</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => loadDiagnostics(selectedAtm.atm_id)}
-                  disabled={loadingDiagnostics}
-                  className="focus-ring inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-60"
-                  title="تحديث تشخيص الـ Agent"
-                >
-                  <RefreshCw size={15} />
-                  <span>{loadingDiagnostics ? "جار التحديث" : "تحديث"}</span>
-                </button>
-              </div>
-              <div className="p-3">
-                {loadingDiagnostics && (
-                  <div className="rounded-lg bg-slate-50 px-3 py-4 text-center text-sm text-slate-500">
-                    جار تحميل التشخيص...
-                  </div>
-                )}
-                {!loadingDiagnostics && diagnostics && diagnostics.atm_id === selectedAtm.atm_id && (
-                  <div className="space-y-3">
-                    <div className={`rounded-lg border px-3 py-2 text-sm ${getDiagnosticsTone(diagnostics)}`}>
-                      <div className="font-semibold">{diagnostics.summary}</div>
-                      <div className="mt-1">{diagnostics.recommended_action}</div>
-                    </div>
-                    <div className="grid gap-3 text-sm md:grid-cols-3">
-                      <div className="rounded-lg bg-slate-50 px-3 py-2">
-                        <div className="text-slate-500">Reporting</div>
-                        <div className="font-semibold text-slate-950">
-                          {diagnostics.reporting_status === "reporting"
-                            ? "Reporting"
-                            : diagnostics.reporting_status === "never_reported"
-                              ? "Never Reported"
-                              : "Service Not Reporting"}
-                        </div>
-                      </div>
-                      <div className="rounded-lg bg-slate-50 px-3 py-2">
-                        <div className="text-slate-500">Service Status</div>
-                        <div className="font-semibold text-slate-950">{diagnostics.service_status || "-"}</div>
-                      </div>
-                      <div className="rounded-lg bg-slate-50 px-3 py-2">
-                        <div className="text-slate-500">Last Heartbeat</div>
-                        <div className="font-semibold text-slate-950">{formatApiDate(diagnostics.last_heartbeat_at)}</div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          {formatSeconds(diagnostics.seconds_since_last_seen)}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="grid gap-3 text-sm md:grid-cols-2">
-                      <div className="rounded-lg bg-slate-50 px-3 py-2">
-                        <div className="text-slate-500">Last Server Error</div>
-                        <div className="font-semibold text-slate-950">
-                          {diagnostics.last_server_error ||
-                            (diagnostics.reporting_status === "not_reporting"
-                              ? "No server-side error reported. Check local agent.log on the ATM."
-                              : "-")}
-                        </div>
-                        {diagnostics.last_server_error_at && (
-                          <div className="mt-1 text-xs text-slate-500">{formatApiDate(diagnostics.last_server_error_at)}</div>
-                        )}
-                      </div>
-                      <div className="rounded-lg bg-slate-50 px-3 py-2">
-                        <div className="text-slate-500">Module Statuses</div>
-                        <div className="font-semibold text-slate-950">
-                          {Object.entries(selectedAtm.module_status_json || {}).length > 0
-                            ? Object.entries(selectedAtm.module_status_json || {})
-                                .map(([name, status]) => `${name}: ${status}`)
-                                .join(" · ")
-                            : "-"}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
-                      <div className="mb-2 font-medium text-slate-950">Recent Agent Logs</div>
-                      {diagnostics.recent_logs?.length > 0 ? (
-                        <div className="space-y-2">
-                          {diagnostics.recent_logs.slice(0, 3).map((log) => (
-                            <div key={log.id} className="border-b border-slate-200 pb-2 last:border-b-0 last:pb-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className={`rounded-full px-2 py-0.5 text-xs ${
-                                  log.level === "error"
-                                    ? "bg-rose-50 text-rose-700"
-                                    : log.level === "warning"
-                                      ? "bg-amber-50 text-amber-700"
-                                      : "bg-slate-100 text-slate-600"
-                                }`}>
-                                  {log.level}
-                                </span>
-                                <span className="text-xs text-slate-500">{formatApiDate(log.created_at)}</span>
-                              </div>
-                              <div className="mt-1 text-slate-700">{log.message}</div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-slate-500">لا توجد logs مرسلة من الـ Agent بعد.</div>
-                      )}
-                    </div>
-                  </div>
-                )}
-                {!loadingDiagnostics && (!diagnostics || diagnostics.atm_id !== selectedAtm.atm_id) && (
-                  <div className="rounded-lg bg-slate-50 px-3 py-4 text-center text-sm text-slate-500">
-                    اضغط تحديث لعرض تشخيص الـ Agent.
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {selectedAtm.last_config_error && (
-              <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-                {selectedAtm.last_config_error}
-              </div>
-            )}
-            {settingsMessage && (
-              <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                {settingsMessage}
-              </div>
-            )}
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                disabled={savingSettings}
-                className="focus-ring inline-flex items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-white hover:bg-teal-800 disabled:opacity-60"
-                title="حفظ إعدادات الصراف"
-              >
-                <Save size={17} />
-                <span>{savingSettings ? "جار الحفظ..." : "Save"}</span>
-              </button>
-              <button
-                type="button"
-                onClick={regenerateApiKey}
-                disabled={regeneratingKey}
-                className="focus-ring inline-flex items-center gap-2 rounded-lg border border-amber-300 px-4 py-2 text-amber-800 hover:bg-amber-50 disabled:opacity-60"
-                title="توليد API Key جديد"
-              >
-                <KeyRound size={17} />
-                <span>{regeneratingKey ? "جار التوليد..." : "Regenerate API Key"}</span>
-              </button>
-              {generatedKey && generatedKeyAtmId === selectedAtm.atm_id && (
                 <button
                   type="button"
                   onClick={copyInstallCommand}
-                  className="focus-ring inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-slate-700 hover:bg-slate-50"
+                  className="focus-ring inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs text-amber-900 hover:bg-amber-100"
                   title="نسخ أمر التثبيت"
                 >
-                  <Clipboard size={17} />
+                  <Clipboard size={14} />
                   <span>Copy Install Command</span>
                 </button>
+              </div>
+              {copyMessage && <div className="mt-2 text-xs">{copyMessage}</div>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {error && (
+        <div className="mb-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          <AlertCircle className="mt-0.5 shrink-0" size={17} />
+          <div>
+            <div className="font-medium">{error}</div>
+            {Object.values(fieldErrors).length > 0 && (
+              <ul className="mt-1 space-y-1">
+                {Object.values(fieldErrors).map((message) => (
+                  <li key={message}>{message}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="mb-5 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
+          <label className="relative block">
+            <Search className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input
+              className="focus-ring min-h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pr-10 pl-3 text-sm"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="بحث بالاسم أو ATM ID أو الفرع أو IP"
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <SlidersHorizontal size={18} className="text-slate-500" />
+            {[
+              ["all", "الكل"],
+              ["online", "Online"],
+              ["offline", "Offline"],
+              ["pending", "Pending Config"],
+              ["error", "Errors"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setStatusFilter(value)}
+                className={`focus-ring min-h-10 rounded-lg border px-3 text-sm ${
+                  statusFilter === value
+                    ? "border-teal-600 bg-teal-50 text-teal-800"
+                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+        {filteredAtms.map((atm) => (
+          <AtmCard
+            key={atm.atm_id}
+            atm={atm}
+            onOpenSettings={openSettings}
+            onDelete={deleteAtm}
+            onProbeSwitch={requestSwitchProbe}
+            switchProbeBusyId={switchProbeBusyId}
+            deletingAtmId={deletingAtmId}
+          />
+        ))}
+      </div>
+
+      {filteredAtms.length === 0 && (
+        <div className="rounded-lg border border-slate-200 bg-white px-4 py-12 text-center text-sm text-slate-500 shadow-sm">
+          لا توجد صرافات مطابقة
+        </div>
+      )}
+
+      {selectedAtm && (
+        <div
+          className="fixed inset-0 z-40 flex justify-end bg-slate-950/40"
+          role="dialog"
+          aria-modal="true"
+          onClick={closeSettings}
+        >
+          <form
+            noValidate
+            onSubmit={saveSettings}
+            className="flex h-full w-full max-w-5xl flex-col bg-white shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-xl font-semibold text-slate-950">{selectedAtm.name}</h2>
+                  <span className="rounded-full bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700">{selectedAtm.atm_id}</span>
+                </div>
+                <div className="mt-1 text-sm text-slate-500">
+                  {selectedAtm.branch} · {selectedAtm.vpn_ip} · Agent {selectedAtm.agent_version || "-"}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeSettings}
+                className="focus-ring rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                title="إغلاق"
+              >
+                <XCircle size={20} />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <div className="mb-4 grid gap-3 md:grid-cols-4">
+                {(() => {
+                  const status = getConfigStatus(selectedAtm);
+                  const Icon = status.icon;
+                  return (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                      <div className="text-slate-500">Config Sync</div>
+                      <span className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs ${status.tone}`}>
+                        <Icon size={14} />
+                        {status.label}
+                      </span>
+                    </div>
+                  );
+                })()}
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                  <div className="text-slate-500">آخر اتصال</div>
+                  <div className="mt-1 font-semibold text-slate-950">{formatLastSeenAge(selectedAtm)}</div>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                  <div className="text-slate-500">Latency</div>
+                  <span className={`mt-1 inline-flex rounded-full px-2 py-1 text-xs ${getAtmLatencyTone(selectedAtm)}`} dir="ltr">
+                    {formatAtmLatency(selectedAtm)}
+                  </span>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                  <div className="text-slate-500">Switch</div>
+                  <span className={`mt-1 inline-flex rounded-full px-2 py-1 text-xs ${getSwitchProbeTone(selectedAtm.last_switch_probe_status)}`}>
+                    {formatSwitchProbe(selectedAtm)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-2">
+                <section className="rounded-lg border border-slate-200 bg-white">
+                  <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 font-semibold text-slate-950">
+                    Modules
+                  </div>
+                  <div className="grid gap-3 p-4 sm:grid-cols-2">
+                    <ToggleBox
+                      label="Media Update"
+                      checked={Boolean(settingsForm.media_update_enabled)}
+                      onChange={(value) => setSettingsForm((current) => ({ ...current, media_update_enabled: value }))}
+                    />
+                    <ToggleBox
+                      label="Cash Monitoring"
+                      checked={Boolean(settingsForm.cash_monitoring_enabled)}
+                      onChange={(value) => setSettingsForm((current) => ({ ...current, cash_monitoring_enabled: value }))}
+                    />
+                    <label className="block">
+                      <span className="mb-1 block text-sm font-medium text-slate-700">CDM Provider</span>
+                      <select
+                        className="focus-ring w-full rounded-lg border border-slate-300 px-3 py-2"
+                        value={settingsForm.cash_provider || "mock"}
+                        onChange={(event) => setSettingsForm((current) => ({ ...current, cash_provider: event.target.value }))}
+                      >
+                        <option value="mock">Mock Dispense Provider</option>
+                        <option value="xfs_cdm">XFS CDM Provider</option>
+                        <option value="vendor_cdm">Vendor CDM Provider</option>
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-sm font-medium text-slate-700">XFS Profile</span>
+                      <select
+                        className={`focus-ring w-full rounded-lg border px-3 py-2 ${
+                          fieldErrors.xfs_profile ? "border-rose-400 bg-rose-50" : "border-slate-300"
+                        }`}
+                        value={settingsForm.xfs_profile || "ncr_aptra"}
+                        onChange={(event) => {
+                          const nextProfile = event.target.value;
+                          setSettingsForm((current) => ({
+                            ...current,
+                            xfs_profile: nextProfile,
+                            xfs_logical_service: xfsProfileDefaults[nextProfile] || current.xfs_logical_service,
+                          }));
+                        }}
+                      >
+                        <option value="ncr_aptra">NCR APTRA</option>
+                        <option value="grg">GRG</option>
+                        <option value="custom">Custom</option>
+                      </select>
+                      {fieldErrors.xfs_profile && <span className="mt-1 block text-xs text-rose-700">{fieldErrors.xfs_profile}</span>}
+                    </label>
+                    <label className="block sm:col-span-2">
+                      <span className="mb-1 block text-sm font-medium text-slate-700">XFS Logical Service</span>
+                      <input
+                        className={`focus-ring w-full rounded-lg border px-3 py-2 ${
+                          fieldErrors.xfs_logical_service ? "border-rose-400 bg-rose-50" : "border-slate-300"
+                        }`}
+                        dir="ltr"
+                        value={settingsForm.xfs_logical_service || ""}
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({ ...current, xfs_logical_service: event.target.value }))
+                        }
+                        placeholder="MediaDispenser1 أو CDM"
+                      />
+                      {fieldErrors.xfs_logical_service && (
+                        <span className="mt-1 block text-xs text-rose-700">{fieldErrors.xfs_logical_service}</span>
+                      )}
+                    </label>
+                  </div>
+                </section>
+
+                <section className="rounded-lg border border-slate-200 bg-white">
+                  <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
+                    <div className="font-semibold text-slate-950">Switch Probe</div>
+                    <button
+                      type="button"
+                      onClick={() => requestSwitchProbe(selectedAtm)}
+                      disabled={switchProbeBusyId === selectedAtm.atm_id}
+                      className="focus-ring inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-60"
+                      title="فحص الوصول إلى السويتش من داخل الصراف"
+                    >
+                      <Network size={15} />
+                      <span>{switchProbeBusyId === selectedAtm.atm_id ? "جار الطلب" : "فحص الآن"}</span>
+                    </button>
+                  </div>
+                  <div className="grid gap-3 p-4 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="mb-1 block text-sm font-medium text-slate-700">Switch IP / Host</span>
+                      <input
+                        className={`focus-ring w-full rounded-lg border px-3 py-2 ${
+                          fieldErrors.switch_probe_host ? "border-rose-400 bg-rose-50" : "border-slate-300 bg-white"
+                        }`}
+                        dir="ltr"
+                        value={settingsForm.switch_probe_host || ""}
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({ ...current, switch_probe_host: event.target.value }))
+                        }
+                        placeholder="172.16.25.75"
+                      />
+                      {fieldErrors.switch_probe_host && (
+                        <span className="mt-1 block text-xs text-rose-700">{fieldErrors.switch_probe_host}</span>
+                      )}
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-sm font-medium text-slate-700">Switch Port</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="65535"
+                        className={`focus-ring w-full rounded-lg border px-3 py-2 ${
+                          fieldErrors.switch_probe_port ? "border-rose-400 bg-rose-50" : "border-slate-300 bg-white"
+                        }`}
+                        dir="ltr"
+                        value={settingsForm.switch_probe_port || ""}
+                        onChange={(event) =>
+                          setSettingsForm((current) => ({ ...current, switch_probe_port: event.target.value }))
+                        }
+                        placeholder="10200"
+                      />
+                      {fieldErrors.switch_probe_port && (
+                        <span className="mt-1 block text-xs text-rose-700">{fieldErrors.switch_probe_port}</span>
+                      )}
+                    </label>
+                    <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm sm:col-span-2">
+                      <div className="font-semibold text-slate-950" dir="ltr">
+                        {selectedAtm.switch_probe_host}:{selectedAtm.switch_probe_port}
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full px-2 py-1 text-xs ${getSwitchProbeTone(selectedAtm.last_switch_probe_status)}`}>
+                          {formatSwitchProbe(selectedAtm)}
+                        </span>
+                        {selectedAtm.last_switch_probe_at && (
+                          <span className="text-xs text-slate-500">{formatApiDate(selectedAtm.last_switch_probe_at)}</span>
+                        )}
+                      </div>
+                      {selectedAtm.last_switch_probe_error && (
+                        <div className="mt-1 truncate text-xs text-rose-700" title={selectedAtm.last_switch_probe_error}>
+                          {selectedAtm.last_switch_probe_error}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </section>
+              </div>
+
+              <section className="mt-4 rounded-lg border border-slate-200 bg-white">
+                <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 font-semibold text-slate-950">
+                  Paths & Intervals
+                </div>
+                <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
+                  {settingsFields.map(([key, label, placeholder]) => (
+                    <label key={key} className={key.endsWith("_path") ? "block md:col-span-2" : "block"}>
+                      <span className="mb-1 block text-sm font-medium text-slate-700">{label}</span>
+                      <input
+                        className={`focus-ring w-full rounded-lg border px-3 py-2 ${
+                          fieldErrors[key] ? "border-rose-400 bg-rose-50" : "border-slate-300"
+                        }`}
+                        dir={key.endsWith("_path") ? "ltr" : "rtl"}
+                        value={settingsForm[key] || ""}
+                        onChange={(event) => setSettingsForm((current) => ({ ...current, [key]: event.target.value }))}
+                        placeholder={placeholder}
+                      />
+                      {fieldErrors[key] && <span className="mt-1 block text-xs text-rose-700">{fieldErrors[key]}</span>}
+                    </label>
+                  ))}
+                </div>
+              </section>
+
+              <div className="mt-4">
+                <CassetteLayoutEditor
+                  layout={settingsForm.cash_layout}
+                  onChange={(nextLayout) => setSettingsForm((current) => ({ ...current, cash_layout: nextLayout }))}
+                  title="عملة الكاسيتات"
+                  fieldError={fieldErrors.cash_layout}
+                />
+              </div>
+
+              <section className="mt-4 rounded-lg border border-slate-200 bg-white">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
+                  <div className="flex items-center gap-2 font-semibold text-slate-950">
+                    <Activity size={17} />
+                    <span>Agent Diagnostics</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => loadDiagnostics(selectedAtm.atm_id)}
+                    disabled={loadingDiagnostics}
+                    className="focus-ring inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-60"
+                    title="تحديث تشخيص الـ Agent"
+                  >
+                    <RefreshCw size={15} />
+                    <span>{loadingDiagnostics ? "جار التحديث" : "تحديث"}</span>
+                  </button>
+                </div>
+                <div className="p-4">
+                  {loadingDiagnostics && (
+                    <div className="rounded-lg bg-slate-50 px-3 py-4 text-center text-sm text-slate-500">
+                      جار تحميل التشخيص...
+                    </div>
+                  )}
+                  {!loadingDiagnostics && diagnostics && diagnostics.atm_id === selectedAtm.atm_id && (
+                    <div className="space-y-3">
+                      <div className={`rounded-lg border px-3 py-2 text-sm ${getDiagnosticsTone(diagnostics)}`}>
+                        <div className="font-semibold">{diagnostics.summary}</div>
+                        <div className="mt-1">{diagnostics.recommended_action}</div>
+                      </div>
+                      <div className="grid gap-3 text-sm md:grid-cols-3">
+                        <div className="rounded-lg bg-slate-50 px-3 py-2">
+                          <div className="text-slate-500">Reporting</div>
+                          <div className="font-semibold text-slate-950">
+                            {diagnostics.reporting_status === "reporting"
+                              ? "Reporting"
+                              : diagnostics.reporting_status === "never_reported"
+                                ? "Never Reported"
+                                : "Service Not Reporting"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg bg-slate-50 px-3 py-2">
+                          <div className="text-slate-500">Service Status</div>
+                          <div className="font-semibold text-slate-950">{diagnostics.service_status || "-"}</div>
+                        </div>
+                        <div className="rounded-lg bg-slate-50 px-3 py-2">
+                          <div className="text-slate-500">Last Heartbeat</div>
+                          <div className="font-semibold text-slate-950">{formatApiDate(diagnostics.last_heartbeat_at)}</div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {formatSeconds(diagnostics.seconds_since_last_seen)}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="grid gap-3 text-sm md:grid-cols-2">
+                        <div className="rounded-lg bg-slate-50 px-3 py-2">
+                          <div className="text-slate-500">Last Server Error</div>
+                          <div className="font-semibold text-slate-950">
+                            {diagnostics.last_server_error ||
+                              (diagnostics.reporting_status === "not_reporting"
+                                ? "No server-side error reported. Check local agent.log on the ATM."
+                                : "-")}
+                          </div>
+                          {diagnostics.last_server_error_at && (
+                            <div className="mt-1 text-xs text-slate-500">{formatApiDate(diagnostics.last_server_error_at)}</div>
+                          )}
+                        </div>
+                        <div className="rounded-lg bg-slate-50 px-3 py-2">
+                          <div className="text-slate-500">Module Statuses</div>
+                          <div className="font-semibold text-slate-950">
+                            {Object.entries(selectedAtm.module_status_json || {}).length > 0
+                              ? Object.entries(selectedAtm.module_status_json || {})
+                                  .map(([name, status]) => `${name}: ${status}`)
+                                  .join(" · ")
+                              : "-"}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {!loadingDiagnostics && (!diagnostics || diagnostics.atm_id !== selectedAtm.atm_id) && (
+                    <div className="rounded-lg bg-slate-50 px-3 py-4 text-center text-sm text-slate-500">
+                      اضغط تحديث لعرض تشخيص الـ Agent.
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {selectedAtm.last_config_error && (
+                <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {selectedAtm.last_config_error}
+                </div>
+              )}
+              {settingsMessage && (
+                <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                  {settingsMessage}
+                </div>
               )}
             </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-5 py-4">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  disabled={savingSettings}
+                  className="focus-ring inline-flex min-h-11 items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+                  title="حفظ إعدادات الصراف"
+                >
+                  <Save size={17} />
+                  <span>{savingSettings ? "جار الحفظ..." : "Save"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={regenerateApiKey}
+                  disabled={regeneratingKey}
+                  className="focus-ring inline-flex min-h-11 items-center gap-2 rounded-lg border border-amber-300 px-4 py-2 text-sm text-amber-800 hover:bg-amber-50 disabled:opacity-60"
+                  title="توليد API Key جديد"
+                >
+                  <KeyRound size={17} />
+                  <span>{regeneratingKey ? "جار التوليد..." : "Regenerate API Key"}</span>
+                </button>
+                {generatedKey && generatedKeyAtmId === selectedAtm.atm_id && (
+                  <button
+                    type="button"
+                    onClick={copyInstallCommand}
+                    className="focus-ring inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                    title="نسخ أمر التثبيت"
+                  >
+                    <Clipboard size={17} />
+                    <span>Copy Install Command</span>
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={closeSettings}
+                className="focus-ring min-h-11 rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                إغلاق
+              </button>
+            </div>
           </form>
-        )}
-      </div>
-
-      <div className="space-y-3 lg:hidden">
-        {atms.map((atm) => {
-          const configStatus = getConfigStatus(atm);
-          const online = isRecentlyOnline(atm);
-          return (
-            <article key={atm.atm_id} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-base font-semibold text-slate-950">{atm.name}</div>
-                  <div className="mt-1 font-mono text-xs text-slate-500">{atm.atm_id}</div>
-                </div>
-                <span className={`shrink-0 rounded-full px-2 py-1 text-xs ${online ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
-                  {online ? "online" : "offline"}
-                </span>
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
-                <div className="rounded-lg bg-slate-50 px-3 py-2">
-                  <div className="text-xs text-slate-500">IP</div>
-                  <div className="mt-1 truncate font-medium text-slate-900" dir="ltr">{atm.vpn_ip}</div>
-                </div>
-                <div className="rounded-lg bg-slate-50 px-3 py-2">
-                  <div className="text-xs text-slate-500">الفرع</div>
-                  <div className="mt-1 truncate font-medium text-slate-900">{atm.branch || "-"}</div>
-                </div>
-                <div className="rounded-lg bg-slate-50 px-3 py-2">
-                  <div className="text-xs text-slate-500">Agent</div>
-                  <div className="mt-1 truncate font-medium text-slate-900">{atm.agent_version || "-"}</div>
-                </div>
-                <div className="rounded-lg bg-slate-50 px-3 py-2">
-                  <div className="text-xs text-slate-500">Latency</div>
-                  <div className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs ${getAtmLatencyTone(atm)}`} dir="ltr">
-                    {formatAtmLatency(atm)}
-                  </div>
-                </div>
-                <div className="rounded-lg bg-slate-50 px-3 py-2">
-                  <div className="text-xs text-slate-500">Config Sync</div>
-                  <div className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs ${configStatus.tone}`}>
-                    {configStatus.label}
-                  </div>
-                </div>
-                <div className="rounded-lg bg-slate-50 px-3 py-2">
-                  <div className="text-xs text-slate-500">Switch</div>
-                  <div
-                    className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs ${getSwitchProbeTone(atm.last_switch_probe_status)}`}
-                    title={atm.last_switch_probe_error || ""}
-                  >
-                    {formatSwitchProbe(atm)}
-                  </div>
-                </div>
-                <div className="rounded-lg bg-slate-50 px-3 py-2">
-                  <div className="text-xs text-slate-500">آخر اتصال</div>
-                  <div className="mt-1 font-medium text-slate-900">{formatLastSeenAge(atm)}</div>
-                </div>
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => openSettings(atm)}
-                  className="focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
-                  title="إعدادات الصراف"
-                >
-                  <Settings2 size={16} />
-                  <span>إعدادات</span>
-                </button>
-                <button
-                  onClick={() => requestSwitchProbe(atm)}
-                  disabled={switchProbeBusyId === atm.atm_id}
-                  className="focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
-                  title={`فحص TCP من الصراف إلى ${atm.switch_probe_host}:${atm.switch_probe_port}`}
-                >
-                  <Network size={16} />
-                  <span>{switchProbeBusyId === atm.atm_id ? "جار الطلب" : "فحص السويتش"}</span>
-                </button>
-                <button
-                  onClick={() => deleteAtm(atm)}
-                  disabled={deletingAtmId === atm.atm_id}
-                  className="focus-ring col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-sm text-rose-700 hover:bg-rose-50 disabled:opacity-60"
-                  title="حذف الصراف"
-                >
-                  <Trash2 size={16} />
-                  <span>{deletingAtmId === atm.atm_id ? "جار الحذف" : "حذف الصراف"}</span>
-                </button>
-              </div>
-            </article>
-          );
-        })}
-        {atms.length === 0 && (
-          <div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-sm">
-            لا توجد صرافات بعد
-          </div>
-        )}
-      </div>
-
-      <div className="hidden overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm lg:block">
-        <table className="min-w-[1120px] divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-50 text-slate-600">
-            <tr>
-              <th className="px-4 py-3 text-right font-medium">ATM ID</th>
-              <th className="px-4 py-3 text-right font-medium">الاسم</th>
-              <th className="px-4 py-3 text-right font-medium">IP</th>
-              <th className="px-4 py-3 text-right font-medium">الفرع</th>
-              <th className="px-4 py-3 text-right font-medium">الحالة</th>
-              <th className="px-4 py-3 text-right font-medium">Config Sync</th>
-              <th className="px-4 py-3 text-right font-medium">Agent</th>
-              <th className="px-4 py-3 text-right font-medium">Latency</th>
-              <th className="px-4 py-3 text-right font-medium">Switch</th>
-              <th className="px-4 py-3 text-right font-medium">آخر اتصال</th>
-              <th className="px-4 py-3 text-right font-medium">إعدادات</th>
-              <th className="px-4 py-3 text-right font-medium">حذف</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {atms.map((atm) => (
-              <tr key={atm.atm_id}>
-                <td className="px-4 py-3 font-mono text-slate-900">{atm.atm_id}</td>
-                <td className="px-4 py-3">{atm.name}</td>
-                <td className="px-4 py-3" dir="ltr">{atm.vpn_ip}</td>
-                <td className="px-4 py-3">{atm.branch}</td>
-                <td className="px-4 py-3">
-                  <span className={`rounded-full px-2 py-1 text-xs ${isRecentlyOnline(atm) ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
-                    {isRecentlyOnline(atm) ? "online" : "offline"}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  {(() => {
-                    const status = getConfigStatus(atm);
-                    return <span className={`rounded-full px-2 py-1 text-xs ${status.tone}`}>{status.label}</span>;
-                  })()}
-                </td>
-                <td className="px-4 py-3">{atm.agent_version || "-"}</td>
-                <td className="px-4 py-3">
-                  <span
-                    className={`rounded-full px-2 py-1 text-xs ${getAtmLatencyTone(atm)}`}
-                    dir="ltr"
-                    title={
-                      isRecentlyOnline(atm)
-                        ? "Latency from latest heartbeat"
-                        : `Last stored latency: ${formatLatency(atm.latency_ms)}`
-                    }
-                  >
-                    {formatAtmLatency(atm)}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="mb-1">
-                    <span
-                      className={`rounded-full px-2 py-1 text-xs ${getSwitchProbeTone(atm.last_switch_probe_status)}`}
-                      title={atm.last_switch_probe_error || ""}
-                    >
-                      {formatSwitchProbe(atm)}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => requestSwitchProbe(atm)}
-                    disabled={switchProbeBusyId === atm.atm_id}
-                    className="focus-ring inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-60"
-                    title={`فحص TCP من الصراف إلى ${atm.switch_probe_host}:${atm.switch_probe_port}`}
-                  >
-                    <Network size={13} />
-                    <span>{switchProbeBusyId === atm.atm_id ? "جار الطلب" : "فحص"}</span>
-                  </button>
-                </td>
-                <td className="px-4 py-3">
-                  <div>{formatApiDate(atm.last_heartbeat_at || atm.last_seen)}</div>
-                  <div className="text-xs text-slate-500">{formatLastSeenAge(atm)}</div>
-                </td>
-                <td className="px-4 py-3">
-                  <button
-                    onClick={() => openSettings(atm)}
-                    className="focus-ring inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
-                    title="إعدادات الصراف"
-                  >
-                    <Settings2 size={15} />
-                    <span>فتح</span>
-                  </button>
-                </td>
-                <td className="px-4 py-3">
-                  <button
-                    onClick={() => deleteAtm(atm)}
-                    disabled={deletingAtmId === atm.atm_id}
-                    className="focus-ring inline-flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-1.5 text-sm text-rose-700 hover:bg-rose-50 disabled:opacity-60"
-                    title="حذف الصراف"
-                  >
-                    <Trash2 size={15} />
-                    <span>{deletingAtmId === atm.atm_id ? "جار الحذف" : "حذف"}</span>
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {atms.length === 0 && (
-              <tr>
-                <td colSpan="12" className="px-4 py-8 text-center text-slate-500">لا توجد صرافات بعد</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+        </div>
+      )}
 
       {switchProbeDialog?.open && (() => {
         const probe = switchProbeDialog.probe || {};
