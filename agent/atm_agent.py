@@ -22,8 +22,9 @@ from media_update_module import MediaUpdateModule
 from module_runner import ModuleRunner
 from network_probe import tcp_connect_probe
 from xfs_cdm_diagnostics import diagnose_xfs_cdm, format_diagnostics
+from xfs_cdm_reader import read_cash_units, format_read_result
 
-AGENT_VERSION = "2.0.0"
+AGENT_VERSION = "2.0.1"
 DEFAULT_INSTALL_DIR = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "ATM Media Agent"
 DEFAULT_CONFIG = DEFAULT_INSTALL_DIR / "config.json"
 SERVICE_NAME = "ATMUnifiedAgent"
@@ -471,6 +472,19 @@ def xfs_cdm_diagnose_command(args: argparse.Namespace) -> None:
         print(format_diagnostics(result))
 
 
+def xfs_cdm_read_command(args: argparse.Namespace) -> None:
+    result = read_cash_units(
+        args.logical_service,
+        msxfs_path=args.msxfs_path,
+        timeout_ms=args.timeout_ms,
+        version_range=int(str(args.version_range), 0),
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_read_result(result))
+
+
 def service_main(args: argparse.Namespace) -> None:
     if os.name != "nt":
         AtmAgent(Path(args.config)).run_forever()
@@ -512,6 +526,14 @@ def main() -> None:
     diagnose_parser.add_argument("--aptra-root")
     diagnose_parser.add_argument("--json", action="store_true")
     diagnose_parser.set_defaults(func=xfs_cdm_diagnose_command)
+
+    read_parser = sub.add_parser("xfs-cdm-read")
+    read_parser.add_argument("--logical-service", default="MediaDispenser1")
+    read_parser.add_argument("--msxfs-path")
+    read_parser.add_argument("--timeout-ms", type=int, default=20000)
+    read_parser.add_argument("--version-range", default="0x00031E03")
+    read_parser.add_argument("--json", action="store_true")
+    read_parser.set_defaults(func=xfs_cdm_read_command)
 
     run_parser = sub.add_parser("run")
     run_parser.add_argument("--config", default=str(DEFAULT_CONFIG))

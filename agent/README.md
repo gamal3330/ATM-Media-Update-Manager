@@ -96,6 +96,16 @@ For NCR APTRA installs, run:
 atm-agent.exe xfs-cdm-diagnose --aptra-root "C:\Program Files (x86)\NCR APTRA"
 ```
 
+After diagnostics confirm the logical service name, the first cassette read test is also read-only:
+
+```bat
+atm-agent.exe xfs-cdm-read --logical-service MediaDispenser1 --json
+```
+
+For NCR APTRA/XFS installed under `Program Files (x86)`, build and run this command with a 32-bit `atm-agent.exe`.
+The command calls `WFSGetInfo` for CDM cash unit information only. It does not dispense, reset, exchange, or change any
+ATM state.
+
 If you need machine-readable output:
 
 ```bat
