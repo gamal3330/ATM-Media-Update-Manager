@@ -11,6 +11,9 @@ from ..models import ATM, AtmCashAlert, AtmCashSnapshot, AtmCashThreshold, AtmCa
 from ..schemas import (
     CashAlertRead,
     CashAtmDetails,
+    CashAtmReportRead,
+    CashForecastRead,
+    CashReportOverview,
     CashSnapshotRequest,
     CashSummary,
     CashThresholdCreate,
@@ -31,6 +34,7 @@ CASSETTE_ALERT_TYPES = {
     "DENOMINATION_MISMATCH",
 }
 REJECT_RETRACT_ALERT_TYPES = {"REJECT_BIN_HIGH", "REJECT_BIN_FULL", "RETRACT_OCCURRED"}
+RISK_RANK = {"CRITICAL": 0, "LOW": 1, "STALE": 2, "OK": 3, "UNKNOWN": 4}
 
 
 def utcnow() -> datetime:
@@ -154,6 +158,99 @@ def layout_match_status(unit_payload, layout: dict[str, Any]) -> tuple[str, set[
     if "DENOMINATION_MISMATCH" in active_types:
         return "DENOMINATION_MISMATCH", active_types
     return "MATCH", active_types
+
+
+def snapshot_unit_readings(db: Session, atm: ATM, cassette_no: int, limit: int = 16) -> list[tuple[datetime, int]]:
+    snapshots = (
+        db.query(AtmCashSnapshot)
+        .filter(AtmCashSnapshot.atm_id == atm.id)
+        .order_by(AtmCashSnapshot.read_at.desc())
+        .limit(limit)
+        .all()
+    )
+    readings: list[tuple[datetime, int]] = []
+    for snapshot in snapshots:
+        payload = snapshot.snapshot_json or {}
+        for unit in payload.get("cash_units") or []:
+            if int(unit.get("cassette_no") or 0) != cassette_no:
+                continue
+            readings.append((snapshot.read_at, int(unit.get("current_count") or 0)))
+            break
+    return sorted(readings, key=lambda item: item[0])
+
+
+def cash_risk(current_count: int, low_threshold: int, critical_threshold: int, days_to_empty: float | None) -> str:
+    if current_count <= critical_threshold or (days_to_empty is not None and days_to_empty <= 1):
+        return "CRITICAL"
+    if current_count <= low_threshold or (days_to_empty is not None and days_to_empty <= 3):
+        return "LOW"
+    return "OK"
+
+
+def forecast_for_unit(db: Session, atm: ATM, unit: AtmCashUnit) -> CashForecastRead:
+    readings = snapshot_unit_readings(db, atm, unit.cassette_no)
+    total_drop = 0
+    total_hours = 0.0
+    for (previous_at, previous_count), (current_at, current_count) in zip(readings, readings[1:]):
+        if previous_at.tzinfo is None:
+            previous_at = previous_at.replace(tzinfo=timezone.utc)
+        if current_at.tzinfo is None:
+            current_at = current_at.replace(tzinfo=timezone.utc)
+        hours = (current_at - previous_at).total_seconds() / 3600
+        drop = previous_count - current_count
+        if hours > 0 and drop > 0:
+            total_drop += drop
+            total_hours += hours
+
+    notes_per_day: float | None = None
+    days_to_low: float | None = None
+    days_to_empty: float | None = None
+    if total_drop > 0 and total_hours > 0:
+        notes_per_day = round((total_drop / total_hours) * 24, 2)
+        if notes_per_day > 0:
+            days_to_empty = round(unit.current_count / notes_per_day, 2)
+            days_to_low = round(max(0, unit.current_count - unit.low_threshold) / notes_per_day, 2)
+
+    risk = cash_risk(unit.current_count, unit.low_threshold, unit.critical_threshold, days_to_empty)
+    return CashForecastRead(
+        atm_id=atm.atm_id,
+        atm_name=atm.name,
+        branch=atm.branch,
+        cassette_no=unit.cassette_no,
+        currency=unit.expected_currency or unit.reported_currency,
+        denomination=unit.expected_denomination or unit.reported_denomination,
+        current_count=unit.current_count,
+        low_threshold=unit.low_threshold,
+        critical_threshold=unit.critical_threshold,
+        notes_per_day=notes_per_day,
+        days_to_low=days_to_low,
+        days_to_empty=days_to_empty,
+        risk=risk,
+        last_read_at=unit.read_at,
+        sample_count=len(readings),
+    )
+
+
+def forecasts_for_atm(db: Session, atm: ATM, units: list[AtmCashUnit]) -> list[CashForecastRead]:
+    return [forecast_for_unit(db, atm, unit) for unit in units]
+
+
+def latest_cash_read_at(db: Session, atm: ATM) -> datetime | None:
+    latest = (
+        db.query(AtmCashSnapshot)
+        .filter(AtmCashSnapshot.atm_id == atm.id)
+        .order_by(AtmCashSnapshot.read_at.desc())
+        .first()
+    )
+    return latest.read_at if latest else None
+
+
+def is_cash_stale(atm: ATM, read_at: datetime | None, now: datetime) -> bool:
+    if read_at is None:
+        return True
+    if read_at.tzinfo is None:
+        read_at = read_at.replace(tzinfo=timezone.utc)
+    return now - read_at > timedelta(minutes=atm.cash_stale_after_minutes)
 
 
 @router.post("/api/agent/cash-snapshot")
@@ -422,7 +519,62 @@ def cash_atm_details(
             .order_by(AtmCashThreshold.denomination.asc())
             .all()
         ),
+        forecasts=forecasts_for_atm(db, atm, units),
     )
+
+
+@router.get("/api/cash/reports/overview", response_model=CashReportOverview)
+def cash_report_overview(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CashReportOverview:
+    now = utcnow()
+    report_rows: list[CashAtmReportRead] = []
+    forecast_risks: list[CashForecastRead] = []
+    atms = db.query(ATM).filter(ATM.cash_monitoring_enabled.is_(True)).order_by(ATM.branch, ATM.atm_id).all()
+
+    for atm in atms:
+        units = db.query(AtmCashUnit).filter(AtmCashUnit.atm_id == atm.id).order_by(AtmCashUnit.cassette_no.asc()).all()
+        apply_current_layout_to_units(atm, units)
+        forecasts = forecasts_for_atm(db, atm, units)
+        forecast_risks.extend([item for item in forecasts if item.risk in {"LOW", "CRITICAL"}])
+
+        totals_by_currency: dict[str, int] = {}
+        total_note_count = 0
+        for unit in units:
+            currency = unit.expected_currency or unit.reported_currency or "N/A"
+            denomination = int(unit.expected_denomination or unit.reported_denomination or 0)
+            totals_by_currency[currency] = totals_by_currency.get(currency, 0) + unit.current_count * denomination
+            total_note_count += unit.current_count
+
+        lowest = min(units, key=lambda item: item.current_count, default=None)
+        open_alert_count = (
+            db.query(AtmCashAlert)
+            .filter(AtmCashAlert.atm_id == atm.id, AtmCashAlert.status == "open")
+            .count()
+        )
+        last_read = latest_cash_read_at(db, atm)
+        highest_risk = min((item.risk for item in forecasts), key=lambda risk: RISK_RANK.get(risk, 99), default="UNKNOWN")
+        days_values = [item.days_to_empty for item in forecasts if item.days_to_empty is not None]
+        report_rows.append(
+            CashAtmReportRead(
+                atm_id=atm.atm_id,
+                name=atm.name,
+                branch=atm.branch,
+                is_stale=is_cash_stale(atm, last_read, now),
+                last_read_at=last_read,
+                totals_by_currency=totals_by_currency,
+                total_note_count=total_note_count,
+                lowest_cassette_no=lowest.cassette_no if lowest else None,
+                lowest_current_count=lowest.current_count if lowest else None,
+                open_alert_count=open_alert_count,
+                highest_risk=highest_risk,
+                forecast_days_to_empty=min(days_values) if days_values else None,
+            )
+        )
+
+    forecast_risks.sort(key=lambda item: (RISK_RANK.get(item.risk, 99), item.days_to_empty if item.days_to_empty is not None else 9999))
+    return CashReportOverview(generated_at=now, atms=report_rows, forecast_risks=forecast_risks[:20])
 
 
 @router.get("/api/cash/alerts", response_model=list[CashAlertRead])

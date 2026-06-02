@@ -756,12 +756,31 @@ class CashThresholdRead(BaseModel):
     updated_at: datetime
 
 
+class CashForecastRead(BaseModel):
+    atm_id: str
+    atm_name: str
+    branch: str
+    cassette_no: int
+    currency: str
+    denomination: int
+    current_count: int
+    low_threshold: int
+    critical_threshold: int
+    notes_per_day: float | None = None
+    days_to_low: float | None = None
+    days_to_empty: float | None = None
+    risk: str
+    last_read_at: datetime | None = None
+    sample_count: int = 0
+
+
 class CashAtmDetails(BaseModel):
     atm: ATMRead
     units: list[CashUnitRead]
     reject_retract: RejectRetractRead | None = None
     alerts: list[CashAlertRead]
     thresholds: list[CashThresholdRead]
+    forecasts: list[CashForecastRead] = Field(default_factory=list)
 
 
 class CashSummary(BaseModel):
@@ -772,3 +791,24 @@ class CashSummary(BaseModel):
     cash_stale_atms: int
     open_alerts: int
     units: list[CashUnitRead]
+
+
+class CashAtmReportRead(BaseModel):
+    atm_id: str
+    name: str
+    branch: str
+    is_stale: bool
+    last_read_at: datetime | None = None
+    totals_by_currency: dict[str, int] = Field(default_factory=dict)
+    total_note_count: int = 0
+    lowest_cassette_no: int | None = None
+    lowest_current_count: int | None = None
+    open_alert_count: int = 0
+    highest_risk: str = "UNKNOWN"
+    forecast_days_to_empty: float | None = None
+
+
+class CashReportOverview(BaseModel):
+    generated_at: datetime
+    atms: list[CashAtmReportRead]
+    forecast_risks: list[CashForecastRead]

@@ -251,6 +251,7 @@ export const api = {
     request(`/api/atms/${encodeURIComponent(atmId)}${force ? "?force=true" : ""}`, { method: "DELETE" }),
   getCashSummary: () => request("/api/cash/summary"),
   getCashAtm: (atmId) => request(`/api/cash/atms/${encodeURIComponent(atmId)}`),
+  getCashReport: () => request("/api/cash/reports/overview"),
   listCashAlerts: () => request("/api/cash/alerts"),
   saveCashThreshold: (payload) =>
     request("/api/cash/thresholds", { method: "POST", body: JSON.stringify(payload) }),

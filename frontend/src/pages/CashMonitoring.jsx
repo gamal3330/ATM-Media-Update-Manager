@@ -1,4 +1,4 @@
-import { AlertTriangle, Banknote, PackageCheck, RefreshCw } from "lucide-react";
+import { AlertTriangle, Banknote, Download, FileText, PackageCheck, RefreshCw, Timer, TrendingDown } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { formatApiDate } from "../api/time";
@@ -23,8 +23,36 @@ function alertUnitLabel(alert) {
   return `Cassette ${alert.unit_no}`;
 }
 
+function riskTone(risk) {
+  const value = String(risk || "").toUpperCase();
+  if (value === "CRITICAL") return "bg-rose-50 text-rose-700";
+  if (value === "LOW") return "bg-amber-50 text-amber-700";
+  if (value === "STALE") return "bg-slate-100 text-slate-600";
+  if (value === "OK") return "bg-emerald-50 text-emerald-700";
+  return "bg-slate-100 text-slate-600";
+}
+
+function formatDays(value) {
+  if (value === null || value === undefined) return "-";
+  if (Number(value) <= 0) return "الآن";
+  if (Number(value) < 1) return "أقل من يوم";
+  return `${Number(value).toFixed(1)} يوم`;
+}
+
+function downloadCsv(filename, rows) {
+  const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
+  const blob = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function CashMonitoring({ atms }) {
   const [summary, setSummary] = useState(null);
+  const [report, setReport] = useState(null);
   const [alerts, setAlerts] = useState([]);
   const [selectedAtmId, setSelectedAtmId] = useState("");
   const [details, setDetails] = useState(null);
@@ -51,9 +79,10 @@ export default function CashMonitoring({ atms }) {
     setLoading(true);
     setError("");
     try {
-      const [summaryData, alertData] = await Promise.all([api.getCashSummary(), api.listCashAlerts()]);
+      const [summaryData, alertData, reportData] = await Promise.all([api.getCashSummary(), api.listCashAlerts(), api.getCashReport()]);
       setSummary(summaryData);
       setAlerts(alertData);
+      setReport(reportData);
       const nextAtmId = selectedAtmId || cashEnabledAtms[0]?.atm_id || atms[0]?.atm_id || "";
       if (nextAtmId) {
         setSelectedAtmId(nextAtmId);
@@ -64,6 +93,26 @@ export default function CashMonitoring({ atms }) {
     } finally {
       setLoading(false);
     }
+  }
+
+  function exportReport() {
+    const rows = [
+      ["ATM ID", "Name", "Branch", "Last Read", "Stale", "Risk", "Total Notes", "Lowest Cassette", "Lowest Count", "Days To Empty", "Open Alerts"],
+      ...(report?.atms || []).map((item) => [
+        item.atm_id,
+        item.name,
+        item.branch,
+        item.last_read_at || "-",
+        item.is_stale ? "yes" : "no",
+        item.highest_risk,
+        item.total_note_count,
+        item.lowest_cassette_no || "-",
+        item.lowest_current_count ?? "-",
+        item.forecast_days_to_empty ?? "-",
+        item.open_alert_count,
+      ]),
+    ];
+    downloadCsv("atm-cash-report.csv", rows);
   }
 
   async function selectAtm(atmId) {
@@ -241,7 +290,113 @@ export default function CashMonitoring({ atms }) {
             </table>
           </div>
         </div>
-        </div>
+
+          <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+            <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
+              <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+                <div>
+                  <div className="flex items-center gap-2 font-medium text-slate-950">
+                    <TrendingDown size={18} />
+                    <span>توقع نفاد النقد</span>
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500">مبني على آخر قراءات CDM الناجحة</div>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-slate-200 text-sm">
+                  <thead className="bg-slate-50 text-slate-600">
+                    <tr>
+                      <th className="px-4 py-3 text-right font-medium">Cassette</th>
+                      <th className="px-4 py-3 text-right font-medium">الحالة</th>
+                      <th className="px-4 py-3 text-right font-medium">معدل يومي</th>
+                      <th className="px-4 py-3 text-right font-medium">إلى Low</th>
+                      <th className="px-4 py-3 text-right font-medium">إلى Empty</th>
+                      <th className="px-4 py-3 text-right font-medium">عينات</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {(details?.forecasts || []).map((item) => (
+                      <tr key={`${item.atm_id}-${item.cassette_no}`}>
+                        <td className="px-4 py-3">
+                          <div className="font-semibold text-slate-950">{item.cassette_no}</div>
+                          <div className="text-xs text-slate-500">{item.currency} {item.denomination}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`rounded-full px-2 py-1 text-xs font-semibold ${riskTone(item.risk)}`}>{item.risk}</span>
+                        </td>
+                        <td className="px-4 py-3">{item.notes_per_day ? `${formatCashValue(item.notes_per_day)} ورقة` : "-"}</td>
+                        <td className="px-4 py-3">{formatDays(item.days_to_low)}</td>
+                        <td className="px-4 py-3 font-semibold text-slate-950">{formatDays(item.days_to_empty)}</td>
+                        <td className="px-4 py-3">{item.sample_count}</td>
+                      </tr>
+                    ))}
+                    {(!details || (details.forecasts || []).length === 0) && (
+                      <tr>
+                        <td colSpan="6" className="px-4 py-8 text-center text-slate-500">
+                          يحتاج التوقع إلى قراءتين نقديتين ناجحتين على الأقل.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
+              <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+                <div className="flex items-center gap-2 font-medium text-slate-950">
+                  <FileText size={18} />
+                  <span>تقرير مختصر</span>
+                </div>
+                <button
+                  onClick={exportReport}
+                  className="focus-ring inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-50"
+                  disabled={!report?.atms?.length}
+                >
+                  <Download size={15} />
+                  CSV
+                </button>
+              </div>
+              <div className="space-y-3 p-4">
+                <div className="rounded-lg bg-slate-50 px-3 py-3">
+                  <div className="text-xs font-medium text-slate-500">صرافات مفعلة</div>
+                  <div className="mt-1 text-2xl font-semibold text-slate-950">{report?.atms?.length || 0}</div>
+                </div>
+                <div className="rounded-lg bg-slate-50 px-3 py-3">
+                  <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+                    <Timer size={15} />
+                    <span>أقرب نفاد متوقع</span>
+                  </div>
+                  <div className="mt-1 text-2xl font-semibold text-slate-950">
+                    {formatDays(report?.forecast_risks?.[0]?.days_to_empty)}
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {report?.forecast_risks?.[0]
+                      ? `${report.forecast_risks[0].atm_name} · Cassette ${report.forecast_risks[0].cassette_no}`
+                      : "لا توجد مخاطر حالية"}
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-2 text-xs font-semibold text-slate-500">أعلى المخاطر</div>
+                  <div className="space-y-2">
+                    {(report?.forecast_risks || []).slice(0, 4).map((item) => (
+                      <div key={`${item.atm_id}-${item.cassette_no}`} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 px-3 py-2 text-xs">
+                        <div>
+                          <div className="font-semibold text-slate-950">{item.atm_name}</div>
+                          <div className="text-slate-500">Cassette {item.cassette_no} · {item.current_count} ورقة</div>
+                        </div>
+                        <span className={`rounded-full px-2 py-1 font-semibold ${riskTone(item.risk)}`}>{formatDays(item.days_to_empty)}</span>
+                      </div>
+                    ))}
+                    {(!report?.forecast_risks || report.forecast_risks.length === 0) && (
+                      <div className="rounded-lg bg-slate-50 px-3 py-3 text-center text-xs text-slate-500">لا توجد مخاطر نقد حالية</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+      </div>
       </div>
 
       <div className="mt-6 rounded-lg border border-slate-200 bg-white shadow-sm">
