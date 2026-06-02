@@ -282,6 +282,9 @@ def type_name(value: int) -> str:
 
 def candidate_msxfs_paths() -> list[Path]:
     paths: list[Path] = []
+    configured = os.environ.get("ATM_MSXFS_PATH")
+    if configured:
+        paths.append(Path(configured))
     found = ctypes.util.find_library("msxfs")
     if found:
         paths.append(Path(found))
@@ -291,6 +294,9 @@ def candidate_msxfs_paths() -> list[Path]:
     for base in (common_x86, common):
         if base:
             paths.append(Path(base) / "NCR" / "msxfs.dll")
+            paths.append(Path(base) / "GRG" / "msxfs.dll")
+            paths.append(Path(base) / "XFS" / "msxfs.dll")
+            paths.append(Path(base) / "msxfs.dll")
     paths.extend([windir / "SysWOW64" / "msxfs.dll", windir / "System32" / "msxfs.dll"])
     unique: list[Path] = []
     seen: set[str] = set()
@@ -419,7 +425,7 @@ def read_cash_units(
     if os.name != "nt":
         raise RuntimeError("XFS CDM read is only available on Windows.")
     if process_architecture() != "32-bit":
-        raise RuntimeError("XFS CDM read must use a 32-bit atm-agent.exe for NCR APTRA under Program Files (x86).")
+        raise RuntimeError("XFS CDM read must use a 32-bit atm-agent.exe when the installed XFS Manager/provider is 32-bit.")
     if not logical_service.strip():
         raise RuntimeError("A logical service name is required, for example: MediaDispenser1")
 

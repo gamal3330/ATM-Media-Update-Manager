@@ -11,7 +11,17 @@ from pathlib import Path
 from typing import Any
 
 
-CDM_HINTS = ("CDM", "CASH", "NCR_CDM", "NCR_CDMSP", "NCR_CDM2SP")
+CDM_HINTS = (
+    "CDM",
+    "CASH",
+    "CURRENCY DISPENSER",
+    "MEDIA DISPENSER",
+    "DISPENSER",
+    "NCR_CDM",
+    "NCR_CDMSP",
+    "NCR_CDM2SP",
+    "GRG",
+)
 REGISTRY_ROOTS = (
     r"SOFTWARE\XFS",
     r"SOFTWARE\WOW6432Node\XFS",
@@ -19,6 +29,8 @@ REGISTRY_ROOTS = (
     r"SOFTWARE\WOW6432Node\WOSA",
     r"SOFTWARE\NCR",
     r"SOFTWARE\WOW6432Node\NCR",
+    r"SOFTWARE\GRG",
+    r"SOFTWARE\WOW6432Node\GRG",
 )
 
 
@@ -43,6 +55,7 @@ class XfsCdmDiagnostics:
     os_name: str
     os_architecture: str
     process_architecture: str
+    xfs_root: str | None
     aptra_root: str | None
     xfs_manager_dir: str | None
     cdm_provider_dir: str | None
@@ -62,16 +75,22 @@ def process_architecture() -> str:
     return "64-bit" if sys.maxsize > 2**32 else "32-bit"
 
 
-def candidate_aptra_roots() -> list[Path]:
+def candidate_xfs_roots() -> list[Path]:
     roots: list[Path] = []
     for env_name in ("ProgramFiles(x86)", "ProgramFiles"):
         value = os.environ.get(env_name)
         if value:
             roots.append(Path(value) / "NCR APTRA")
+            roots.append(Path(value) / "GRG Banking")
+            roots.append(Path(value) / "GRG")
     roots.extend(
         [
             Path(r"C:\Program Files (x86)\NCR APTRA"),
             Path(r"C:\Program Files\NCR APTRA"),
+            Path(r"C:\Program Files (x86)\GRG Banking"),
+            Path(r"C:\Program Files\GRG Banking"),
+            Path(r"C:\Program Files (x86)\GRG"),
+            Path(r"C:\Program Files\GRG"),
         ]
     )
     unique: list[Path] = []
@@ -84,14 +103,18 @@ def candidate_aptra_roots() -> list[Path]:
     return unique
 
 
-def resolve_aptra_root(aptra_root: str | None = None) -> Path | None:
-    if aptra_root:
-        root = Path(aptra_root)
+def resolve_xfs_root(xfs_root: str | None = None) -> Path | None:
+    if xfs_root:
+        root = Path(xfs_root)
         return root if root.exists() else root
-    for root in candidate_aptra_roots():
+    for root in candidate_xfs_roots():
         if root.exists():
             return root
     return None
+
+
+def resolve_aptra_root(aptra_root: str | None = None) -> Path | None:
+    return resolve_xfs_root(aptra_root)
 
 
 def file_entry(path: Path) -> FileEntry:
@@ -121,11 +144,22 @@ def list_directory_files(path: Path | None, patterns: tuple[str, ...]) -> list[F
 
 def msxfs_candidate_paths(aptra_root: Path | None) -> list[Path]:
     candidates: list[Path] = []
+    configured = os.environ.get("ATM_MSXFS_PATH")
+    if configured:
+        candidates.append(Path(configured))
     found = ctypes.util.find_library("msxfs")
     if found:
         candidates.append(Path(found))
     windir = Path(os.environ.get("WINDIR", r"C:\Windows"))
     candidates.extend([windir / "System32" / "msxfs.dll", windir / "SysWOW64" / "msxfs.dll"])
+    common_x86 = os.environ.get("CommonProgramFiles(x86)")
+    common = os.environ.get("CommonProgramFiles")
+    for base in (common_x86, common):
+        if base:
+            candidates.append(Path(base) / "NCR" / "msxfs.dll")
+            candidates.append(Path(base) / "GRG" / "msxfs.dll")
+            candidates.append(Path(base) / "XFS" / "msxfs.dll")
+            candidates.append(Path(base) / "msxfs.dll")
     if aptra_root is not None:
         candidates.extend(
             [
@@ -220,17 +254,17 @@ def logical_service_candidates(registry_hits: list[RegistryHit]) -> list[str]:
 def build_next_steps(result: XfsCdmDiagnostics) -> list[str]:
     steps: list[str] = []
     if result.process_architecture == "64-bit":
-        steps.append("Build the real XFS CDM reader as 32-bit if NCR APTRA/XFS is installed under Program Files (x86).")
+        steps.append("Build and run the real XFS CDM reader as 32-bit if the ATM XFS Manager/provider is 32-bit.")
     if not result.logical_service_candidates:
-        steps.append("Find the CDM logical service name from NCR APTRA XFS configuration before enabling xfs_cdm.")
+        steps.append("Find the CDM logical service name from the ATM XFS configuration before enabling xfs_cdm.")
     else:
         steps.append("Use one listed logical service candidate for the first read-only WFSGetInfo test.")
     steps.append("Keep provider set to mock until read-only XFS CDM diagnostics are confirmed.")
     return steps
 
 
-def diagnose_xfs_cdm(aptra_root: str | None = None) -> XfsCdmDiagnostics:
-    root = resolve_aptra_root(aptra_root)
+def diagnose_xfs_cdm(xfs_root: str | None = None) -> XfsCdmDiagnostics:
+    root = resolve_xfs_root(xfs_root)
     xfs_manager_dir = root / "XFS Manager" if root is not None else None
     cdm_provider_dir = root / "XFS CDM Service Provider" if root is not None else None
     registry_hits = scan_registry_for_cdm()
@@ -239,6 +273,7 @@ def diagnose_xfs_cdm(aptra_root: str | None = None) -> XfsCdmDiagnostics:
         os_name=platform.platform(),
         os_architecture=platform.machine() or platform.architecture()[0],
         process_architecture=process_architecture(),
+        xfs_root=str(root) if root is not None else None,
         aptra_root=str(root) if root is not None else None,
         xfs_manager_dir=str(xfs_manager_dir) if xfs_manager_dir is not None else None,
         cdm_provider_dir=str(cdm_provider_dir) if cdm_provider_dir is not None else None,
@@ -249,7 +284,7 @@ def diagnose_xfs_cdm(aptra_root: str | None = None) -> XfsCdmDiagnostics:
         logical_service_candidates=logical_service_candidates(registry_hits),
     )
     if root is None or not root.exists():
-        result.warnings.append("NCR APTRA root was not found automatically.")
+        result.warnings.append("XFS root was not found automatically. Registry scan may still find logical service names.")
     if cdm_provider_dir is None or not cdm_provider_dir.exists():
         result.warnings.append("XFS CDM Service Provider directory was not found.")
     if xfs_manager_dir is None or not xfs_manager_dir.exists():
@@ -268,7 +303,7 @@ def format_diagnostics(result: XfsCdmDiagnostics) -> str:
         f"OS: {result.os_name}",
         f"OS Architecture: {result.os_architecture}",
         f"Agent Process Architecture: {result.process_architecture}",
-        f"NCR APTRA Root: {result.aptra_root or '-'}",
+        f"XFS Root: {result.xfs_root or result.aptra_root or '-'}",
         f"XFS Manager Directory: {result.xfs_manager_dir or '-'}",
         f"CDM Provider Directory: {result.cdm_provider_dir or '-'}",
         "",
@@ -314,11 +349,12 @@ def format_diagnostics(result: XfsCdmDiagnostics) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Read-only NCR/XFS CDM diagnostic")
+    parser = argparse.ArgumentParser(description="Read-only XFS CDM diagnostic")
+    parser.add_argument("--xfs-root")
     parser.add_argument("--aptra-root")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
-    result = diagnose_xfs_cdm(args.aptra_root)
+    result = diagnose_xfs_cdm(args.xfs_root or args.aptra_root)
     if args.json:
         print(json.dumps(result.to_dict(), indent=2))
     else:

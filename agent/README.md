@@ -86,7 +86,7 @@ Switch reachability checks are handled by the service automatically after the da
 a direct TCP connect to the configured `switch_probe_host:switch_probe_port` only. It does not run `cmd`, `telnet.exe`,
 PowerShell, or any shell command.
 
-`xfs-cdm-diagnose` is read-only. It scans NCR APTRA/XFS files and registry hints to find CDM provider files and possible
+`xfs-cdm-diagnose` is read-only. It scans XFS files and registry hints to find CDM provider files and possible
 logical service names before the real `xfs_cdm` provider is enabled. It does not call dispense, exchange, reset, or any
 state-changing XFS command.
 
@@ -96,13 +96,25 @@ For NCR APTRA installs, run:
 atm-agent.exe xfs-cdm-diagnose --aptra-root "C:\Program Files (x86)\NCR APTRA"
 ```
 
+For GRG installs, start with the generic registry-based diagnostic:
+
+```bat
+atm-agent.exe xfs-cdm-diagnose --json
+```
+
+If you know the GRG XFS installation root, pass it explicitly:
+
+```bat
+atm-agent.exe xfs-cdm-diagnose --xfs-root "C:\Program Files (x86)\GRG"
+```
+
 After diagnostics confirm the logical service name, the first cassette read test is also read-only:
 
 ```bat
 atm-agent.exe xfs-cdm-read --logical-service MediaDispenser1 --json
 ```
 
-For NCR APTRA/XFS installed under `Program Files (x86)`, build and run this command with a 32-bit `atm-agent.exe`.
+For 32-bit XFS providers installed under `Program Files (x86)`, build and run this command with a 32-bit `atm-agent.exe`.
 The command calls `WFSGetInfo` for CDM cash unit information only. It does not dispense, reset, exchange, or change any
 ATM state.
 

@@ -465,7 +465,7 @@ def version_command(_: argparse.Namespace) -> None:
 
 
 def xfs_cdm_diagnose_command(args: argparse.Namespace) -> None:
-    result = diagnose_xfs_cdm(args.aptra_root)
+    result = diagnose_xfs_cdm(args.xfs_root or args.aptra_root)
     if args.json:
         print(json.dumps(result.to_dict(), indent=2))
     else:
@@ -523,6 +523,7 @@ def main() -> None:
     version_parser.set_defaults(func=version_command)
 
     diagnose_parser = sub.add_parser("xfs-cdm-diagnose")
+    diagnose_parser.add_argument("--xfs-root")
     diagnose_parser.add_argument("--aptra-root")
     diagnose_parser.add_argument("--json", action="store_true")
     diagnose_parser.set_defaults(func=xfs_cdm_diagnose_command)
