@@ -2,6 +2,26 @@ import os
 from pathlib import Path
 
 
+def load_env_file() -> None:
+    """Load simple KEY=VALUE pairs without requiring an extra dependency."""
+    project_root = Path(__file__).resolve().parents[2]
+    for env_path in (project_root / ".env", project_root / "backend" / ".env"):
+        if not env_path.exists():
+            continue
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key:
+                os.environ.setdefault(key, value)
+
+
+load_env_file()
+
+
 class Settings:
     app_name: str = "ATM Media Update Manager"
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./atm_media.db")
@@ -18,4 +38,3 @@ class Settings:
 
 
 settings = Settings()
-
