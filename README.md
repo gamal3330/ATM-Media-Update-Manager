@@ -10,6 +10,26 @@ MVP لإدارة تحديث ملفات الصور على صرافات Windows ع
 
 ## التشغيل المحلي
 
+### تشغيل Windows بأمر واحد
+
+على السيرفر المركزي Windows، بعد ضبط ملف `.env`، يمكن تشغيل الـ Backend والـ Frontend معاً:
+
+```powershell
+cd C:\ATM-Media-Update-Manager
+.\start_server.bat
+```
+
+الملف ينشئ بيئة Python عند الحاجة، يثبت متطلبات الـ Backend والـ Frontend، ينسخ `.env` إلى `frontend\.env`، ثم يفتح نافذتين:
+
+- Backend: `http://localhost:8001/docs`
+- Frontend: `http://localhost:5175`
+
+يمكن تغيير المنافذ:
+
+```powershell
+.\start_server.bat -BackendPort 8001 -FrontendPort 5175
+```
+
 ### 1. Backend
 
 ```bash
