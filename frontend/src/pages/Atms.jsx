@@ -1130,20 +1130,10 @@ export default function Atms({ atms, onChanged }) {
                   </div>
                 </div>
                 <div className="rounded-lg bg-slate-50 px-3 py-2">
-                  <div className="text-xs text-slate-500">آخر إصدار</div>
-                  <div className="mt-1 truncate font-medium text-slate-900">{atm.current_package_version || atm.last_image_version || "-"}</div>
-                </div>
-                <div className="rounded-lg bg-slate-50 px-3 py-2">
                   <div className="text-xs text-slate-500">آخر اتصال</div>
                   <div className="mt-1 font-medium text-slate-900">{formatLastSeenAge(atm)}</div>
                 </div>
               </div>
-
-              {atm.last_agent_error && (
-                <div className="mt-3 rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-                  {atm.last_agent_error}
-                </div>
-              )}
 
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <button
@@ -1184,7 +1174,7 @@ export default function Atms({ atms, onChanged }) {
       </div>
 
       <div className="hidden overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm lg:block">
-        <table className="min-w-[1280px] divide-y divide-slate-200 text-sm">
+        <table className="min-w-[1120px] divide-y divide-slate-200 text-sm">
           <thead className="bg-slate-50 text-slate-600">
             <tr>
               <th className="px-4 py-3 text-right font-medium">ATM ID</th>
@@ -1196,9 +1186,7 @@ export default function Atms({ atms, onChanged }) {
               <th className="px-4 py-3 text-right font-medium">Agent</th>
               <th className="px-4 py-3 text-right font-medium">Latency</th>
               <th className="px-4 py-3 text-right font-medium">Switch</th>
-              <th className="px-4 py-3 text-right font-medium">آخر إصدار</th>
               <th className="px-4 py-3 text-right font-medium">آخر اتصال</th>
-              <th className="px-4 py-3 text-right font-medium">آخر خطأ</th>
               <th className="px-4 py-3 text-right font-medium">إعدادات</th>
               <th className="px-4 py-3 text-right font-medium">حذف</th>
             </tr>
@@ -1254,18 +1242,9 @@ export default function Atms({ atms, onChanged }) {
                     <span>{switchProbeBusyId === atm.atm_id ? "جار الطلب" : "فحص"}</span>
                   </button>
                 </td>
-                <td className="px-4 py-3">{atm.current_package_version || atm.last_image_version || "-"}</td>
                 <td className="px-4 py-3">
                   <div>{formatApiDate(atm.last_heartbeat_at || atm.last_seen)}</div>
                   <div className="text-xs text-slate-500">{formatLastSeenAge(atm)}</div>
-                </td>
-                <td className="max-w-xs px-4 py-3">
-                  <div className="truncate text-slate-700" title={atm.last_agent_error || ""}>
-                    {atm.last_agent_error || "-"}
-                  </div>
-                  {atm.active_update_count > 0 && (
-                    <div className="mt-1 text-xs text-amber-700">{atm.active_update_count} تحديث نشط</div>
-                  )}
                 </td>
                 <td className="px-4 py-3">
                   <button
@@ -1292,7 +1271,7 @@ export default function Atms({ atms, onChanged }) {
             ))}
             {atms.length === 0 && (
               <tr>
-                <td colSpan="14" className="px-4 py-8 text-center text-slate-500">لا توجد صرافات بعد</td>
+                <td colSpan="12" className="px-4 py-8 text-center text-slate-500">لا توجد صرافات بعد</td>
               </tr>
             )}
           </tbody>
