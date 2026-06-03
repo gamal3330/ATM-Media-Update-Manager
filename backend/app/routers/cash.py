@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from ..auth import get_agent_atm, get_current_user
 from ..cash_layout import normalized_cash_layout
 from ..database import get_db
-from ..models import ATM, AgentCommand, AtmCashAlert, AtmCashSnapshot, AtmCashThreshold, AtmCashUnit, AtmRejectRetractStatus, User
+from ..models import ATM, AgentCommand, AgentLog, AtmCashAlert, AtmCashSnapshot, AtmCashThreshold, AtmCashUnit, AtmRejectRetractStatus, User
 from ..schemas import (
     AgentCommandRead,
     CashAlertRead,
@@ -36,6 +36,8 @@ CASSETTE_ALERT_TYPES = {
 }
 REJECT_RETRACT_ALERT_TYPES = {"REJECT_BIN_HIGH", "REJECT_BIN_FULL", "RETRACT_OCCURRED"}
 RISK_RANK = {"CRITICAL": 0, "LOW": 1, "STALE": 2, "OK": 3, "UNKNOWN": 4}
+SUSPICIOUS_REGRESSION_WINDOW_MINUTES = 30
+SUSPICIOUS_REGRESSION_TOTAL_DROP = 1000
 
 
 def utcnow() -> datetime:
@@ -254,6 +256,73 @@ def is_cash_stale(atm: ATM, read_at: datetime | None, now: datetime) -> bool:
     return now - read_at > timedelta(minutes=atm.cash_stale_after_minutes)
 
 
+def normalize_aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def suspicious_cash_regression(
+    db: Session,
+    atm: ATM,
+    payload: CashSnapshotRequest,
+) -> tuple[bool, dict[str, Any]]:
+    existing_units = {
+        unit.cassette_no: unit
+        for unit in db.query(AtmCashUnit).filter(AtmCashUnit.atm_id == atm.id).all()
+    }
+    if not existing_units:
+        return False, {}
+
+    payload_read_at = normalize_aware(payload.read_at)
+    drops: list[dict[str, Any]] = []
+    total_drop = 0
+    latest_existing_read_at: datetime | None = None
+    for unit_payload in payload.cash_units:
+        existing = existing_units.get(unit_payload.cassette_no)
+        if existing is None:
+            continue
+        existing_read_at = normalize_aware(existing.read_at)
+        latest_existing_read_at = (
+            existing_read_at
+            if latest_existing_read_at is None or existing_read_at > latest_existing_read_at
+            else latest_existing_read_at
+        )
+        if payload_read_at <= existing_read_at:
+            return True, {
+                "reason": "older_snapshot",
+                "incoming_read_at": payload.read_at.isoformat(),
+                "current_read_at": existing.read_at.isoformat(),
+            }
+        drop = int(existing.current_count) - int(unit_payload.current_count)
+        if drop <= 0:
+            continue
+        total_drop += drop
+        drops.append(
+            {
+                "cassette_no": unit_payload.cassette_no,
+                "current_count": existing.current_count,
+                "incoming_count": unit_payload.current_count,
+                "drop": drop,
+            }
+        )
+
+    if latest_existing_read_at is None:
+        return False, {}
+    elapsed_minutes = (payload_read_at - latest_existing_read_at).total_seconds() / 60
+    if (
+        0 <= elapsed_minutes <= SUSPICIOUS_REGRESSION_WINDOW_MINUTES
+        and total_drop >= SUSPICIOUS_REGRESSION_TOTAL_DROP
+    ):
+        return True, {
+            "reason": "suspicious_large_drop",
+            "elapsed_minutes": round(elapsed_minutes, 2),
+            "total_drop": total_drop,
+            "drops": drops,
+        }
+    return False, {}
+
+
 @router.post("/api/agent/cash-snapshot")
 def submit_cash_snapshot(
     payload: CashSnapshotRequest,
@@ -264,6 +333,23 @@ def submit_cash_snapshot(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ATM ID does not match credentials")
     if payload.atm_cash_mode != "DISPENSE_ONLY":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only DISPENSE_ONLY cash mode is supported")
+
+    is_suspicious, suspicious_details = suspicious_cash_regression(db, atm, payload)
+    if is_suspicious:
+        db.add(
+            AgentLog(
+                atm_id=atm.id,
+                level="warning",
+                message="Ignored suspicious cash snapshot regression",
+                context={
+                    "source": payload.source,
+                    "read_at": payload.read_at.isoformat(),
+                    **suspicious_details,
+                },
+            )
+        )
+        db.commit()
+        return {"ok": True}
 
     snapshot = AtmCashSnapshot(
         atm_id=atm.id,

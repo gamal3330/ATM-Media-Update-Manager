@@ -572,6 +572,96 @@ def test_cash_snapshot_updates_units_and_alerts() -> None:
         assert summary.json()["cash_empty_atms"] >= 1
 
 
+def test_cash_snapshot_ignores_suspicious_regression() -> None:
+    with TestClient(app) as client:
+        headers = login(client)
+        atm_response = client.post(
+            "/api/atms",
+            json={
+                "atm_id": "ATM-CASH-GUARD",
+                "name": "Cash Guard",
+                "vpn_ip": "10.10.0.55",
+                "branch": "HQ",
+                "cash_monitoring_enabled": True,
+            },
+            headers=headers,
+        )
+        assert atm_response.status_code == 201
+        agent_headers = {"X-ATM-ID": "ATM-CASH-GUARD", "X-API-Key": atm_response.json()["api_key"]}
+
+        def snapshot(read_at: str, cassette_one: int, cassette_two: int) -> dict:
+            return {
+                "atm_id": "ATM-CASH-GUARD",
+                "source": "xfs_cdm",
+                "atm_cash_mode": "DISPENSE_ONLY",
+                "read_at": read_at,
+                "cash_units": [
+                    {
+                        "cassette_no": 1,
+                        "cassette_id": "1",
+                        "cassette_name": "Cash Bin 1",
+                        "reported_currency": "YER",
+                        "reported_denomination": 1000,
+                        "initial_count": 2500,
+                        "current_count": cassette_one,
+                        "reject_count": 1,
+                        "retract_count": 0,
+                        "dispensed_count": max(0, 2500 - cassette_one),
+                        "presented_count": max(0, 2500 - cassette_one),
+                        "status": "OK" if cassette_one > 0 else "EMPTY",
+                        "physical_status": "PRESENT",
+                    },
+                    {
+                        "cassette_no": 2,
+                        "cassette_id": "2",
+                        "cassette_name": "Cash Bin 2",
+                        "reported_currency": "YER",
+                        "reported_denomination": 1000,
+                        "initial_count": 2500,
+                        "current_count": cassette_two,
+                        "reject_count": 1,
+                        "retract_count": 0,
+                        "dispensed_count": max(0, 2500 - cassette_two),
+                        "presented_count": max(0, 2500 - cassette_two),
+                        "status": "OK" if cassette_two > 0 else "EMPTY",
+                        "physical_status": "PRESENT",
+                    },
+                ],
+                "reject_retract": {
+                    "reject_count": 2,
+                    "retract_count": 0,
+                    "reject_status": "OK",
+                    "retract_status": "OK",
+                    "reject_max_capacity": 215,
+                    "retract_max_capacity": 50,
+                },
+            }
+
+        fresh = client.post(
+            "/api/agent/cash-snapshot",
+            json=snapshot("2026-05-25T10:00:00Z", 2304, 2304),
+            headers=agent_headers,
+        )
+        assert fresh.status_code == 200
+
+        suspicious = client.post(
+            "/api/agent/cash-snapshot",
+            json=snapshot("2026-05-25T10:05:00Z", 0, 0),
+            headers=agent_headers,
+        )
+        assert suspicious.status_code == 200
+
+        details = client.get("/api/cash/atms/ATM-CASH-GUARD", headers=headers)
+        assert details.status_code == 200
+        counts = {unit["cassette_no"]: unit["current_count"] for unit in details.json()["units"]}
+        assert counts[1] == 2304
+        assert counts[2] == 2304
+
+        logs = client.get("/api/logs", headers=headers)
+        assert logs.status_code == 200
+        assert any(item["message"] == "Ignored suspicious cash snapshot regression" for item in logs.json())
+
+
 def test_cash_snapshot_cannot_impersonate_other_atm() -> None:
     with TestClient(app) as client:
         headers = login(client)
