@@ -86,6 +86,8 @@ export default function CashMonitoring({ atms }) {
   const [selectedAtmId, setSelectedAtmId] = useState("");
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [readNowLoading, setReadNowLoading] = useState(false);
+  const [readNowMessage, setReadNowMessage] = useState("");
   const [error, setError] = useState("");
 
   const cashEnabledAtms = useMemo(() => atms.filter((atm) => atm.cash_monitoring_enabled), [atms]);
@@ -149,10 +151,30 @@ export default function CashMonitoring({ atms }) {
   async function selectAtm(atmId) {
     setSelectedAtmId(atmId);
     setError("");
+    setReadNowMessage("");
     try {
       setDetails(await api.getCashAtm(atmId));
     } catch (err) {
       setError(err.message || "تعذر تحميل بيانات الصراف");
+    }
+  }
+
+  async function requestReadNow() {
+    const atmId = selectedAtmId || details?.atm?.atm_id;
+    if (!atmId) return;
+    setReadNowLoading(true);
+    setReadNowMessage("");
+    setError("");
+    try {
+      await api.requestCashReadNow(atmId);
+      setReadNowMessage("تم إرسال طلب قراءة نقد فورية. سينفذه الـ Agent تلقائياً ثم ستظهر القيم بعد التحديث.");
+      window.setTimeout(() => {
+        selectAtm(atmId);
+      }, 5000);
+    } catch (err) {
+      setError(err.message || "تعذر إرسال طلب قراءة النقد");
+    } finally {
+      setReadNowLoading(false);
     }
   }
 
@@ -170,20 +192,36 @@ export default function CashMonitoring({ atms }) {
           </h1>
           <p className="text-sm text-slate-500">CDM Read-Only لصرافات السحب فقط: dispense cassettes و reject/retract</p>
         </div>
-        <button
-          onClick={load}
-          disabled={loading}
-          className="focus-ring inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
-          title="تحديث بيانات النقد"
-        >
-          <RefreshCw size={17} />
-          <span>{loading ? "جار التحديث" : "تحديث"}</span>
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={requestReadNow}
+            disabled={readNowLoading || !selectedAtmId}
+            className="focus-ring inline-flex items-center gap-2 rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+            title="طلب قراءة نقد فورية من الـ Agent"
+          >
+            <Banknote size={17} />
+            <span>{readNowLoading ? "جار الطلب" : "قراءة نقد الآن"}</span>
+          </button>
+          <button
+            onClick={load}
+            disabled={loading}
+            className="focus-ring inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
+            title="تحديث بيانات النقد"
+          >
+            <RefreshCw size={17} />
+            <span>{loading ? "جار التحديث" : "تحديث"}</span>
+          </button>
+        </div>
       </div>
 
       {error && (
         <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
           {error}
+        </div>
+      )}
+      {readNowMessage && (
+        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+          {readNowMessage}
         </div>
       )}
 

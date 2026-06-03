@@ -220,7 +220,17 @@ def list_agent_commands(
     atm: ATM = Depends(get_agent_atm),
     db: Session = Depends(get_db),
 ) -> list[AgentCommand]:
-    return []
+    return (
+        db.query(AgentCommand)
+        .filter(
+            AgentCommand.atm_id == atm.id,
+            AgentCommand.status == "pending",
+            AgentCommand.command_type == "cash_read_now",
+        )
+        .order_by(AgentCommand.created_at.asc())
+        .limit(5)
+        .all()
+    )
 
 
 @router.post("/commands/{command_id}/ack", response_model=AgentCommandRead)
@@ -230,7 +240,6 @@ def acknowledge_agent_command(
     atm: ATM = Depends(get_agent_atm),
     db: Session = Depends(get_db),
 ) -> AgentCommand:
-    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Agent commands are disabled for the unified agent")
     command = (
         db.query(AgentCommand)
         .filter(AgentCommand.id == command_id, AgentCommand.atm_id == atm.id)
@@ -238,6 +247,8 @@ def acknowledge_agent_command(
     )
     if not command:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent command not found")
+    if command.command_type != "cash_read_now":
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Only read-only cash read commands are enabled")
 
     now = datetime.now(timezone.utc)
     command.status = payload.status

@@ -347,3 +347,9 @@ class CashMonitoringModule:
             reject_retract.reject_count,
             reject_retract.retract_count,
         )
+
+    def read_now(self, now: float) -> None:
+        if self.config is None or not self.config.enabled:
+            raise RuntimeError("Cash monitoring is disabled or not configured")
+        self.last_read = 0.0
+        self.tick(now)

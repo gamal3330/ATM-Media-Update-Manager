@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 from ..auth import get_agent_atm, get_current_user
 from ..cash_layout import normalized_cash_layout
 from ..database import get_db
-from ..models import ATM, AtmCashAlert, AtmCashSnapshot, AtmCashThreshold, AtmCashUnit, AtmRejectRetractStatus, User
+from ..models import ATM, AgentCommand, AtmCashAlert, AtmCashSnapshot, AtmCashThreshold, AtmCashUnit, AtmRejectRetractStatus, User
 from ..schemas import (
+    AgentCommandRead,
     CashAlertRead,
     CashAtmDetails,
     CashAtmReportRead,
@@ -521,6 +522,51 @@ def cash_atm_details(
         ),
         forecasts=forecasts_for_atm(db, atm, units),
     )
+
+
+@router.post("/api/cash/atms/{atm_id}/read-now", response_model=AgentCommandRead, status_code=status.HTTP_202_ACCEPTED)
+def request_cash_read_now(
+    atm_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AgentCommand:
+    atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
+    if not atm:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ATM not found")
+    if not atm.cash_monitoring_enabled:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cash monitoring is disabled for this ATM")
+
+    existing = (
+        db.query(AgentCommand)
+        .filter(
+            AgentCommand.atm_id == atm.id,
+            AgentCommand.command_type == "cash_read_now",
+            AgentCommand.status.in_(["pending", "acknowledged"]),
+        )
+        .first()
+    )
+    if existing:
+        return existing
+
+    command = AgentCommand(
+        atm_id=atm.id,
+        command_type="cash_read_now",
+        payload={"source": "dashboard", "read_only": True},
+        requested_by=current_user.username,
+    )
+    db.add(command)
+    write_audit(
+        db,
+        actor_type="user",
+        actor_id=current_user.username,
+        action="cash_read_now_requested",
+        entity_type="atm",
+        entity_id=atm.atm_id,
+        details={"command_type": command.command_type},
+    )
+    db.commit()
+    db.refresh(command)
+    return command
 
 
 @router.get("/api/cash/reports/overview", response_model=CashReportOverview)

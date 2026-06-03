@@ -24,7 +24,7 @@ from network_probe import tcp_connect_probe
 from xfs_cdm_diagnostics import diagnose_xfs_cdm, format_diagnostics
 from xfs_cdm_reader import read_cash_units, format_read_result
 
-AGENT_VERSION = "2.0.5"
+AGENT_VERSION = "2.0.6"
 DEFAULT_INSTALL_DIR = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "ATM Media Agent"
 DEFAULT_CONFIG = DEFAULT_INSTALL_DIR / "config.json"
 SERVICE_NAME = "ATMUnifiedAgent"
@@ -263,6 +263,26 @@ class AtmAgent:
         self.api.report_switch_probe(probe_id, "failed", result.latency_ms, result.error_message)
         self.logger.warning("Switch TCP probe failed: %s:%s error=%s", host, port, result.error_message)
 
+    def handle_agent_commands(self) -> None:
+        commands = self.api.list_commands()
+        for command in commands:
+            command_id = int(command["id"])
+            command_type = str(command.get("command_type") or "")
+            if command_type != "cash_read_now":
+                continue
+            self.logger.info("Running read-only cash read request: command_id=%s", command_id)
+            try:
+                self.api.ack_command(command_id, "acknowledged", "Read-only cash read started")
+                self.cash_module.read_now(time.monotonic())
+                self.write_runtime_state()
+                self.api.ack_command(command_id, "completed", "Cash snapshot sent")
+            except Exception as exc:
+                self.logger.exception("Read-only cash read request failed: %s", exc)
+                try:
+                    self.api.ack_command(command_id, "failed", str(exc))
+                except Exception:
+                    pass
+
     def sync_config(self) -> None:
         config = self.api.get_config()
         try:
@@ -311,6 +331,7 @@ class AtmAgent:
             module_statuses=self.modules.module_statuses(),
         )
         self.handle_switch_probe()
+        self.handle_agent_commands()
         self.modules.tick(time.monotonic())
         self.write_runtime_state()
 
@@ -357,6 +378,7 @@ class AtmAgent:
 
                 if config:
                     self.handle_switch_probe()
+                    self.handle_agent_commands()
                     self.modules.tick(now)
                     self.write_runtime_state()
             except requests.RequestException as exc:

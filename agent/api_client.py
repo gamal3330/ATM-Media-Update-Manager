@@ -169,6 +169,19 @@ class ApiClient:
                 response=response,
             )
 
+    def list_commands(self) -> list[dict[str, Any]]:
+        response = self.session.get(self.url("/api/agent/commands"), timeout=15)
+        response.raise_for_status()
+        return list(response.json() or [])
+
+    def ack_command(self, command_id: int, status: str, message: str | None = None) -> None:
+        response = self.session.post(
+            self.url(f"/api/agent/commands/{command_id}/ack"),
+            json={"status": status, "message": message},
+            timeout=15,
+        )
+        response.raise_for_status()
+
     def get_switch_probe(self) -> dict[str, Any] | None:
         response = self.session.get(self.url("/api/agent/switch-probe"), timeout=15)
         response.raise_for_status()
