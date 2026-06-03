@@ -58,6 +58,8 @@ exit /b 1
 
 :python_found
 echo Using Python command: %PYTHON_CMD%
+call :validate_python
+if errorlevel 1 exit /b 1
 
 %PYTHON_CMD% -m pip install --upgrade pip
 if errorlevel 1 exit /b 1
@@ -107,3 +109,32 @@ if errorlevel 1 exit /b 1
 
 echo.
 echo Build complete: dist\atm-agent.exe
+exit /b 0
+
+:validate_python
+set "PY_ARCH="
+set "PY_CHECK_FILE=%TEMP%\atm_agent_python_check_%RANDOM%.txt"
+if exist "%PY_CHECK_FILE%" del /f /q "%PY_CHECK_FILE%" >nul 2>nul
+%PYTHON_CMD% -c "import platform; print(platform.architecture()[0])" > "%PY_CHECK_FILE%" 2>nul
+if errorlevel 1 goto python_validation_failed
+if not exist "%PY_CHECK_FILE%" goto python_validation_failed
+set /p PY_ARCH=<"%PY_CHECK_FILE%"
+del /f /q "%PY_CHECK_FILE%" >nul 2>nul
+if "%PY_ARCH%"=="" goto python_validation_failed
+if "%REQUIRE_PYTHON_ARCH%"=="32" if not "%PY_ARCH%"=="32bit" (
+  echo.
+  echo ERROR: This build requires 32-bit Python, but selected Python is %PY_ARCH%.
+  echo Use build_agent_x86.bat or set PYTHON_CMD to a 32-bit Python runtime.
+  echo.
+  exit /b 1
+)
+echo Python architecture: %PY_ARCH%
+exit /b 0
+
+:python_validation_failed
+if exist "%PY_CHECK_FILE%" del /f /q "%PY_CHECK_FILE%" >nul 2>nul
+echo.
+echo ERROR: Selected Python command did not run correctly:
+echo   %PYTHON_CMD%
+echo.
+exit /b 1
