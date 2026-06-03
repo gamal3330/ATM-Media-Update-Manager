@@ -38,6 +38,12 @@ The output is:
 agent\dist\atm-agent.exe
 ```
 
+For NCR/GRG XFS providers installed under `Program Files (x86)`, build the 32-bit executable:
+
+```bat
+build_agent_x86.bat
+```
+
 ## Install Service
 
 Run Command Prompt as Administrator:
