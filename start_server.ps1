@@ -119,7 +119,7 @@ $VenvPythonQ = Quote-PowerShellPath $VenvPython
 $BackendCommand = "Set-Location -LiteralPath $BackendDirQ; & $VenvPythonQ -m uvicorn app.main:app --host $HostAddress --port $BackendPort"
 $FrontendCommand = "Set-Location -LiteralPath $FrontendDirQ; npm run dev -- --host $HostAddress --port $FrontendPort"
 
-Write-Host "Starting ATM Media Update Manager..." -ForegroundColor Green
+Write-Host "Starting QIB ATM Manager..." -ForegroundColor Green
 Write-Host "Backend:  http://localhost:$BackendPort/docs"
 Write-Host "Frontend: http://localhost:$FrontendPort"
 Write-Host "Network frontend example: http://SERVER-IP:$FrontendPort"

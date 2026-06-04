@@ -64,7 +64,7 @@ class ATM(Base):
     media_update_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     cash_monitoring_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     module_status_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
-    cash_provider: Mapped[str] = mapped_column(String(40), default="mock", nullable=False)
+    cash_provider: Mapped[str] = mapped_column(String(40), default="xfs_cdm", nullable=False)
     xfs_profile: Mapped[str] = mapped_column(String(40), default="ncr_aptra", nullable=False)
     xfs_logical_service: Mapped[str] = mapped_column(String(120), default="MediaDispenser1", nullable=False)
     xfs_msxfs_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
@@ -225,7 +225,7 @@ class AtmAgentConfig(Base):
     temp_path: Mapped[str] = mapped_column(String(500), nullable=False)
     media_check_interval_seconds: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
     cash_monitoring_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    cash_provider: Mapped[str] = mapped_column(String(40), default="mock", nullable=False)
+    cash_provider: Mapped[str] = mapped_column(String(40), default="xfs_cdm", nullable=False)
     xfs_profile: Mapped[str] = mapped_column(String(40), default="ncr_aptra", nullable=False)
     xfs_logical_service: Mapped[str] = mapped_column(String(120), default="MediaDispenser1", nullable=False)
     xfs_msxfs_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
@@ -271,7 +271,7 @@ class AtmCashUnit(Base):
     status: Mapped[str] = mapped_column(String(30), default="OK", nullable=False)
     physical_status: Mapped[str] = mapped_column(String(40), default="PRESENT", nullable=False)
     layout_match_status: Mapped[str] = mapped_column(String(40), default="MATCH", nullable=False)
-    source: Mapped[str] = mapped_column(String(40), default="mock", nullable=False)
+    source: Mapped[str] = mapped_column(String(40), default="xfs_cdm", nullable=False)
     read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
@@ -304,7 +304,7 @@ class AtmCashSnapshot(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     atm_id: Mapped[int] = mapped_column(ForeignKey("atms.id"), nullable=False)
     snapshot_json: Mapped[dict] = mapped_column(JSON, nullable=False)
-    source: Mapped[str] = mapped_column(String(40), default="mock", nullable=False)
+    source: Mapped[str] = mapped_column(String(40), default="xfs_cdm", nullable=False)
     read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
@@ -327,6 +327,62 @@ class AtmCashAlert(Base):
     closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     atm: Mapped[ATM] = relationship(back_populates="cash_alerts")
+
+
+class NotificationSettings(Base):
+    __tablename__ = "notification_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    recipient_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    sender_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    smtp_host: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    smtp_port: Mapped[int] = mapped_column(Integer, default=587, nullable=False)
+    smtp_security: Mapped[str] = mapped_column(String(20), default="starttls", nullable=False)
+    smtp_username: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    smtp_password: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    notify_cash_low: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notify_cash_empty: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    updated_by: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    @property
+    def has_smtp_password(self) -> bool:
+        return bool(self.smtp_password)
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.sender_email and self.smtp_host and self.smtp_port)
+
+
+class NotificationRecipient(Base):
+    __tablename__ = "notification_recipients"
+    __table_args__ = (UniqueConstraint("atm_id", name="uq_notification_recipient_atm"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    atm_id: Mapped[int] = mapped_column(ForeignKey("atms.id"), nullable=False)
+    recipient_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    updated_by: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class NotificationDelivery(Base):
+    __tablename__ = "notification_deliveries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    alert_id: Mapped[Optional[int]] = mapped_column(ForeignKey("atm_cash_alerts.id"), nullable=True)
+    atm_id: Mapped[Optional[int]] = mapped_column(ForeignKey("atms.id"), nullable=True)
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    channel: Mapped[str] = mapped_column(String(30), default="email", nullable=False)
+    recipient_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    subject: Mapped[str] = mapped_column(String(500), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="pending", nullable=False)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class AtmCashThreshold(Base):

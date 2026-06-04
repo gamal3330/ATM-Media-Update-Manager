@@ -286,7 +286,8 @@ export default function Packages({ packages, atms, onChanged }) {
 
       <div className="mb-5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-4 py-3 font-semibold text-slate-950">الحزم المتاحة</div>
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
+        <div className="overflow-x-auto">
+        <table className="min-w-[720px] divide-y divide-slate-200 text-sm">
           <thead className="bg-slate-50 text-slate-600">
             <tr>
               <th className="px-4 py-3 text-right font-medium">الإصدار</th>
@@ -304,7 +305,9 @@ export default function Packages({ packages, atms, onChanged }) {
                     <div className="font-medium text-slate-900">{item.version}</div>
                     <div className="text-xs text-slate-500">{formatApiDate(item.created_at)}</div>
                   </td>
-                  <td className="px-4 py-3">{item.original_filename}</td>
+                  <td className="max-w-[260px] px-4 py-3">
+                    <div className="truncate" title={item.original_filename}>{item.original_filename}</div>
+                  </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-2">
                       <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs text-emerald-700">
@@ -344,6 +347,7 @@ export default function Packages({ packages, atms, onChanged }) {
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       <div className="mb-5 inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
@@ -410,7 +414,7 @@ export default function Packages({ packages, atms, onChanged }) {
 
           {selectedPackageData && (
             <div className="border-b border-slate-100 p-4">
-              <div className="grid grid-cols-5 gap-2 text-sm">
+              <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-5">
                 <div>
                   <div className="text-slate-500">مستهدف</div>
                   <div className="mt-1 font-semibold text-slate-900">{detailCounts.total || selectedPackageData.total_targets}</div>
@@ -613,7 +617,8 @@ export default function Packages({ packages, atms, onChanged }) {
           {details?.targets?.length > 0 ? (
             <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-200 px-4 py-3 font-semibold text-slate-950">الصرافات المستهدفة</div>
-              <table className="min-w-full divide-y divide-slate-200 text-sm">
+              <div className="overflow-x-auto">
+              <table className="min-w-[960px] divide-y divide-slate-200 text-sm">
                 <thead className="bg-slate-50 text-slate-600">
                   <tr>
                     <th className="px-4 py-3 text-right font-medium">الصراف</th>
@@ -651,6 +656,7 @@ export default function Packages({ packages, atms, onChanged }) {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           ) : (
             <div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500 shadow-sm">

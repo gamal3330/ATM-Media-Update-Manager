@@ -1,26 +1,53 @@
 import {
   Activity,
   CheckCircle2,
-  Clipboard,
-  Database,
+  Clock3,
   Download,
   FileArchive,
-  KeyRound,
-  Lock,
   RefreshCw,
-  Server,
+  Save,
   Settings as SettingsIcon,
-  ShieldCheck,
-  Terminal,
   XCircle,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api, apiBaseUrl } from "../api/client";
 
-const expectedAgentVersion = "2.0.0";
-const onlineThresholdMinutes = 5;
-const allowedExtensions = ["jpg", "jpeg", "png", "bmp", "gif"];
-const blockedExtensions = ["exe", "ps1", "bat", "cmd", "vbs", "js", "jse", "msi", "dll", "scr", "com", "reg"];
+const intervalFields = [
+  {
+    key: "config_sync_interval_seconds",
+    label: "Config Sync Interval",
+    unit: "ثانية",
+    min: 30,
+    max: 86400,
+    defaultValue: 120,
+  },
+  {
+    key: "cash_read_interval_seconds",
+    label: "Cash Read Interval",
+    unit: "ثانية",
+    min: 30,
+    max: 86400,
+    defaultValue: 120,
+  },
+  {
+    key: "cash_stale_after_minutes",
+    label: "Cash Stale After",
+    unit: "دقيقة",
+    min: 1,
+    max: 1440,
+    defaultValue: 10,
+  },
+];
+
+function commonAtmValue(atms, key, fallback) {
+  if (!atms.length) return String(fallback);
+  const values = [...new Set(atms.map((atm) => Number(atm[key])).filter((value) => Number.isFinite(value)))];
+  return values.length === 1 ? String(values[0]) : "";
+}
+
+function buildIntervalForm(atms) {
+  return Object.fromEntries(intervalFields.map((field) => [field.key, commonAtmValue(atms, field.key, field.defaultValue)]));
+}
 
 function StatusBadge({ ok, label }) {
   const Icon = ok ? CheckCircle2 : XCircle;
@@ -47,48 +74,78 @@ function saveBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
-async function copyText(text) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  const element = document.createElement("textarea");
-  element.value = text;
-  element.style.position = "fixed";
-  element.style.opacity = "0";
-  document.body.appendChild(element);
-  element.select();
-  document.execCommand("copy");
-  document.body.removeChild(element);
-}
-
-export default function Settings({ onOpenAgentDownloads }) {
+export default function Settings({ atms = [], onChanged, onOpenAgentDownloads }) {
   const [health, setHealth] = useState({ status: "unknown", message: "لم يتم الفحص بعد", checkedAt: "" });
   const [checkingHealth, setCheckingHealth] = useState(false);
   const [downloadingSource, setDownloadingSource] = useState(false);
   const [downloadingExe, setDownloadingExe] = useState(false);
+  const [savingIntervals, setSavingIntervals] = useState(false);
+  const [intervalForm, setIntervalForm] = useState(() => buildIntervalForm(atms));
+  const [intervalErrors, setIntervalErrors] = useState({});
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   const healthUrl = `${apiBaseUrl}/api/health`;
-  const openedFrom = typeof window === "undefined" ? "-" : window.location.origin;
-  const serviceCommand = `sc.exe query ATMUnifiedAgent`;
-  const statusCommand = `"C:\\Program Files\\ATM Media Agent\\atm-agent.exe" status`;
-  const healthCommand = `curl.exe ${healthUrl}`;
 
   const healthOk = health.status === "ok";
-  const environmentRows = useMemo(
-    () => [
-      ["Frontend URL", openedFrom],
-      ["API URL", apiBaseUrl],
-      ["Health URL", healthUrl],
-      ["Database", "SQLite"],
-      ["Expected Agent", expectedAgentVersion],
-      ["Online Threshold", `${onlineThresholdMinutes} minutes`],
-    ],
-    [healthUrl, openedFrom],
+  const hasMixedIntervals = useMemo(
+    () => intervalFields.some((field) => commonAtmValue(atms, field.key, field.defaultValue) === ""),
+    [atms],
   );
+
+  function updateIntervalField(key, value) {
+    setIntervalForm((current) => ({ ...current, [key]: value }));
+    setIntervalErrors((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }
+
+  function validateIntervals() {
+    const nextErrors = {};
+    intervalFields.forEach((field) => {
+      const value = Number(intervalForm[field.key]);
+      if (!Number.isInteger(value)) {
+        nextErrors[field.key] = "أدخل رقمًا صحيحًا.";
+      } else if (value < field.min || value > field.max) {
+        nextErrors[field.key] = `القيمة يجب أن تكون بين ${field.min} و ${field.max}.`;
+      }
+    });
+    setIntervalErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  }
+
+  async function saveGlobalIntervals(event) {
+    event.preventDefault();
+    setMessage("");
+    setError("");
+    if (!validateIntervals()) {
+      setError("يرجى تصحيح إعدادات الفترات الزمنية.");
+      return;
+    }
+
+    const payload = Object.fromEntries(intervalFields.map((field) => [field.key, Number(intervalForm[field.key])]));
+    const targets = atms.filter((atm) => intervalFields.some((field) => Number(atm[field.key]) !== payload[field.key]));
+    if (targets.length === 0) {
+      setMessage("إعدادات الفترات الزمنية مطابقة بالفعل على كل الصرافات.");
+      return;
+    }
+
+    setSavingIntervals(true);
+    try {
+      for (const atm of targets) {
+        await api.updateAtm(atm.atm_id, payload);
+      }
+      setMessage(`تم تطبيق إعدادات الفترات الزمنية على ${targets.length} صراف.`);
+      await onChanged?.();
+    } catch (err) {
+      setError(err.message || "تعذر حفظ إعدادات الفترات الزمنية.");
+    } finally {
+      setSavingIntervals(false);
+    }
+  }
 
   async function checkHealth() {
     setCheckingHealth(true);
@@ -144,20 +201,13 @@ export default function Settings({ onOpenAgentDownloads }) {
     }
   }
 
-  async function copyCommand(text, label) {
-    setMessage("");
-    setError("");
-    try {
-      await copyText(text);
-      setMessage(`تم نسخ ${label}.`);
-    } catch {
-      setError(`تعذر نسخ ${label}.`);
-    }
-  }
-
   useEffect(() => {
     checkHealth();
   }, []);
+
+  useEffect(() => {
+    if (!savingIntervals) setIntervalForm(buildIntervalForm(atms));
+  }, [atms, savingIntervals]);
 
   return (
     <section>
@@ -182,6 +232,61 @@ export default function Settings({ onOpenAgentDownloads }) {
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div className="space-y-4">
+          <form noValidate onSubmit={saveGlobalIntervals} className="rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+              <div className="flex items-center gap-2 font-semibold text-slate-950">
+                <Clock3 size={18} />
+                <span>إعدادات الفترات المركزية</span>
+              </div>
+              {hasMixedIntervals && (
+                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+                  توجد قيم مختلفة بين الصرافات
+                </span>
+              )}
+            </div>
+            <div className="grid gap-3 p-4 md:grid-cols-3">
+              {intervalFields.map((field) => (
+                <label key={field.key} className="block">
+                  <span className="mb-1 block text-sm font-medium text-slate-700">{field.label}</span>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min={field.min}
+                      max={field.max}
+                      className={`focus-ring w-full rounded-lg border py-2 pl-3 pr-16 ${
+                        intervalErrors[field.key] ? "border-rose-400 bg-rose-50" : "border-slate-300 bg-white"
+                      }`}
+                      dir="ltr"
+                      value={intervalForm[field.key] || ""}
+                      onChange={(event) => updateIntervalField(field.key, event.target.value)}
+                      placeholder="قيم مختلفة"
+                      required
+                    />
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">
+                      {field.unit}
+                    </span>
+                  </div>
+                  {intervalErrors[field.key] && (
+                    <span className="mt-1 block text-xs text-rose-700">{intervalErrors[field.key]}</span>
+                  )}
+                </label>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3">
+              <div className="text-sm text-slate-500">
+                يتم تطبيق هذه القيم على كل الصرافات، ثم يستلمها الـ Agent في أول مزامنة إعدادات.
+              </div>
+              <button
+                disabled={savingIntervals || atms.length === 0}
+                className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+                title="حفظ إعدادات الفترات المركزية"
+              >
+                <Save size={16} />
+                <span>{savingIntervals ? "جار الحفظ..." : "حفظ وتطبيق"}</span>
+              </button>
+            </div>
+          </form>
+
           <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
               <div className="flex items-center gap-2 font-semibold text-slate-950">
@@ -217,43 +322,6 @@ export default function Settings({ onOpenAgentDownloads }) {
             </div>
           </div>
 
-          <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 font-semibold text-slate-950">
-              <Server size={18} />
-              <span>Environment</span>
-            </div>
-            <dl className="divide-y divide-slate-100 text-sm">
-              {environmentRows.map(([label, value]) => (
-                <div key={label} className="grid gap-2 px-4 py-3 md:grid-cols-[180px_minmax(0,1fr)]">
-                  <dt className="text-slate-500">{label}</dt>
-                  <dd className="break-all font-mono text-slate-950" dir="ltr">{value}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-
-          <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 font-semibold text-slate-950">
-              <ShieldCheck size={18} />
-              <span>Agent / Security Summary</span>
-            </div>
-            <div className="grid gap-3 p-4 md:grid-cols-2">
-              {[
-                [KeyRound, "API Key per ATM", "كل صراف يستخدم مفتاح مستقل، والمفتاح محفوظ كـ hash في السيرفر."],
-                [Lock, "Pull Only", "الـ Agent هو من يتصل بالسيرفر، ولا يوجد دخول مباشر من السيرفر للصراف."],
-                [FileArchive, "Image ZIP Only", `المسموح: ${allowedExtensions.join(", ")}`],
-                [XCircle, "Blocked Executables", `الممنوع: ${blockedExtensions.join(", ")}`],
-              ].map(([Icon, title, description]) => (
-                <div key={title} className="rounded-lg bg-slate-50 px-3 py-3">
-                  <div className="mb-2 flex items-center gap-2 font-medium text-slate-950">
-                    <Icon size={17} />
-                    <span>{title}</span>
-                  </div>
-                  <p className="text-sm text-slate-600">{description}</p>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
 
         <aside className="space-y-4">
@@ -292,51 +360,6 @@ export default function Settings({ onOpenAgentDownloads }) {
             </div>
           </div>
 
-          <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 font-semibold text-slate-950">
-              <Terminal size={18} />
-              <span>Commands</span>
-            </div>
-            <div className="space-y-4 p-4 text-sm">
-              {[
-                ["Health Check", healthCommand],
-                ["Service Status", serviceCommand],
-                ["Agent Status", statusCommand],
-              ].map(([label, command]) => (
-                <div key={label}>
-                  <div className="mb-1 flex items-center justify-between gap-3">
-                    <span className="font-medium text-slate-950">{label}</span>
-                    <button
-                      onClick={() => copyCommand(command, label)}
-                      className="focus-ring inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
-                      title={`نسخ ${label}`}
-                    >
-                      <Clipboard size={13} />
-                      <span>Copy</span>
-                    </button>
-                  </div>
-                  <pre className="overflow-x-auto rounded-lg bg-slate-950 p-3 text-xs text-white" dir="ltr">{command}</pre>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 font-semibold text-slate-950">
-              <Database size={18} />
-              <span>Storage</span>
-            </div>
-            <div className="space-y-2 p-4 text-sm text-slate-700">
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-slate-500">Database</span>
-                <span className="font-medium text-slate-950">SQLite MVP</span>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-slate-500">Package Storage</span>
-                <span className="font-medium text-slate-950">backend/uploads</span>
-              </div>
-            </div>
-          </div>
         </aside>
       </div>
     </section>

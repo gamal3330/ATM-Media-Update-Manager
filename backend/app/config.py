@@ -23,7 +23,7 @@ load_env_file()
 
 
 class Settings:
-    app_name: str = "ATM Media Update Manager"
+    app_name: str = "QIB ATM Manager"
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./atm_media.db")
     jwt_secret_key: str = os.getenv("JWT_SECRET_KEY", "change-this-local-secret")
     jwt_expire_minutes: int = int(os.getenv("JWT_EXPIRE_MINUTES", "480"))

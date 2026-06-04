@@ -114,7 +114,7 @@ def remote_payload(media_enabled=True, cash_enabled=True):
             "cash_monitoring": {
                 "enabled": cash_enabled,
                 "atm_cash_mode": "DISPENSE_ONLY",
-                "provider": "mock",
+                "provider": "xfs_cdm",
                 "xfs_profile": "ncr_aptra",
                 "xfs_logical_service": "MediaDispenser1",
                 "read_interval_seconds": 30,
@@ -164,7 +164,7 @@ def test_core_parse_remote_config_modules():
     assert config.media_update.enabled is True
     assert config.cash_monitoring.enabled is True
     assert config.cash_monitoring.atm_cash_mode == "DISPENSE_ONLY"
-    assert config.cash_monitoring.provider == "mock"
+    assert config.cash_monitoring.provider == "xfs_cdm"
     assert config.cash_monitoring.xfs_profile == "ncr_aptra"
     assert config.cash_monitoring.xfs_logical_service == "MediaDispenser1"
     assert config.cash_monitoring.cash_layout[2].currency == "USD"
@@ -235,23 +235,6 @@ def test_module_failure_does_not_stop_other_modules():
 
     assert runner.module_statuses()["media_update"] == "error"
     assert healthy.ticks == 1
-
-
-def test_cash_monitoring_module_mock_provider_sends_snapshot():
-    api = FakeApi()
-    logger = __import__("logging").getLogger("test")
-    module = CashMonitoringModule(api, "ATM001", logger)
-    config = parse_remote_config(remote_payload(cash_enabled=True))
-    module.configure(config)
-    module.tick(999999.0)
-
-    assert len(api.snapshots) == 1
-    assert api.snapshots[0]["atm_id"] == "ATM001"
-    assert api.snapshots[0]["source"] == "mock"
-    assert api.snapshots[0]["atm_cash_mode"] == "DISPENSE_ONLY"
-    assert api.snapshots[0]["cash_units"][0]["cassette_no"] == 1
-    assert api.snapshots[0]["cash_units"][2]["reported_currency"] == "USD"
-    assert api.snapshots[0]["reject_retract"]["retract_count"] == 1
 
 
 def test_cash_monitoring_xfs_provider_sends_dispense_only_snapshot(monkeypatch):
@@ -325,6 +308,43 @@ def test_cash_monitoring_xfs_provider_sends_dispense_only_snapshot(monkeypatch):
     assert snapshot["cash_units"][0]["reported_denomination"] == 1000
     assert snapshot["cash_units"][1]["status"] == "LOW"
     assert snapshot["reject_retract"]["reject_count"] == 2
+
+
+def test_cash_monitoring_xfs_provider_reports_xfs_currency_and_denomination(monkeypatch):
+    def fake_read_cash_units(logical_service, **kwargs):
+        return SimpleNamespace(
+            cash_units=[
+                SimpleNamespace(
+                    cassette_no=1,
+                    unit_type="BILL_CASSETTE",
+                    cassette_name="Cash Bin 1",
+                    unit_id="1",
+                    currency="USD",
+                    denomination=100,
+                    initial_count=2000,
+                    current_count=900,
+                    reject_count=0,
+                    max_capacity=2000,
+                    status="OK",
+                    dispensed_count=1100,
+                    presented_count=1100,
+                    retracted_count=0,
+                )
+            ]
+        )
+
+    monkeypatch.setattr("cash_monitoring_module.read_cash_units", fake_read_cash_units)
+    api = FakeApi()
+    logger = __import__("logging").getLogger("test")
+    module = CashMonitoringModule(api, "ATM001", logger)
+    payload = remote_payload(cash_enabled=True)
+    payload["modules"]["cash_monitoring"]["provider"] = "xfs_cdm"
+    module.configure(parse_remote_config(payload))
+    module.tick(999999.0)
+
+    snapshot = api.snapshots[0]
+    assert snapshot["cash_units"][0]["reported_currency"] == "USD"
+    assert snapshot["cash_units"][0]["reported_denomination"] == 100
 
 
 def test_cash_monitoring_xfs_provider_normalizes_grg_cash_units(monkeypatch):

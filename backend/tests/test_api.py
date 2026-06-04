@@ -1,8 +1,10 @@
 import io
 import os
 import shutil
+import sqlite3
 import sys
 import zipfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -468,7 +470,7 @@ def test_cash_snapshot_updates_units_and_alerts() -> None:
             "/api/agent/cash-snapshot",
             json={
                 "atm_id": "ATM-CASH",
-                "source": "mock",
+                "source": "xfs_cdm",
                 "atm_cash_mode": "DISPENSE_ONLY",
                 "read_at": "2026-05-25T10:30:00Z",
                 "cash_units": [
@@ -539,6 +541,11 @@ def test_cash_snapshot_updates_units_and_alerts() -> None:
         assert details.json()["reject_retract"]["retract_count"] == 1
         alert_types = {alert["alert_type"] for alert in details.json()["alerts"]}
         assert {"CASH_LOW", "CASH_CRITICAL", "CASH_EMPTY", "REJECT_BIN_HIGH", "RETRACT_OCCURRED"}.issubset(alert_types)
+        verification = details.json()["verification"]
+        assert verification["status"] == "mismatch"
+        assert verification["matched"] is False
+        assert verification["matched_units"] == 3
+        assert any(issue["code"] == "MISSING_READING" and issue["cassette_no"] == 4 for issue in verification["issues"])
 
         layout_update = client.put(
             "/api/atms/ATM-CASH",
@@ -563,6 +570,10 @@ def test_cash_snapshot_updates_units_and_alerts() -> None:
         assert cassette_three["critical_threshold"] == 30
         assert cassette_three["reported_currency"] == "YER"
         assert cassette_three["layout_match_status"] == "CURRENCY_MISMATCH"
+        updated_verification = updated_details.json()["verification"]
+        issue_codes = {issue["code"] for issue in updated_verification["issues"]}
+        assert updated_verification["status"] == "mismatch"
+        assert {"CURRENCY_MISMATCH", "DENOMINATION_MISMATCH", "MISSING_READING"}.issubset(issue_codes)
 
         summary = client.get("/api/cash/summary", headers=headers)
         assert summary.status_code == 200
@@ -662,6 +673,107 @@ def test_cash_snapshot_ignores_suspicious_regression() -> None:
         assert any(item["message"] == "Ignored suspicious cash snapshot regression" for item in logs.json())
 
 
+def test_cash_snapshot_records_unexpected_reported_cash_values_as_mismatch() -> None:
+    with TestClient(app) as client:
+        headers = login(client)
+        atm_response = client.post(
+            "/api/atms",
+            json={
+                "atm_id": "ATM-CASH-MISMATCH",
+                "name": "Cash Mismatch",
+                "vpn_ip": "10.10.0.56",
+                "branch": "HQ",
+                "cash_monitoring_enabled": True,
+            },
+            headers=headers,
+        )
+        assert atm_response.status_code == 201
+        agent_headers = {"X-ATM-ID": "ATM-CASH-MISMATCH", "X-API-Key": atm_response.json()["api_key"]}
+
+        snapshot = client.post(
+            "/api/agent/cash-snapshot",
+            json={
+                "atm_id": "ATM-CASH-MISMATCH",
+                "source": "xfs_cdm",
+                "atm_cash_mode": "DISPENSE_ONLY",
+                "read_at": "2026-05-25T11:00:00Z",
+                "cash_units": [
+                    {
+                        "cassette_no": 1,
+                        "cassette_id": "CST01",
+                        "cassette_name": "Dispense Cassette 1",
+                        "reported_currency": "EUR",
+                        "reported_denomination": 50,
+                        "initial_count": 2000,
+                        "current_count": 900,
+                        "reject_count": 0,
+                        "retract_count": 0,
+                        "dispensed_count": 1100,
+                        "presented_count": 1100,
+                        "status": "OK",
+                        "physical_status": "PRESENT",
+                    }
+                ],
+            },
+            headers=agent_headers,
+        )
+        assert snapshot.status_code == 200
+
+        details = client.get("/api/cash/atms/ATM-CASH-MISMATCH", headers=headers)
+        assert details.status_code == 200
+        unit = details.json()["units"][0]
+        assert unit["reported_currency"] == "EUR"
+        assert unit["reported_denomination"] == 50
+        issue_codes = {issue["code"] for issue in details.json()["verification"]["issues"]}
+        assert {"CURRENCY_MISMATCH", "DENOMINATION_MISMATCH"}.issubset(issue_codes)
+
+
+def test_cash_read_now_expires_stale_pending_command() -> None:
+    with TestClient(app) as client:
+        headers = login(client)
+        atm_response = client.post(
+            "/api/atms",
+            json={
+                "atm_id": "ATM-CASH-READ-NOW",
+                "name": "Read Now ATM",
+                "vpn_ip": "10.10.0.57",
+                "branch": "HQ",
+                "cash_monitoring_enabled": True,
+            },
+            headers=headers,
+        )
+        assert atm_response.status_code == 201
+
+        first = client.post("/api/cash/atms/ATM-CASH-READ-NOW/read-now", headers=headers)
+        assert first.status_code == 202
+        first_command_id = first.json()["id"]
+
+        stale_created_at = (datetime.now(timezone.utc) - timedelta(minutes=10)).replace(tzinfo=None)
+        with sqlite3.connect(TEST_DB) as connection:
+            connection.execute(
+                "UPDATE agent_commands SET created_at = ? WHERE id = ?",
+                (stale_created_at.isoformat(sep=" "), first_command_id),
+            )
+
+        second = client.post("/api/cash/atms/ATM-CASH-READ-NOW/read-now", headers=headers)
+        assert second.status_code == 202
+        assert second.json()["id"] != first_command_id
+        assert second.json()["status"] == "pending"
+        second_command_id = second.json()["id"]
+
+        with sqlite3.connect(TEST_DB) as connection:
+            old_status, old_error = connection.execute(
+                "SELECT status, last_error FROM agent_commands WHERE id = ?",
+                (first_command_id,),
+            ).fetchone()
+        assert old_status == "failed"
+        assert "expired" in old_error
+
+        details = client.get("/api/cash/atms/ATM-CASH-READ-NOW", headers=headers)
+        assert details.status_code == 200
+        assert details.json()["last_cash_read_command"]["id"] == second_command_id
+
+
 def test_cash_snapshot_cannot_impersonate_other_atm() -> None:
     with TestClient(app) as client:
         headers = login(client)
@@ -681,7 +793,7 @@ def test_cash_snapshot_cannot_impersonate_other_atm() -> None:
 
         response = client.post(
             "/api/agent/cash-snapshot",
-            json={"atm_id": "ATM-CASH-2", "source": "mock", "read_at": "2026-05-25T10:30:00Z", "cash_units": []},
+            json={"atm_id": "ATM-CASH-2", "source": "xfs_cdm", "read_at": "2026-05-25T10:30:00Z", "cash_units": []},
             headers=agent_headers,
         )
         assert response.status_code == 403

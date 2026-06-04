@@ -1,12 +1,8 @@
 import {
-  Activity,
   AlertTriangle,
   Clock3,
-  Cpu,
   Gauge,
-  Monitor,
   RefreshCw,
-  Router,
   ShieldAlert,
   Wifi,
   WifiOff,
@@ -107,7 +103,7 @@ function getAtmHealth(atm) {
   };
 }
 
-function SummaryTile({ label, value, tone = "slate", icon: Icon }) {
+function SummaryTile({ label, value, tone = "slate", icon: Icon, children }) {
   const tones = {
     slate: "border-slate-200 bg-white text-slate-950",
     emerald: "border-emerald-200 bg-emerald-50 text-emerald-900",
@@ -117,14 +113,83 @@ function SummaryTile({ label, value, tone = "slate", icon: Icon }) {
   };
 
   return (
-    <div className={`rounded-lg border px-4 py-3 shadow-sm ${tones[tone]}`}>
+    <div className={`group relative rounded-lg border px-4 py-3 shadow-sm ${tones[tone]}`} tabIndex={children ? 0 : undefined}>
       <div className="flex items-center justify-between gap-3">
         <div className="text-sm font-medium text-slate-600">{label}</div>
         {Icon && <Icon size={19} className="text-current opacity-75" />}
       </div>
-      <div className="mt-2 text-4xl font-semibold leading-none tracking-normal">{value}</div>
+      <div className="mt-2 text-3xl font-semibold leading-none tracking-normal sm:text-4xl">{value}</div>
+      {children && (
+        <div className="absolute right-0 top-full z-30 mt-2 hidden w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-slate-200 bg-white p-3 text-slate-900 shadow-xl group-hover:block group-focus:block">
+          {children}
+        </div>
+      )}
     </div>
   );
+}
+
+function CashLowDetails({ items = [] }) {
+  if (!items.length) {
+    return <div className="text-sm text-slate-500">توجد صرافات منخفضة، لكن تفاصيلها لم تصل بعد. حدّث البيانات أو أعد تشغيل backend.</div>;
+  }
+
+  return (
+    <div>
+      <div className="mb-2 text-sm font-semibold text-slate-950">صرافات على وشك الانتهاء</div>
+      <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+        {items.slice(0, 10).map((item) => (
+          <div key={`${item.atm_id}-${item.cassette_no}`} className="rounded-lg bg-amber-50 px-3 py-2 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate font-semibold text-slate-950">{item.name}</div>
+                <div className="mt-0.5 text-xs text-slate-500">
+                  {item.atm_id} · {item.branch} · Cassette {item.cassette_no}
+                </div>
+              </div>
+              <span className="shrink-0 rounded-full bg-white px-2 py-1 text-xs font-semibold text-amber-800 ring-1 ring-amber-200">
+                {item.current_count}/{item.threshold_count}
+              </span>
+            </div>
+            <div className="mt-1 text-xs text-slate-600">
+              {item.currency} {item.denomination} · آخر قراءة {formatApiDate(item.read_at)}
+            </div>
+          </div>
+        ))}
+      </div>
+      {items.length > 10 && <div className="mt-2 text-xs text-slate-500">و {items.length - 10} صرافات أخرى</div>}
+    </div>
+  );
+}
+
+function fallbackCashLowDetails(cashSummary, atms) {
+  const atmsByInternalId = new Map(atms.map((atm) => [Number(atm.id), atm]));
+  const byAtm = new Map();
+  (cashSummary?.units || []).forEach((unit) => {
+    const current = Number(unit.current_count);
+    const low = Number(unit.low_threshold);
+    if (!Number.isFinite(current) || !Number.isFinite(low) || current > low) return;
+    const atm = atmsByInternalId.get(Number(unit.atm_id));
+    if (!atm) return;
+    const ratio = low > 0 ? current / low : current;
+    const existing = byAtm.get(Number(unit.atm_id));
+    if (existing && ratio >= existing._ratio) return;
+    byAtm.set(Number(unit.atm_id), {
+      _ratio: ratio,
+      atm_id: atm.atm_id,
+      name: atm.name,
+      branch: atm.branch,
+      cassette_no: unit.cassette_no,
+      currency: unit.expected_currency || unit.reported_currency || "",
+      denomination: unit.expected_denomination || unit.reported_denomination || 0,
+      current_count: current,
+      threshold_count: low,
+      status: unit.status,
+      read_at: unit.read_at,
+    });
+  });
+  return [...byAtm.values()]
+    .sort((first, second) => first._ratio - second._ratio || String(first.atm_id).localeCompare(String(second.atm_id), "ar"))
+    .map(({ _ratio, ...item }) => item);
 }
 
 function InfoLine({ label, value, tone = "text-slate-900" }) {
@@ -138,24 +203,6 @@ function InfoLine({ label, value, tone = "text-slate-900" }) {
   );
 }
 
-function ModulePill({ label, status }) {
-  const normalized = String(status || "-").toLowerCase();
-  const tone =
-    normalized === "running" || normalized === "configured"
-      ? "bg-emerald-50 text-emerald-700"
-      : normalized === "error"
-        ? "bg-rose-50 text-rose-700"
-        : normalized === "disabled"
-          ? "bg-slate-100 text-slate-600"
-          : "bg-amber-50 text-amber-700";
-
-  return (
-    <span className={`inline-flex min-h-8 items-center justify-center rounded-full px-3 text-xs font-semibold ${tone}`}>
-      {label}: {status || "-"}
-    </span>
-  );
-}
-
 function AtmMonitorCard({ atm }) {
   const health = getAtmHealth(atm);
   const HealthIcon = health.icon;
@@ -163,50 +210,54 @@ function AtmMonitorCard({ atm }) {
   const lastProblem = atm.last_config_error || (hasRecentAgentError(atm) ? atm.last_agent_error : null) || atm.last_switch_probe_error;
 
   return (
-    <article className={`relative overflow-hidden rounded-lg border p-4 shadow-sm ${health.shell}`}>
-      <div className={`absolute inset-y-0 right-0 w-1.5 ${health.strip}`} />
+    <article className={`relative overflow-hidden rounded-lg border p-3 shadow-sm ${health.shell}`}>
+      <div className={`absolute inset-y-0 right-0 w-1 ${health.strip}`} />
 
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-lg font-semibold text-slate-950">{atm.name}</span>
-            <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">{atm.atm_id}</span>
+          <div className="flex items-center gap-2">
+            <span className="truncate text-base font-semibold text-slate-950">{atm.name}</span>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">{atm.atm_id}</span>
           </div>
-          <div className="mt-1 truncate text-sm text-slate-500">
+          <div className="mt-0.5 truncate text-xs text-slate-500">
             {atm.branch} · {atm.vpn_ip}
           </div>
         </div>
 
-        <div className={`flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold ${health.pill}`}>
-          <HealthIcon size={17} />
+        <div className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${health.pill}`}>
+          <HealthIcon size={14} />
           <span>{health.title}</span>
         </div>
       </div>
 
-      <div className="mt-5 grid grid-cols-2 gap-3">
+      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2">
         <InfoLine label="آخر اتصال" value={formatLastSeenAge(atm)} tone={health.text} />
         <InfoLine label="Latency" value={getLatencyText(atm)} tone={getLatencyTone(atm)} />
-        <InfoLine label="Agent" value={atm.agent_version || "-"} />
         <InfoLine
           label="Config"
           value={isPendingConfig(atm) ? `${atm.applied_config_version}/${atm.config_version}` : "Synced"}
           tone={isPendingConfig(atm) ? "text-amber-700" : "text-emerald-700"}
         />
-        <InfoLine label="XFS" value={atm.xfs_profile === "grg" ? "GRG" : atm.xfs_profile === "custom" ? "Custom" : "NCR"} />
-        <InfoLine label="Package" value={atm.current_package_version || atm.last_image_version || "-"} />
+        <InfoLine
+          label="Switch"
+          value={switchStatus.label}
+          tone={
+            switchStatus.tone.includes("rose")
+              ? "text-rose-700"
+              : switchStatus.tone.includes("amber")
+                ? "text-amber-700"
+                : "text-emerald-700"
+          }
+        />
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        <ModulePill label="Media" status={getModuleStatus(atm, "media_update")} />
-        <ModulePill label="Cash" status={getModuleStatus(atm, "cash_monitoring")} />
-        <span className={`inline-flex min-h-8 items-center gap-1 rounded-full px-3 text-xs font-semibold ${switchStatus.tone}`}>
-          <Router size={14} />
-          Switch: {switchStatus.label}
-        </span>
+      <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2 py-1.5 text-xs font-semibold text-slate-600">
+        <span className="truncate">Cash: {getModuleStatus(atm, "cash_monitoring")}</span>
+        <span className="truncate">Media: {getModuleStatus(atm, "media_update")}</span>
       </div>
 
       {lastProblem && (
-        <div className="mt-4 rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
+        <div className="mt-2 rounded-lg border border-rose-100 bg-rose-50 px-2 py-1.5 text-xs font-medium text-rose-700">
           <div className="truncate" title={lastProblem}>
             {lastProblem}
           </div>
@@ -222,14 +273,11 @@ export default function Dashboard({ atms, packages, cashSummary, loading, onRefr
 
   const online = atms.filter(isRecentlyOnline).length;
   const offline = atms.length - online;
-  const pending = packages.reduce((total, item) => total + (item.pending_targets || 0), 0);
-  const failed = packages.reduce((total, item) => total + (item.failed_targets || 0), 0);
-  const pendingConfig = atms.filter(isPendingConfig).length;
   const cashLow = cashSummary?.cash_low_atms || 0;
-  const cashCritical = cashSummary?.cash_critical_atms || 0;
   const cashEmpty = cashSummary?.cash_empty_atms || 0;
-  const cashStale = cashSummary?.cash_stale_atms || 0;
-  const criticalCount = offline + failed + cashCritical + cashEmpty;
+  const cashLowDetails = (cashSummary?.low_cash_atms || []).length
+    ? cashSummary.low_cash_atms
+    : fallbackCashLowDetails(cashSummary, atms);
 
   const sortedAtms = useMemo(
     () =>
@@ -258,12 +306,7 @@ export default function Dashboard({ atms, packages, cashSummary, loading, onRefr
     <section>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 text-sm font-semibold text-teal-700">
-            <Monitor size={18} />
-            <span>ATM Monitoring Wall</span>
-          </div>
-          <h1 className="mt-1 text-3xl font-semibold text-slate-950">لوحة المراقبة</h1>
-          <p className="text-sm text-slate-500">عرض مباشر لحالة الصرافات والـ Agent والنقد والتحديثات</p>
+          <h1 className="text-2xl font-semibold text-slate-950 sm:text-3xl">لوحة المراقبة</h1>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -291,27 +334,20 @@ export default function Dashboard({ atms, packages, cashSummary, loading, onRefr
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-6">
-        <SummaryTile label="الصرافات" value={atms.length} icon={Monitor} />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryTile label="Online" value={online} tone="emerald" icon={Wifi} />
         <SummaryTile label="Offline" value={offline} tone={offline ? "rose" : "emerald"} icon={WifiOff} />
-        <SummaryTile label="Critical" value={criticalCount} tone={criticalCount ? "rose" : "emerald"} icon={ShieldAlert} />
-        <SummaryTile label="Pending Config" value={pendingConfig} tone={pendingConfig ? "amber" : "emerald"} icon={Cpu} />
-        <SummaryTile label="Pending / Failed" value={`${pending} / ${failed}`} tone={failed ? "rose" : pending ? "amber" : "slate"} icon={Activity} />
-      </div>
-
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryTile label="Cash Low" value={cashLow} tone={cashLow ? "amber" : "emerald"} icon={Gauge} />
-        <SummaryTile label="Cash Critical" value={cashCritical} tone={cashCritical ? "rose" : "emerald"} icon={AlertTriangle} />
+        <SummaryTile label="Cash Low" value={cashLow} tone={cashLow ? "amber" : "emerald"} icon={Gauge}>
+          <CashLowDetails items={cashLowDetails} />
+        </SummaryTile>
         <SummaryTile label="Cash Empty" value={cashEmpty} tone={cashEmpty ? "rose" : "emerald"} icon={ShieldAlert} />
-        <SummaryTile label="Cash Data Stale" value={cashStale} tone={cashStale ? "amber" : "emerald"} icon={Clock3} />
       </div>
 
       <div className="mt-6 flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-slate-950">الصرافات</h2>
       </div>
 
-      <div className="mt-3 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
         {sortedAtms.map((atm) => (
           <AtmMonitorCard key={atm.atm_id} atm={atm} />
         ))}

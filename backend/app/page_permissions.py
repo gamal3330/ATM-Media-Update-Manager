@@ -4,6 +4,7 @@ ALL_PAGE_IDS = [
     "upload",
     "packages",
     "cash",
+    "notifications",
     "agent-downloads",
     "logs",
     "settings",
@@ -16,7 +17,7 @@ ROLE_DEFAULT_PAGES = {
     "operator": ["dashboard"],
     "media_admin": ["dashboard", "atms", "upload", "packages", "logs"],
     "cash_monitoring_viewer": ["dashboard", "cash"],
-    "cash_monitoring_admin": ["dashboard", "cash", "atms", "logs"],
+    "cash_monitoring_admin": ["dashboard", "cash", "notifications", "atms", "logs"],
 }
 
 

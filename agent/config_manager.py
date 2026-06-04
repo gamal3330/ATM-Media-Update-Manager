@@ -82,7 +82,7 @@ class RemoteConfig:
 
 
 def load_local_config(path: Path) -> LocalConfig:
-    with path.open("r", encoding="utf-8") as file_obj:
+    with path.open("r", encoding="utf-8-sig") as file_obj:
         payload: dict[str, Any] = json.load(file_obj)
 
     required = ["server_url", "atm_id", "api_key"]
@@ -91,9 +91,9 @@ def load_local_config(path: Path) -> LocalConfig:
         raise ValueError(f"Missing local config keys: {', '.join(missing)}")
 
     return LocalConfig(
-        server_url=str(payload["server_url"]).rstrip("/"),
-        atm_id=str(payload["atm_id"]),
-        api_key=str(payload["api_key"]),
+        server_url=str(payload["server_url"]).strip().rstrip("/"),
+        atm_id=str(payload["atm_id"]).strip(),
+        api_key=str(payload["api_key"]).strip(),
         local_log_path=str(payload.get("local_log_path") or "C:\\ATM\\Agent\\logs"),
         fallback_check_interval_seconds=int(payload.get("fallback_check_interval_seconds") or 300),
         fallback_heartbeat_interval_seconds=int(payload.get("fallback_heartbeat_interval_seconds") or 60),
@@ -128,7 +128,7 @@ def parse_remote_config(payload: dict[str, Any]) -> RemoteConfig:
     cash_payload = modules.get("cash_monitoring") or {
         "enabled": False,
         "atm_cash_mode": "DISPENSE_ONLY",
-        "provider": "mock",
+        "provider": "xfs_cdm",
         "xfs_profile": "ncr_aptra",
         "xfs_logical_service": "MediaDispenser1",
         "xfs_msxfs_path": None,
@@ -168,7 +168,7 @@ def parse_remote_config(payload: dict[str, Any]) -> RemoteConfig:
         cash_monitoring=CashMonitoringConfig(
             enabled=bool(cash_payload.get("enabled", False)),
             atm_cash_mode=str(cash_payload.get("atm_cash_mode") or "DISPENSE_ONLY"),
-            provider=str(cash_payload.get("provider") or "mock"),
+            provider=str(cash_payload.get("provider") or "xfs_cdm"),
             xfs_profile=xfs_profile,
             xfs_logical_service=str(cash_payload.get("xfs_logical_service") or default_logical_service).strip()
             or default_logical_service,

@@ -34,7 +34,7 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 
 
 def effective_cash_provider(atm: ATM) -> str:
-    if atm.cash_monitoring_enabled and atm.cash_provider == "vendor_cdm":
+    if atm.cash_provider in {"mock", "vendor_cdm"}:
         return "xfs_cdm"
     return atm.cash_provider
 

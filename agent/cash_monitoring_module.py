@@ -75,56 +75,6 @@ class ICashDispenseProvider(Protocol):
         ...
 
 
-class MockDispenseProvider:
-    source = "mock"
-
-    def get_dispense_cash_snapshot(self, atm_id: str, config: CashMonitoringConfig) -> list[DispenseCashUnit]:
-        layout = config.cash_layout or [
-            CashLayoutItem(1, "YER", 1000, 2000, 300, 100),
-            CashLayoutItem(2, "YER", 1000, 2000, 300, 100),
-            CashLayoutItem(3, "YER", 1000, 2000, 300, 100),
-            CashLayoutItem(4, "YER", 1000, 2000, 300, 100),
-        ]
-        sample_counts = [850, 120, 25, 700]
-        sample_rejects = [2, 5, 1, 0]
-        units: list[DispenseCashUnit] = []
-        for index, item in enumerate(layout):
-            current_count = sample_counts[index % len(sample_counts)]
-            status = "OK"
-            if current_count <= 0:
-                status = "EMPTY"
-            elif current_count <= item.critical_threshold:
-                status = "LOW"
-            elif current_count <= item.low_threshold:
-                status = "LOW"
-            units.append(
-                DispenseCashUnit(
-                    cassette_no=item.cassette_no,
-                    cassette_id=f"CST{item.cassette_no:02d}",
-                    cassette_name=f"Dispense Cassette {item.cassette_no}",
-                    reported_currency=item.currency,
-                    reported_denomination=item.denomination,
-                    initial_count=item.max_capacity,
-                    current_count=current_count,
-                    reject_count=sample_rejects[index % len(sample_rejects)],
-                    retract_count=0,
-                    dispensed_count=max(0, item.max_capacity - current_count),
-                    presented_count=max(0, item.max_capacity - current_count),
-                    status=status,
-                    physical_status="PRESENT",
-                )
-            )
-        return units
-
-    def get_reject_retract_status(self, config: CashMonitoringConfig) -> RejectRetractStatus:
-        return RejectRetractStatus(
-            reject_count=8,
-            retract_count=1,
-            reject_status="OK",
-            retract_status="OK",
-        )
-
-
 class XfsCdmProvider:
     source = "xfs_cdm"
 
@@ -199,20 +149,32 @@ class XfsCdmProvider:
             return 0
         return value
 
+    @staticmethod
+    def _reported_currency_and_denomination(
+        unit: XfsCashUnitRead,
+        layout: CashLayoutItem,
+    ) -> tuple[str, int]:
+        currency = str(getattr(unit, "currency", "") or "").strip().upper()
+        denomination = int(getattr(unit, "denomination", 0) or 0)
+        if not currency:
+            return layout.currency, layout.denomination
+        return currency, denomination or layout.denomination
+
     def get_dispense_cash_snapshot(self, atm_id: str, config: CashMonitoringConfig) -> list[DispenseCashUnit]:
         result = self._read()
         units: list[DispenseCashUnit] = []
         dispense_units = [unit for unit in result.cash_units if not self._is_reject_or_retract_unit(unit)]
         for logical_cassette_no, xfs_unit in enumerate(dispense_units, start=1):
             layout = self._layout_for(config, logical_cassette_no)
+            reported_currency, reported_denomination = self._reported_currency_and_denomination(xfs_unit, layout)
             current_count = int(xfs_unit.current_count)
             units.append(
                 DispenseCashUnit(
                     cassette_no=logical_cassette_no,
                     cassette_id=xfs_unit.unit_id or f"CST{xfs_unit.cassette_no:02d}",
                     cassette_name=xfs_unit.cassette_name or f"Dispense Cassette {logical_cassette_no}",
-                    reported_currency=layout.currency,
-                    reported_denomination=layout.denomination,
+                    reported_currency=reported_currency,
+                    reported_denomination=reported_denomination,
                     initial_count=int(xfs_unit.initial_count),
                     current_count=current_count,
                     reject_count=int(xfs_unit.reject_count),
@@ -267,7 +229,7 @@ class CashMonitoringModule:
         self.atm_id = atm_id
         self.logger = logger
         self.config: CashMonitoringConfig | None = None
-        self.provider: ICashDispenseProvider = MockDispenseProvider()
+        self.provider: ICashDispenseProvider = XfsCdmProvider()
         self.last_read = 0.0
         self.status = "disabled"
         self.last_snapshot_at: str | None = None
@@ -290,7 +252,7 @@ class CashMonitoringModule:
         elif provider_name == "vendor_cdm":
             self.provider = VendorCdmProvider()
         else:
-            self.provider = MockDispenseProvider()
+            raise ValueError(f"Unsupported cash monitoring provider: {provider_name}")
         self.status = "running" if self.config.enabled else "disabled"
 
     def tick(self, now: float) -> None:

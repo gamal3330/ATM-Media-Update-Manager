@@ -20,8 +20,11 @@ from ..schemas import (
     CashThresholdCreate,
     CashThresholdRead,
     CashThresholdUpdate,
+    CashVerificationIssue,
+    CashVerificationSummary,
 )
 from ..services.audit_service import write_audit
+from ..services.notification_service import notify_cash_alert_opened
 
 router = APIRouter(tags=["cash"])
 
@@ -38,6 +41,14 @@ REJECT_RETRACT_ALERT_TYPES = {"REJECT_BIN_HIGH", "REJECT_BIN_FULL", "RETRACT_OCC
 RISK_RANK = {"CRITICAL": 0, "LOW": 1, "STALE": 2, "OK": 3, "UNKNOWN": 4}
 SUSPICIOUS_REGRESSION_WINDOW_MINUTES = 30
 SUSPICIOUS_REGRESSION_TOTAL_DROP = 1000
+READ_NOW_PENDING_TIMEOUT = timedelta(minutes=5)
+READ_NOW_ACKNOWLEDGED_TIMEOUT = timedelta(minutes=2)
+LAYOUT_VERIFICATION_ISSUES = {
+    "CURRENCY_MISMATCH",
+    "DENOMINATION_MISMATCH",
+    "MISSING_READING",
+    "UNCONFIGURED_CASSETTE",
+}
 
 
 def utcnow() -> datetime:
@@ -61,6 +72,248 @@ def apply_current_layout_to_units(atm: ATM, units: list[AtmCashUnit]) -> list[At
         unit.max_capacity = int(layout["max_capacity"])
         unit.layout_match_status = layout_match_status(unit, layout)[0]
     return units
+
+
+def verification_issue(
+    *,
+    cassette_no: int | None,
+    code: str,
+    severity: str,
+    message: str,
+    expected: str | int | None = None,
+    reported: str | int | None = None,
+) -> CashVerificationIssue:
+    return CashVerificationIssue(
+        cassette_no=cassette_no,
+        code=code,
+        severity=severity,
+        message=message,
+        expected=None if expected is None else str(expected),
+        reported=None if reported is None else str(reported),
+    )
+
+
+def cash_verification_summary(
+    atm: ATM,
+    units: list[AtmCashUnit],
+    reject_retract: AtmRejectRetractStatus | None,
+) -> CashVerificationSummary:
+    read_at = max((unit.read_at for unit in units), default=None)
+    issues: list[CashVerificationIssue] = []
+
+    if not atm.cash_monitoring_enabled:
+        return CashVerificationSummary(
+            status="disabled",
+            matched=False,
+            checked_at=read_at,
+            total_units=len(units),
+            issues=[
+                verification_issue(
+                    cassette_no=None,
+                    code="CASH_MONITORING_DISABLED",
+                    severity="info",
+                    message="Cash monitoring is disabled for this ATM",
+                )
+            ],
+        )
+
+    if atm.config_version != atm.applied_config_version:
+        issues.append(
+            verification_issue(
+                cassette_no=None,
+                code="CONFIG_PENDING",
+                severity="warning",
+                message="ATM configuration has not been applied by the agent yet",
+                expected=atm.config_version,
+                reported=atm.applied_config_version,
+            )
+        )
+
+    layout_map = layout_by_cassette(atm)
+    units_by_cassette = {unit.cassette_no: unit for unit in units}
+    matched_units = 0
+
+    if not units:
+        issues.append(
+            verification_issue(
+                cassette_no=None,
+                code="NO_READING",
+                severity="warning",
+                message="No cash snapshot has been received from the ATM yet",
+            )
+        )
+        return CashVerificationSummary(
+            status="no_reading",
+            matched=False,
+            checked_at=read_at,
+            total_units=0,
+            matched_units=0,
+            mismatch_count=0,
+            warning_count=len(issues),
+            issues=issues,
+        )
+
+    for cassette_no, layout in sorted(layout_map.items()):
+        unit = units_by_cassette.get(cassette_no)
+        if unit is None:
+            issues.append(
+                verification_issue(
+                    cassette_no=cassette_no,
+                    code="MISSING_READING",
+                    severity="critical",
+                    message=f"Configured cassette {cassette_no} was not reported by the ATM",
+                    expected=f"{layout['currency']} {layout['denomination']}",
+                    reported="missing",
+                )
+            )
+            continue
+
+        unit_matched = True
+        if unit.reported_currency != layout["currency"]:
+            unit_matched = False
+            issues.append(
+                verification_issue(
+                    cassette_no=cassette_no,
+                    code="CURRENCY_MISMATCH",
+                    severity="critical",
+                    message=f"Cassette {cassette_no} currency does not match the configured layout",
+                    expected=layout["currency"],
+                    reported=unit.reported_currency,
+                )
+            )
+        if unit.reported_denomination != int(layout["denomination"]):
+            unit_matched = False
+            issues.append(
+                verification_issue(
+                    cassette_no=cassette_no,
+                    code="DENOMINATION_MISMATCH",
+                    severity="critical",
+                    message=f"Cassette {cassette_no} denomination does not match the configured layout",
+                    expected=layout["denomination"],
+                    reported=unit.reported_denomination,
+                )
+            )
+
+        health_alert, health_severity = cassette_health_alert(unit.status, unit.physical_status)
+        if health_alert and health_severity:
+            issues.append(
+                verification_issue(
+                    cassette_no=cassette_no,
+                    code=health_alert,
+                    severity=health_severity,
+                    message=f"Cassette {cassette_no} is not healthy: {unit.status}/{unit.physical_status}",
+                    reported=f"{unit.status}/{unit.physical_status}",
+                )
+            )
+
+        count_alert, count_severity, count_threshold = cash_count_alert(
+            unit.current_count,
+            int(layout["low_threshold"]),
+            int(layout["critical_threshold"]),
+        )
+        if count_alert and count_severity:
+            issues.append(
+                verification_issue(
+                    cassette_no=cassette_no,
+                    code=count_alert,
+                    severity=count_severity,
+                    message=f"Cassette {cassette_no} count is below threshold",
+                    expected=count_threshold,
+                    reported=unit.current_count,
+                )
+            )
+
+        if unit_matched:
+            matched_units += 1
+
+    for cassette_no, unit in sorted(units_by_cassette.items()):
+        if cassette_no in layout_map:
+            continue
+        issues.append(
+            verification_issue(
+                cassette_no=cassette_no,
+                code="UNCONFIGURED_CASSETTE",
+                severity="warning",
+                message=f"ATM reported cassette {cassette_no}, but it is not configured in the system layout",
+                reported=f"{unit.reported_currency} {unit.reported_denomination}",
+            )
+        )
+
+    if reject_retract:
+        reject_high_threshold = max(1, int(reject_retract.reject_max_capacity * 0.8))
+        if reject_retract.reject_count >= reject_retract.reject_max_capacity:
+            issues.append(
+                verification_issue(
+                    cassette_no=None,
+                    code="REJECT_BIN_FULL",
+                    severity="critical",
+                    message="Reject bin is full",
+                    expected=reject_retract.reject_max_capacity,
+                    reported=reject_retract.reject_count,
+                )
+            )
+        elif reject_retract.reject_count >= reject_high_threshold:
+            issues.append(
+                verification_issue(
+                    cassette_no=None,
+                    code="REJECT_BIN_HIGH",
+                    severity="warning",
+                    message="Reject bin count is high",
+                    expected=reject_high_threshold,
+                    reported=reject_retract.reject_count,
+                )
+            )
+        if reject_retract.retract_count > 0:
+            issues.append(
+                verification_issue(
+                    cassette_no=None,
+                    code="RETRACT_OCCURRED",
+                    severity="warning",
+                    message="Retract bin has notes pulled back from customer presentation",
+                    expected=0,
+                    reported=reject_retract.retract_count,
+                )
+            )
+        if reject_retract.reject_status.upper() not in {"OK", "LOW"}:
+            issues.append(
+                verification_issue(
+                    cassette_no=None,
+                    code="REJECT_BIN_STATUS",
+                    severity="warning",
+                    message=f"Reject bin status is {reject_retract.reject_status}",
+                    reported=reject_retract.reject_status,
+                )
+            )
+        if reject_retract.retract_status.upper() not in {"OK", "LOW"}:
+            issues.append(
+                verification_issue(
+                    cassette_no=None,
+                    code="RETRACT_BIN_STATUS",
+                    severity="warning",
+                    message=f"Retract bin status is {reject_retract.retract_status}",
+                    reported=reject_retract.retract_status,
+                )
+            )
+
+    mismatch_count = sum(1 for issue in issues if issue.code in LAYOUT_VERIFICATION_ISSUES)
+    warning_count = len(issues) - mismatch_count
+    if mismatch_count:
+        status_value = "mismatch"
+    elif issues:
+        status_value = "warning"
+    else:
+        status_value = "matched"
+
+    return CashVerificationSummary(
+        status=status_value,
+        matched=status_value == "matched",
+        checked_at=read_at,
+        total_units=len(units),
+        matched_units=matched_units,
+        mismatch_count=mismatch_count,
+        warning_count=warning_count,
+        issues=issues,
+    )
 
 
 def sync_alert(
@@ -89,19 +342,20 @@ def sync_alert(
         open_alert.message = message
         open_alert.current_count = current_count
         open_alert.threshold_count = threshold_count
+        notify_cash_alert_opened(db, atm, open_alert)
         return
 
-    db.add(
-        AtmCashAlert(
-            atm_id=atm.id,
-            unit_no=unit_no,
-            alert_type=alert_type,
-            severity=severity,
-            message=message,
-            current_count=current_count,
-            threshold_count=threshold_count,
-        )
+    alert = AtmCashAlert(
+        atm_id=atm.id,
+        unit_no=unit_no,
+        alert_type=alert_type,
+        severity=severity,
+        message=message,
+        current_count=current_count,
+        threshold_count=threshold_count,
     )
+    db.add(alert)
+    db.flush()
     write_audit(
         db,
         actor_type="agent",
@@ -111,6 +365,7 @@ def sync_alert(
         entity_id=atm.atm_id,
         details={"unit_no": unit_no, "alert_type": alert_type, "current_count": current_count},
     )
+    notify_cash_alert_opened(db, atm, alert)
 
 
 def close_inactive_alerts(db: Session, atm: ATM, unit_no: int, active_types: set[str], candidates: set[str]) -> None:
@@ -260,6 +515,45 @@ def normalize_aware(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value
+
+
+def is_stale_cash_read_command(command: AgentCommand, now: datetime) -> bool:
+    if command.status == "pending":
+        return now - normalize_aware(command.created_at) > READ_NOW_PENDING_TIMEOUT
+    if command.status == "acknowledged":
+        reference = command.acknowledged_at or command.created_at
+        return now - normalize_aware(reference) > READ_NOW_ACKNOWLEDGED_TIMEOUT
+    return False
+
+
+def active_cash_read_command(db: Session, atm: ATM, now: datetime) -> AgentCommand | None:
+    commands = (
+        db.query(AgentCommand)
+        .filter(
+            AgentCommand.atm_id == atm.id,
+            AgentCommand.command_type == "cash_read_now",
+            AgentCommand.status.in_(["pending", "acknowledged"]),
+        )
+        .order_by(AgentCommand.created_at.asc())
+        .all()
+    )
+    for command in commands:
+        if not is_stale_cash_read_command(command, now):
+            return command
+        command.status = "failed"
+        command.completed_at = now
+        command.last_error = "Cash read request expired before the agent completed it"
+    return None
+
+
+def superseded_failed_cash_read_command(db: Session, atm: ATM, command: AgentCommand | None) -> bool:
+    if command is None or command.status != "failed":
+        return False
+    latest_read = latest_cash_read_at(db, atm)
+    if latest_read is None:
+        return False
+    command_finished_at = command.completed_at or command.acknowledged_at or command.created_at
+    return normalize_aware(latest_read) > normalize_aware(command_finished_at)
 
 
 def suspicious_cash_regression(
@@ -544,6 +838,40 @@ def cash_summary(
     low_atms = {alert.atm_id for alert in open_alerts if alert.alert_type == "CASH_LOW"}
     critical_atms = {alert.atm_id for alert in open_alerts if alert.alert_type == "CASH_CRITICAL"}
     empty_atms = {alert.atm_id for alert in open_alerts if alert.alert_type == "CASH_EMPTY"}
+    units_by_atm_cassette = {(unit.atm_id, unit.cassette_no): unit for unit in units}
+    low_cash_by_atm: dict[int, dict[str, Any]] = {}
+    for alert in open_alerts:
+        if alert.alert_type != "CASH_LOW":
+            continue
+        atm = atms_by_id.get(alert.atm_id)
+        if atm is None:
+            continue
+        unit = units_by_atm_cassette.get((alert.atm_id, alert.unit_no))
+        threshold = max(1, int(alert.threshold_count or 1))
+        ratio = int(alert.current_count) / threshold
+        existing = low_cash_by_atm.get(alert.atm_id)
+        if existing and ratio >= existing["_ratio"]:
+            continue
+        low_cash_by_atm[alert.atm_id] = {
+            "_ratio": ratio,
+            "atm_id": atm.atm_id,
+            "name": atm.name,
+            "branch": atm.branch,
+            "cassette_no": alert.unit_no,
+            "currency": unit.expected_currency if unit else "",
+            "denomination": unit.expected_denomination if unit else 0,
+            "current_count": alert.current_count,
+            "threshold_count": alert.threshold_count,
+            "status": unit.status if unit else alert.alert_type,
+            "read_at": unit.read_at if unit else alert.opened_at,
+        }
+    low_cash_atms = [
+        {key: value for key, value in item.items() if key != "_ratio"}
+        for item in sorted(
+            low_cash_by_atm.values(),
+            key=lambda detail: (detail["_ratio"], str(detail["atm_id"])),
+        )
+    ]
 
     now = utcnow()
     stale_atms: set[int] = set()
@@ -571,6 +899,7 @@ def cash_summary(
         cash_stale_atms=len(stale_atms),
         open_alerts=len(open_alerts),
         units=units,
+        low_cash_atms=low_cash_atms,
     )
 
 
@@ -585,14 +914,23 @@ def cash_atm_details(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ATM not found")
     units = db.query(AtmCashUnit).filter(AtmCashUnit.atm_id == atm.id).order_by(AtmCashUnit.cassette_no.asc()).all()
     apply_current_layout_to_units(atm, units)
+    reject_retract = (
+        db.query(AtmRejectRetractStatus)
+        .filter(AtmRejectRetractStatus.atm_id == atm.id)
+        .first()
+    )
+    last_cash_read_command = (
+        db.query(AgentCommand)
+        .filter(AgentCommand.atm_id == atm.id, AgentCommand.command_type == "cash_read_now")
+        .order_by(AgentCommand.created_at.desc())
+        .first()
+    )
+    if superseded_failed_cash_read_command(db, atm, last_cash_read_command):
+        last_cash_read_command = None
     return CashAtmDetails(
         atm=atm,
         units=units,
-        reject_retract=(
-            db.query(AtmRejectRetractStatus)
-            .filter(AtmRejectRetractStatus.atm_id == atm.id)
-            .first()
-        ),
+        reject_retract=reject_retract,
         alerts=(
             db.query(AtmCashAlert)
             .filter(AtmCashAlert.atm_id == atm.id)
@@ -607,6 +945,8 @@ def cash_atm_details(
             .all()
         ),
         forecasts=forecasts_for_atm(db, atm, units),
+        verification=cash_verification_summary(atm, units, reject_retract),
+        last_cash_read_command=last_cash_read_command,
     )
 
 
@@ -622,16 +962,11 @@ def request_cash_read_now(
     if not atm.cash_monitoring_enabled:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cash monitoring is disabled for this ATM")
 
-    existing = (
-        db.query(AgentCommand)
-        .filter(
-            AgentCommand.atm_id == atm.id,
-            AgentCommand.command_type == "cash_read_now",
-            AgentCommand.status.in_(["pending", "acknowledged"]),
-        )
-        .first()
-    )
+    now = utcnow()
+    existing = active_cash_read_command(db, atm, now)
     if existing:
+        db.commit()
+        db.refresh(existing)
         return existing
 
     command = AgentCommand(

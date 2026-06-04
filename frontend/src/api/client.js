@@ -13,6 +13,29 @@ function resolveApiBase() {
 
 const API_BASE = resolveApiBase();
 export const apiBaseUrl = API_BASE;
+export const authTokenKey = "qib_atm_manager_token";
+const legacyAuthTokenKey = "atm_media_token";
+
+export function getAuthToken() {
+  const token = localStorage.getItem(authTokenKey);
+  if (token) return token;
+  const legacyToken = localStorage.getItem(legacyAuthTokenKey);
+  if (legacyToken) {
+    localStorage.setItem(authTokenKey, legacyToken);
+    localStorage.removeItem(legacyAuthTokenKey);
+  }
+  return legacyToken;
+}
+
+export function setAuthToken(token) {
+  localStorage.setItem(authTokenKey, token);
+  localStorage.removeItem(legacyAuthTokenKey);
+}
+
+export function clearAuthToken() {
+  localStorage.removeItem(authTokenKey);
+  localStorage.removeItem(legacyAuthTokenKey);
+}
 
 export class ApiError extends Error {
   constructor(message, status, payload, fieldErrors = {}, details = []) {
@@ -44,6 +67,12 @@ const fieldLabels = {
   cash_layout: "Cash Layout",
   cash_read_interval_seconds: "Cash Read Interval",
   cash_stale_after_minutes: "Cash Stale After Minutes",
+  recipient_email: "Recipient Email",
+  sender_email: "Sender Email",
+  smtp_host: "SMTP Host",
+  smtp_port: "SMTP Port",
+  smtp_security: "SMTP Security",
+  smtp_username: "SMTP Username",
   username: "اسم المستخدم",
   password: "كلمة المرور",
   file: "ملف ZIP",
@@ -88,6 +117,8 @@ function translatePlainMessage(message, status) {
     "ZIP package must contain at least one image file": "ملف ZIP يجب أن يحتوي على صورة واحدة على الأقل.",
     "atm-agent.exe is not available. Build it on Windows and place it at agent/dist/atm-agent.exe":
       "ملف atm-agent.exe غير متوفر على السيرفر. ابنِ الملف على Windows ثم ضعه في agent/dist/atm-agent.exe.",
+    "Notification email settings are incomplete": "إعدادات البريد غير مكتملة.",
+    "Notification default recipient email is missing": "أدخل بريدًا افتراضيًا لإرسال رسالة الاختبار.",
   };
 
   if (message?.startsWith("Executable or script file is not allowed in ZIP:")) {
@@ -168,7 +199,7 @@ function parseErrorPayload(payload, status) {
 }
 
 async function request(path, options = {}) {
-  const token = localStorage.getItem("atm_media_token");
+  const token = getAuthToken();
   const headers = {
     ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -201,7 +232,7 @@ async function request(path, options = {}) {
 }
 
 async function downloadBlob(path) {
-  const token = localStorage.getItem("atm_media_token");
+  const token = getAuthToken();
   let response;
   try {
     response = await fetch(`${API_BASE}${path}`, {
@@ -237,6 +268,8 @@ export const api = {
   listAtms: () => request("/api/atms"),
   createAtm: (payload) => request("/api/atms", { method: "POST", body: JSON.stringify(payload) }),
   getAtmDiagnostics: (atmId) => request(`/api/atms/${encodeURIComponent(atmId)}/diagnostics`),
+  getAtmEvents: (atmId, limit = 80) =>
+    request(`/api/atms/${encodeURIComponent(atmId)}/events?limit=${encodeURIComponent(limit)}`),
   updateAtm: (atmId, payload) =>
     request(`/api/atms/${encodeURIComponent(atmId)}`, { method: "PUT", body: JSON.stringify(payload) }),
   regenerateAtmApiKey: (atmId) =>
@@ -256,6 +289,14 @@ export const api = {
   listCashAlerts: () => request("/api/cash/alerts"),
   saveCashThreshold: (payload) =>
     request("/api/cash/thresholds", { method: "POST", body: JSON.stringify(payload) }),
+  getNotificationSettings: () => request("/api/notifications/settings"),
+  updateNotificationSettings: (payload) =>
+    request("/api/notifications/settings", { method: "PUT", body: JSON.stringify(payload) }),
+  listNotificationRecipients: () => request("/api/notifications/recipients"),
+  updateNotificationRecipients: (recipients) =>
+    request("/api/notifications/recipients", { method: "PUT", body: JSON.stringify({ recipients }) }),
+  sendTestNotification: () => request("/api/notifications/test", { method: "POST" }),
+  listNotificationDeliveries: () => request("/api/notifications/deliveries"),
   listPackages: () => request("/api/packages"),
   getPackage: (id) => request(`/api/packages/${id}`),
   uploadPackage: (formData) => request("/api/packages/upload", { method: "POST", body: formData }),

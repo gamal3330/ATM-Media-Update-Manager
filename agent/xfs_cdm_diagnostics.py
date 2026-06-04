@@ -259,7 +259,7 @@ def build_next_steps(result: XfsCdmDiagnostics) -> list[str]:
         steps.append("Find the CDM logical service name from the ATM XFS configuration before enabling xfs_cdm.")
     else:
         steps.append("Use one listed logical service candidate for the first read-only WFSGetInfo test.")
-    steps.append("Keep provider set to mock until read-only XFS CDM diagnostics are confirmed.")
+    steps.append("Keep cash monitoring disabled until read-only XFS CDM diagnostics are confirmed.")
     return steps
 
 

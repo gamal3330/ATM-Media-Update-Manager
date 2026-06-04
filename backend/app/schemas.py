@@ -12,8 +12,24 @@ PATH_FIELDS = {"media_path", "backup_path", "temp_path"}
 ALLOWED_CURRENCIES = {"YER", "USD", "SAR"}
 ALLOWED_DENOMINATIONS = {"YER": {1000}, "USD": {100}, "SAR": {100}}
 CASH_MODE_DISPENSE_ONLY = "DISPENSE_ONLY"
-CashDispenseProvider = Literal["mock", "xfs_cdm", "vendor_cdm"]
+CashDispenseProvider = Literal["xfs_cdm", "vendor_cdm"]
+CashSnapshotSource = Literal["xfs_cdm", "vendor_cdm"]
 XfsProfile = Literal["ncr_aptra", "grg", "custom"]
+SmtpSecurity = Literal["starttls", "ssl", "none"]
+
+
+def validate_email_like(value: str | None) -> str | None:
+    if value is None:
+        return value
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if any(char.isspace() for char in cleaned) or "@" not in cleaned:
+        raise ValueError("Enter a valid email address")
+    local, _, domain = cleaned.rpartition("@")
+    if not local or "." not in domain or domain.startswith(".") or domain.endswith("."):
+        raise ValueError("Enter a valid email address")
+    return cleaned
 
 
 def validate_atm_managed_path(value: str | None) -> str | None:
@@ -544,7 +560,7 @@ class MediaUpdateRemoteConfig(BaseModel):
 class CashMonitoringRemoteConfig(BaseModel):
     enabled: bool
     atm_cash_mode: Literal["DISPENSE_ONLY"] = "DISPENSE_ONLY"
-    provider: CashDispenseProvider = "mock"
+    provider: CashDispenseProvider = "xfs_cdm"
     xfs_profile: XfsProfile = "ncr_aptra"
     xfs_logical_service: str = "MediaDispenser1"
     xfs_msxfs_path: str | None = None
@@ -616,6 +632,19 @@ class ATMDiagnostics(BaseModel):
     recent_commands: list[AgentCommandRead] = Field(default_factory=list)
 
 
+class AtmEventRead(BaseModel):
+    id: str
+    occurred_at: datetime
+    source: str
+    event_type: str
+    severity: str = "info"
+    title: str
+    message: str | None = None
+    status: str | None = None
+    actor: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
 class AuditLogRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -627,6 +656,101 @@ class AuditLogRead(BaseModel):
     entity_id: str | None
     details: dict[str, Any] | None
     created_at: datetime
+
+
+class NotificationSettingsUpdate(BaseModel):
+    enabled: bool = False
+    recipient_email: str | None = Field(default=None, max_length=255)
+    sender_email: str | None = Field(default=None, max_length=255)
+    smtp_host: str | None = Field(default=None, max_length=255)
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_security: SmtpSecurity = "starttls"
+    smtp_username: str | None = Field(default=None, max_length=255)
+    smtp_password: str | None = Field(default=None, max_length=500)
+    clear_smtp_password: bool = False
+    notify_cash_low: bool = True
+    notify_cash_empty: bool = True
+
+    @field_validator("recipient_email", "sender_email")
+    @classmethod
+    def validate_email_fields(cls, value: str | None) -> str | None:
+        return validate_email_like(value)
+
+    @field_validator("smtp_host", "smtp_username", "smtp_password")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        cleaned = value.strip()
+        return cleaned or None
+
+    @model_validator(mode="after")
+    def validate_enabled_configuration(self):
+        if self.enabled and not (self.sender_email and self.smtp_host):
+            raise ValueError("Sender email and SMTP host are required when notifications are enabled")
+        return self
+
+
+class NotificationSettingsRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    enabled: bool
+    recipient_email: str | None
+    sender_email: str | None
+    smtp_host: str | None
+    smtp_port: int
+    smtp_security: str
+    smtp_username: str | None
+    notify_cash_low: bool
+    notify_cash_empty: bool
+    has_smtp_password: bool = False
+    is_configured: bool = False
+    updated_by: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class NotificationDeliveryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    alert_id: int | None
+    atm_id: int | None
+    event_type: str
+    channel: str
+    recipient_email: str
+    subject: str
+    status: str
+    error_message: str | None
+    created_at: datetime
+    sent_at: datetime | None
+
+
+class NotificationRecipientItemUpdate(BaseModel):
+    atm_id: str = Field(min_length=1, max_length=80)
+    recipient_email: str | None = Field(default=None, max_length=255)
+    enabled: bool = True
+
+    @field_validator("recipient_email")
+    @classmethod
+    def validate_recipient_email(cls, value: str | None) -> str | None:
+        return validate_email_like(value)
+
+
+class NotificationRecipientsUpdate(BaseModel):
+    recipients: list[NotificationRecipientItemUpdate] = Field(default_factory=list)
+
+
+class NotificationRecipientRead(BaseModel):
+    atm_id: str
+    name: str
+    branch: str
+    recipient_email: str | None = None
+    effective_recipient_email: str | None = None
+    enabled: bool = True
+    uses_default: bool = True
+    updated_at: datetime | None = None
 
 
 class RejectRetractPayload(BaseModel):
@@ -642,7 +766,7 @@ class CashUnitPayload(BaseModel):
     cassette_no: int = Field(ge=1, le=12)
     cassette_id: str | None = None
     cassette_name: str | None = None
-    reported_currency: Literal["YER", "USD", "SAR"]
+    reported_currency: str = Field(min_length=1, max_length=10)
     reported_denomination: int = Field(ge=1)
     initial_count: int = Field(default=0, ge=0)
     current_count: int = Field(default=0, ge=0)
@@ -653,18 +777,20 @@ class CashUnitPayload(BaseModel):
     status: str = "OK"
     physical_status: str = "PRESENT"
 
-    @field_validator("reported_denomination")
+    @field_validator("reported_currency")
     @classmethod
-    def validate_reported_denomination(cls, value: int, info) -> int:
-        currency = info.data.get("reported_currency")
-        if currency and value not in ALLOWED_DENOMINATIONS[currency]:
-            raise ValueError(f"Unsupported denomination for {currency}")
-        return value
+    def normalize_reported_currency(cls, value: str) -> str:
+        cleaned = value.strip().upper()
+        if not cleaned:
+            raise ValueError("Reported currency is required")
+        if any(ord(char) < 32 for char in cleaned):
+            raise ValueError("Reported currency must not contain control characters")
+        return cleaned
 
 
 class CashSnapshotRequest(BaseModel):
     atm_id: str | None = None
-    source: CashDispenseProvider = "mock"
+    source: CashSnapshotSource = "xfs_cdm"
     atm_cash_mode: Literal["DISPENSE_ONLY"] = "DISPENSE_ONLY"
     read_at: datetime
     cash_units: list[CashUnitPayload] = Field(default_factory=list)
@@ -675,6 +801,7 @@ class CashUnitRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    atm_id: int
     cassette_no: int
     cassette_id: str | None
     cassette_name: str | None
@@ -774,6 +901,26 @@ class CashForecastRead(BaseModel):
     sample_count: int = 0
 
 
+class CashVerificationIssue(BaseModel):
+    cassette_no: int | None = None
+    code: str
+    severity: str
+    message: str
+    expected: str | None = None
+    reported: str | None = None
+
+
+class CashVerificationSummary(BaseModel):
+    status: str
+    matched: bool
+    checked_at: datetime | None = None
+    total_units: int = 0
+    matched_units: int = 0
+    mismatch_count: int = 0
+    warning_count: int = 0
+    issues: list[CashVerificationIssue] = Field(default_factory=list)
+
+
 class CashAtmDetails(BaseModel):
     atm: ATMRead
     units: list[CashUnitRead]
@@ -781,6 +928,21 @@ class CashAtmDetails(BaseModel):
     alerts: list[CashAlertRead]
     thresholds: list[CashThresholdRead]
     forecasts: list[CashForecastRead] = Field(default_factory=list)
+    verification: CashVerificationSummary
+    last_cash_read_command: AgentCommandRead | None = None
+
+
+class CashLowAtmRead(BaseModel):
+    atm_id: str
+    name: str
+    branch: str
+    cassette_no: int
+    currency: str
+    denomination: int
+    current_count: int
+    threshold_count: int
+    status: str
+    read_at: datetime | None = None
 
 
 class CashSummary(BaseModel):
@@ -791,6 +953,7 @@ class CashSummary(BaseModel):
     cash_stale_atms: int
     open_alerts: int
     units: list[CashUnitRead]
+    low_cash_atms: list[CashLowAtmRead] = Field(default_factory=list)
 
 
 class CashAtmReportRead(BaseModel):

@@ -1,0 +1,188 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from ..auth import get_current_user
+from ..database import get_db
+from ..models import ATM, NotificationDelivery, NotificationRecipient, NotificationSettings, User
+from ..page_permissions import SYSTEM_ADMIN_ROLES
+from ..schemas import (
+    NotificationDeliveryRead,
+    NotificationRecipientRead,
+    NotificationRecipientsUpdate,
+    NotificationSettingsRead,
+    NotificationSettingsUpdate,
+)
+from ..services.audit_service import write_audit
+from ..services.notification_service import get_notification_settings, send_test_notification
+
+router = APIRouter(prefix="/api/notifications", tags=["notifications"])
+
+
+def require_notification_manager(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role not in {*SYSTEM_ADMIN_ROLES, "cash_monitoring_admin"}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    return current_user
+
+
+@router.get("/settings", response_model=NotificationSettingsRead)
+def read_notification_settings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_notification_manager),
+) -> NotificationSettings:
+    return get_notification_settings(db)
+
+
+@router.put("/settings", response_model=NotificationSettingsRead)
+def update_notification_settings(
+    payload: NotificationSettingsUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_notification_manager),
+) -> NotificationSettings:
+    settings = get_notification_settings(db)
+    changes = payload.model_dump(exclude={"smtp_password", "clear_smtp_password"})
+    for key, value in changes.items():
+        setattr(settings, key, value)
+
+    if payload.clear_smtp_password:
+        settings.smtp_password = None
+    elif payload.smtp_password:
+        settings.smtp_password = payload.smtp_password
+
+    settings.updated_by = current_user.username
+    write_audit(
+        db,
+        actor_type="user",
+        actor_id=current_user.username,
+        action="notification_settings_updated",
+        entity_type="notification_settings",
+        entity_id=str(settings.id),
+        details={
+            key: value
+            for key, value in changes.items()
+            if key not in {"smtp_password", "clear_smtp_password"}
+        },
+    )
+    db.commit()
+    db.refresh(settings)
+    return settings
+
+
+def recipient_read(
+    atm: ATM,
+    recipient: NotificationRecipient | None,
+    default_email: str | None,
+) -> NotificationRecipientRead:
+    enabled = recipient.enabled if recipient else True
+    custom_email = recipient.recipient_email if recipient else None
+    effective_email = (custom_email or default_email) if enabled else None
+    return NotificationRecipientRead(
+        atm_id=atm.atm_id,
+        name=atm.name,
+        branch=atm.branch,
+        recipient_email=custom_email,
+        effective_recipient_email=effective_email,
+        enabled=enabled,
+        uses_default=enabled and not custom_email,
+        updated_at=recipient.updated_at if recipient else None,
+    )
+
+
+@router.get("/recipients", response_model=list[NotificationRecipientRead])
+def list_notification_recipients(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_notification_manager),
+) -> list[NotificationRecipientRead]:
+    settings = get_notification_settings(db)
+    recipients = {item.atm_id: item for item in db.query(NotificationRecipient).all()}
+    atms = db.query(ATM).order_by(ATM.branch.asc(), ATM.atm_id.asc()).all()
+    return [recipient_read(atm, recipients.get(atm.id), settings.recipient_email) for atm in atms]
+
+
+@router.put("/recipients", response_model=list[NotificationRecipientRead])
+def update_notification_recipients(
+    payload: NotificationRecipientsUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_notification_manager),
+) -> list[NotificationRecipientRead]:
+    atms_by_atm_id = {atm.atm_id: atm for atm in db.query(ATM).all()}
+    existing = {item.atm_id: item for item in db.query(NotificationRecipient).all()}
+    missing = [item.atm_id for item in payload.recipients if item.atm_id not in atms_by_atm_id]
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"missing_atm_ids": missing},
+        )
+
+    changed = []
+    for item in payload.recipients:
+        atm = atms_by_atm_id[item.atm_id]
+        recipient = existing.get(atm.id)
+        needs_row = bool(item.recipient_email) or not item.enabled
+        if recipient is None and not needs_row:
+            continue
+        if recipient is None:
+            recipient = NotificationRecipient(atm_id=atm.id)
+            db.add(recipient)
+            existing[atm.id] = recipient
+
+        recipient.recipient_email = item.recipient_email
+        recipient.enabled = item.enabled
+        recipient.updated_by = current_user.username
+        changed.append({"atm_id": atm.atm_id, "recipient_email": item.recipient_email, "enabled": item.enabled})
+
+    if changed:
+        write_audit(
+            db,
+            actor_type="user",
+            actor_id=current_user.username,
+            action="notification_recipients_updated",
+            entity_type="notification_recipients",
+            details={"count": len(changed), "recipients": changed},
+        )
+    db.commit()
+    return list_notification_recipients(db=db, current_user=current_user)
+
+
+@router.post("/test", response_model=NotificationDeliveryRead)
+def test_notification_email(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_notification_manager),
+) -> NotificationDelivery:
+    settings = get_notification_settings(db)
+    if not settings.is_configured:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Notification email settings are incomplete",
+        )
+    if not settings.recipient_email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Notification default recipient email is missing",
+        )
+    delivery = send_test_notification(db, settings)
+    write_audit(
+        db,
+        actor_type="user",
+        actor_id=current_user.username,
+        action="notification_test_email_requested",
+        entity_type="notification_delivery",
+        entity_id=str(delivery.id),
+        details={"status": delivery.status, "recipient_email": delivery.recipient_email},
+    )
+    db.commit()
+    db.refresh(delivery)
+    return delivery
+
+
+@router.get("/deliveries", response_model=list[NotificationDeliveryRead])
+def list_notification_deliveries(
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_notification_manager),
+) -> list[NotificationDelivery]:
+    return (
+        db.query(NotificationDelivery)
+        .order_by(NotificationDelivery.created_at.desc())
+        .limit(max(1, min(limit, 200)))
+        .all()
+    )

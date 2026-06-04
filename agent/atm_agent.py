@@ -25,11 +25,11 @@ from xfs_cdm_diagnostics import diagnose_xfs_cdm, format_diagnostics
 from xfs_cdm_reader import read_cash_units, format_read_result
 
 AGENT_VERSION = "2.0.6"
-DEFAULT_INSTALL_DIR = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "ATM Media Agent"
+DEFAULT_INSTALL_DIR = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "QIB ATM Manager Agent"
 DEFAULT_CONFIG = DEFAULT_INSTALL_DIR / "config.json"
 SERVICE_NAME = "ATMUnifiedAgent"
 LEGACY_SERVICE_NAMES = ["ATMMediaAgent"]
-SERVICE_DISPLAY_NAME = "ATM Unified Agent Service"
+SERVICE_DISPLAY_NAME = "QIB ATM Manager Agent Service"
 
 ARGS_THAT_MAY_START_WITH_DASH = {"--api-key"}
 KNOWN_OPTION_ARGS = {
@@ -338,7 +338,7 @@ class AtmAgent:
     def run_forever(self) -> None:
         last_heartbeat = 0.0
         last_config = 0.0
-        self.logger.info("ATM Unified Agent %s started for %s", AGENT_VERSION, self.local_config.atm_id)
+        self.logger.info("QIB ATM Manager Agent %s started for %s", AGENT_VERSION, self.local_config.atm_id)
 
         while not self.stop_event.is_set():
             now = time.monotonic()
@@ -611,7 +611,7 @@ def service_main(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="ATM Unified Agent")
+    parser = argparse.ArgumentParser(description="QIB ATM Manager Agent")
     sub = parser.add_subparsers(dest="command", required=True)
 
     install_parser = sub.add_parser("install")

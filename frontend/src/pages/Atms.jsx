@@ -1,6 +1,7 @@
 import {
   Activity,
   AlertCircle,
+  ChevronDown,
   CheckCircle2,
   Clipboard,
   Clock3,
@@ -9,6 +10,7 @@ import {
   Plus,
   RefreshCw,
   Save,
+  ScrollText,
   Search,
   Server,
   Settings2,
@@ -47,14 +49,11 @@ const settingsFields = [
   ["temp_path", "Temp Path", "C:/ATM/Temp"],
   ["check_interval_seconds", "Media Check Interval", "300"],
   ["heartbeat_interval_seconds", "Heartbeat Interval", "60"],
-  ["config_sync_interval_seconds", "Config Sync Interval", "120"],
-  ["cash_read_interval_seconds", "Cash Read Interval", "120"],
-  ["cash_stale_after_minutes", "Cash Stale After Minutes", "10"],
 ];
 
 function normalizeCashProvider(value, cashEnabled = false) {
-  if (value === "xfs_cdm" || value === "mock") return value;
-  return cashEnabled ? "xfs_cdm" : "mock";
+  if (value === "xfs_cdm" || value === "vendor_cdm") return value;
+  return "xfs_cdm";
 }
 
 const fields = [
@@ -114,6 +113,11 @@ function buildEmptyForm() {
   return { atm_id: "", name: "", vpn_ip: "", branch: "", cash_layout: buildCashLayout() };
 }
 
+function commonAtmNumber(atms, key, fallback) {
+  const values = [...new Set(atms.map((atm) => Number(atm[key])).filter((value) => Number.isFinite(value)))];
+  return values.length === 1 ? values[0] : fallback;
+}
+
 function validateForm(form) {
   const errors = {};
   fields.forEach(([key, label, , minLength]) => {
@@ -128,17 +132,44 @@ function validateForm(form) {
 }
 
 function getConfigStatus(atm) {
-  if (atm.last_config_error) return { label: "Failed", tone: "bg-rose-50 text-rose-700", icon: XCircle };
+  if (hasActiveConfigError(atm)) return { label: "Failed", tone: "bg-rose-50 text-rose-700", icon: XCircle };
   if ((atm.applied_config_version || 0) < (atm.config_version || 0)) {
     return { label: "Pending", tone: "bg-amber-50 text-amber-700", icon: Clock3 };
   }
   return { label: "Synced", tone: "bg-emerald-50 text-emerald-700", icon: CheckCircle2 };
 }
 
+function hasCurrentModuleError(atm) {
+  return Object.values(atm.module_status_json || {}).some((status) => String(status).toLowerCase() === "error");
+}
+
+function hasRecentAgentError(atm) {
+  if (!atm.last_agent_error_at) return false;
+  const timestamp = new Date(atm.last_agent_error_at).getTime();
+  if (!Number.isFinite(timestamp)) return false;
+  return Date.now() - timestamp <= 10 * 60 * 1000;
+}
+
+function hasActiveConfigError(atm) {
+  return Boolean(atm.last_config_error && Number(atm.applied_config_version || 0) < Number(atm.config_version || 0));
+}
+
+function hasActiveSwitchError(atm) {
+  return Boolean(atm.last_switch_probe_error && String(atm.last_switch_probe_status || "").toLowerCase() === "failed");
+}
+
+function getActiveProblem(atm) {
+  if (hasActiveConfigError(atm)) return atm.last_config_error;
+  if (hasRecentAgentError(atm)) return atm.last_agent_error;
+  if (hasCurrentModuleError(atm)) return atm.last_agent_error || "يوجد خطأ حالي في إحدى وحدات الـ Agent.";
+  if (hasActiveSwitchError(atm)) return atm.last_switch_probe_error;
+  return "";
+}
+
 function getAtmHealth(atm) {
   const online = isRecentlyOnline(atm);
-  const moduleStatuses = Object.values(atm.module_status_json || {});
-  const hasError = atm.last_agent_error || atm.last_config_error || moduleStatuses.some((status) => status === "error");
+  const hasError =
+    hasActiveConfigError(atm) || hasRecentAgentError(atm) || hasCurrentModuleError(atm) || hasActiveSwitchError(atm);
 
   if (!online) {
     return {
@@ -182,6 +213,7 @@ function getAtmHealth(atm) {
 
 function buildSettingsForm(atm) {
   return {
+    name: atm?.name || "",
     media_path: atm?.media_path || "",
     backup_path: atm?.backup_path || "",
     temp_path: atm?.temp_path || "",
@@ -270,6 +302,79 @@ function formatSeconds(seconds) {
   return `قبل ${hours} ساعة`;
 }
 
+function getEventTone(severity) {
+  if (severity === "error") {
+    return {
+      dot: "bg-rose-500",
+      badge: "bg-rose-50 text-rose-700",
+      border: "border-rose-100",
+    };
+  }
+  if (severity === "warning") {
+    return {
+      dot: "bg-amber-500",
+      badge: "bg-amber-50 text-amber-700",
+      border: "border-amber-100",
+    };
+  }
+  if (severity === "success") {
+    return {
+      dot: "bg-emerald-500",
+      badge: "bg-emerald-50 text-emerald-700",
+      border: "border-emerald-100",
+    };
+  }
+  return {
+    dot: "bg-slate-400",
+    badge: "bg-slate-100 text-slate-600",
+    border: "border-slate-100",
+  };
+}
+
+function formatEventSource(source) {
+  const labels = {
+    agent: "Agent",
+    audit: "Audit",
+    cash: "Cash",
+    command: "Command",
+    config: "Config",
+    media: "Media",
+    notification: "Email",
+    switch: "Switch",
+  };
+  return labels[source] || source || "-";
+}
+
+function formatEventStatus(status) {
+  const labels = {
+    acknowledged: "تم الاستلام",
+    applied: "مطبق",
+    closed: "مغلق",
+    completed: "مكتمل",
+    failed: "فشل",
+    ok: "OK",
+    offline: "غير متصل",
+    online: "متصل",
+    open: "مفتوح",
+    pending: "بانتظار",
+    received: "وصلت",
+    running: "قيد التنفيذ",
+    sent: "مرسل",
+    success: "نجح",
+    synced: "Synced",
+    warning: "تنبيه",
+  };
+  return labels[status] || status || "";
+}
+
+function compactEventDetails(details) {
+  if (!details || typeof details !== "object") return [];
+  return Object.entries(details)
+    .filter(([, value]) => value !== null && value !== undefined && value !== "" && typeof value !== "object")
+    .slice(0, 3)
+    .map(([key, value]) => `${key}: ${value}`);
+}
+
 function getXfsProfileLabel(value) {
   if (value === "grg") return "GRG";
   if (value === "custom") return "Custom";
@@ -325,7 +430,7 @@ function MetricCard({ label, value, tone = "slate", icon: Icon }) {
         <div className="text-sm font-medium text-slate-600">{label}</div>
         {Icon && <Icon size={18} className="opacity-75" />}
       </div>
-      <div className="mt-2 text-3xl font-semibold leading-none">{value}</div>
+      <div className="mt-2 text-2xl font-semibold leading-none sm:text-3xl">{value}</div>
     </div>
   );
 }
@@ -336,6 +441,98 @@ function ToggleBox({ label, checked, onChange }) {
       <span className="font-medium text-slate-700">{label}</span>
       <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4" />
     </label>
+  );
+}
+
+function SettingsGroup({ title, icon: Icon, meta, defaultOpen = false, children }) {
+  const openProps = defaultOpen ? { open: true } : {};
+  return (
+    <details {...openProps} className="group rounded-lg border border-slate-200 bg-white shadow-sm">
+      <summary className="focus-ring flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-4 py-3 [&::-webkit-details-marker]:hidden">
+        <div className="flex min-w-0 items-center gap-2">
+          {Icon && <Icon size={18} className="shrink-0 text-slate-500" />}
+          <span className="truncate font-semibold text-slate-950">{title}</span>
+          {meta && <span className="truncate text-sm text-slate-500">{meta}</span>}
+        </div>
+        <ChevronDown size={18} className="shrink-0 text-slate-400 transition group-open:rotate-180" />
+      </summary>
+      <div className="border-t border-slate-100 p-4">{children}</div>
+    </details>
+  );
+}
+
+function AtmEventTimeline({ events, loading, onRefresh }) {
+  const visibleEvents = Array.isArray(events) ? events.slice(0, 80) : [];
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm text-slate-500">سجل موحد لآخر اتصال، النقد، الأوامر، التحديثات، البريد والتغييرات.</div>
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={loading}
+          className="focus-ring inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-60"
+          title="تحديث سجل الأحداث"
+        >
+          <RefreshCw size={15} />
+          <span>{loading ? "جار التحديث" : "تحديث"}</span>
+        </button>
+      </div>
+
+      {loading && (
+        <div className="rounded-lg bg-slate-50 px-3 py-4 text-center text-sm text-slate-500">
+          جار تحميل سجل الأحداث...
+        </div>
+      )}
+
+      {!loading && visibleEvents.length === 0 && (
+        <div className="rounded-lg bg-slate-50 px-3 py-4 text-center text-sm text-slate-500">
+          لا توجد أحداث لهذا الصراف بعد.
+        </div>
+      )}
+
+      {!loading && visibleEvents.length > 0 && (
+        <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+          <div className="divide-y divide-slate-100">
+            {visibleEvents.map((event) => {
+              const tone = getEventTone(event.severity);
+              const details = compactEventDetails(event.details);
+              const statusLabel = formatEventStatus(event.status);
+
+              return (
+                <article key={event.id} className={`grid gap-3 px-3 py-3 sm:grid-cols-[auto_1fr_auto] ${tone.border}`}>
+                  <span className={`mt-2 h-2.5 w-2.5 rounded-full ${tone.dot}`} />
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="truncate text-sm font-semibold text-slate-950">{event.title}</div>
+                      {statusLabel && (
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${tone.badge}`}>{statusLabel}</span>
+                      )}
+                    </div>
+                    {event.message && <div className="mt-1 break-words text-sm text-slate-600">{event.message}</div>}
+                    {details.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {details.map((item) => (
+                          <span key={item} className="rounded-full bg-slate-50 px-2 py-0.5 text-xs text-slate-500" dir="ltr">
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-xs text-slate-500 sm:text-left">
+                    <div>{formatApiDate(event.occurred_at)}</div>
+                    <div className="mt-1 font-medium text-slate-600">{formatEventSource(event.source)}</div>
+                    {event.actor && <div className="mt-1 truncate" title={event.actor}>{event.actor}</div>}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -381,7 +578,7 @@ function AtmCard({ atm, onOpenSettings, onDelete, onProbeSwitch, switchProbeBusy
   const HealthIcon = health.icon;
   const configStatus = getConfigStatus(atm);
   const ConfigIcon = configStatus.icon;
-  const lastProblem = atm.last_config_error || atm.last_agent_error || atm.last_switch_probe_error;
+  const lastProblem = getActiveProblem(atm);
 
   return (
     <article className={`rounded-lg border bg-white p-4 shadow-sm ${health.border}`}>
@@ -447,7 +644,7 @@ function AtmCard({ atm, onOpenSettings, onDelete, onProbeSwitch, switchProbeBusy
         </div>
       )}
 
-      <div className="mt-4 grid grid-cols-3 gap-2">
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
         <button
           onClick={() => onOpenSettings(atm)}
           className="focus-ring inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
@@ -495,6 +692,8 @@ export default function Atms({ atms, onChanged }) {
   const [deletingAtmId, setDeletingAtmId] = useState("");
   const [diagnostics, setDiagnostics] = useState(null);
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
+  const [atmEvents, setAtmEvents] = useState([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
   const [switchProbeBusyId, setSwitchProbeBusyId] = useState("");
   const [switchProbeDialog, setSwitchProbeDialog] = useState(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -558,11 +757,17 @@ export default function Atms({ atms, onChanged }) {
 
     setLoading(true);
     try {
+      const intervalDefaults = {
+        config_sync_interval_seconds: commonAtmNumber(atms, "config_sync_interval_seconds", 120),
+        cash_read_interval_seconds: commonAtmNumber(atms, "cash_read_interval_seconds", 120),
+        cash_stale_after_minutes: commonAtmNumber(atms, "cash_stale_after_minutes", 10),
+      };
       const result = await api.createAtm({
         atm_id: form.atm_id.trim(),
         name: form.name.trim(),
         vpn_ip: form.vpn_ip.trim(),
         branch: form.branch.trim(),
+        ...intervalDefaults,
         cash_layout: normalizeCashLayout(form.cash_layout),
       });
       setGeneratedKey(result.api_key);
@@ -587,13 +792,16 @@ export default function Atms({ atms, onChanged }) {
     setCopyMessage("");
     setFieldErrors({});
     setError("");
-    loadDiagnostics(atm.atm_id);
+    setDiagnostics(null);
+    setAtmEvents([]);
+    loadEvents(atm.atm_id);
   }
 
   function closeSettings() {
     setSelectedAtmId("");
     setSettingsForm({});
     setDiagnostics(null);
+    setAtmEvents([]);
     setSettingsMessage("");
     setCopyMessage("");
     setFieldErrors({});
@@ -612,17 +820,39 @@ export default function Atms({ atms, onChanged }) {
     }
   }
 
+  async function loadEvents(atmId = selectedAtm?.atm_id) {
+    if (!atmId) return;
+    setLoadingEvents(true);
+    try {
+      const events = await api.getAtmEvents(atmId, 80);
+      setAtmEvents(Array.isArray(events) ? events : []);
+    } catch (err) {
+      setAtmEvents([]);
+      setError(err.message || "تعذر تحميل سجل أحداث الصراف");
+    } finally {
+      setLoadingEvents(false);
+    }
+  }
+
   async function saveSettings(event) {
     event.preventDefault();
     if (!selectedAtm) return;
 
-    setSavingSettings(true);
     setSettingsMessage("");
     setError("");
     setFieldErrors({});
 
+    const trimmedName = (settingsForm.name || "").trim();
+    if (trimmedName.length < 2) {
+      setFieldErrors({ name: "اسم الصراف يجب أن يحتوي على حرفين على الأقل." });
+      setError("يرجى تصحيح الحقول المحددة.");
+      return;
+    }
+
+    setSavingSettings(true);
     try {
       const payload = {
+        name: trimmedName,
         media_path: settingsForm.media_path.trim(),
         backup_path: settingsForm.backup_path.trim(),
         temp_path: settingsForm.temp_path.trim(),
@@ -645,7 +875,10 @@ export default function Atms({ atms, onChanged }) {
       };
       const updated = await api.updateAtm(selectedAtm.atm_id, payload);
       setSettingsForm(buildSettingsForm(updated));
-      setSettingsMessage(`تم الحفظ. Config Version الآن ${updated.config_version}.`);
+      const configVersionChanged = Number(updated.config_version) !== Number(selectedAtm.config_version);
+      setSettingsMessage(
+        configVersionChanged ? `تم الحفظ. Config Version الآن ${updated.config_version}.` : "تم حفظ بيانات الصراف.",
+      );
       await onChanged();
     } catch (err) {
       setFieldErrors(err.fieldErrors || {});
@@ -821,7 +1054,7 @@ export default function Atms({ atms, onChanged }) {
     <section>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-semibold text-slate-950">إدارة الصرافات</h1>
+          <h1 className="text-2xl font-semibold text-slate-950 sm:text-3xl">إدارة الصرافات</h1>
           <p className="text-sm text-slate-500">إدارة الاتصال والـ Agent وإعدادات XFS لكل صراف</p>
         </div>
         <button
@@ -1025,7 +1258,7 @@ export default function Atms({ atms, onChanged }) {
           <form
             noValidate
             onSubmit={saveSettings}
-            className="flex h-full w-full max-w-5xl flex-col bg-white shadow-xl"
+            className="flex h-full w-full max-w-4xl flex-col bg-white shadow-xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
@@ -1081,35 +1314,68 @@ export default function Atms({ atms, onChanged }) {
                 </div>
               </div>
 
+              <section className="mb-4 rounded-lg border border-slate-200 bg-white">
+                <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 font-semibold text-slate-950">
+                  بيانات الصراف
+                </div>
+                <div className="grid gap-3 p-4 md:grid-cols-[1fr_auto]">
+                  <label className="block">
+                    <span className="mb-1 block text-sm font-medium text-slate-700">اسم الصراف</span>
+                    <input
+                      className={`focus-ring w-full rounded-lg border px-3 py-2 ${
+                        fieldErrors.name ? "border-rose-400 bg-rose-50" : "border-slate-300 bg-white"
+                      }`}
+                      value={settingsForm.name || ""}
+                      onChange={(event) => {
+                        setSettingsForm((current) => ({ ...current, name: event.target.value }));
+                        setFieldErrors((current) => {
+                          if (!current.name) return current;
+                          const next = { ...current };
+                          delete next.name;
+                          return next;
+                        });
+                      }}
+                      minLength={2}
+                      placeholder={selectedAtm.name}
+                      required
+                    />
+                    {fieldErrors.name && <span className="mt-1 block text-xs text-rose-700">{fieldErrors.name}</span>}
+                  </label>
+                  <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm md:min-w-36">
+                    <div className="text-slate-500">ATM ID</div>
+                    <div className="mt-1 font-mono font-semibold text-slate-950">{selectedAtm.atm_id}</div>
+                  </div>
+                </div>
+              </section>
+
               <div className="grid gap-4 xl:grid-cols-2">
                 <section className="rounded-lg border border-slate-200 bg-white">
                   <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 font-semibold text-slate-950">
-                    Modules
+                    التشغيل والنقد
                   </div>
                   <div className="grid gap-3 p-4 sm:grid-cols-2">
                     <ToggleBox
-                      label="Media Update"
+                      label="تحديث الوسائط"
                       checked={Boolean(settingsForm.media_update_enabled)}
                       onChange={(value) => setSettingsForm((current) => ({ ...current, media_update_enabled: value }))}
                     />
                     <ToggleBox
-                      label="Cash Monitoring"
+                      label="مراقبة النقد"
                       checked={Boolean(settingsForm.cash_monitoring_enabled)}
                       onChange={(value) => setSettingsForm((current) => ({ ...current, cash_monitoring_enabled: value }))}
                     />
                     <label className="block">
-                      <span className="mb-1 block text-sm font-medium text-slate-700">CDM Provider</span>
+                      <span className="mb-1 block text-sm font-medium text-slate-700">مزود النقد</span>
                       <select
                         className="focus-ring w-full rounded-lg border border-slate-300 px-3 py-2"
                         value={normalizeCashProvider(settingsForm.cash_provider, settingsForm.cash_monitoring_enabled)}
                         onChange={(event) => setSettingsForm((current) => ({ ...current, cash_provider: event.target.value }))}
                       >
-                        <option value="mock">Mock Dispense Provider</option>
                         <option value="xfs_cdm">XFS CDM Provider</option>
                       </select>
                     </label>
                     <label className="block">
-                      <span className="mb-1 block text-sm font-medium text-slate-700">XFS Profile</span>
+                      <span className="mb-1 block text-sm font-medium text-slate-700">نوع XFS</span>
                       <select
                         className={`focus-ring w-full rounded-lg border px-3 py-2 ${
                           fieldErrors.xfs_profile ? "border-rose-400 bg-rose-50" : "border-slate-300"
@@ -1133,7 +1399,7 @@ export default function Atms({ atms, onChanged }) {
                       {fieldErrors.xfs_profile && <span className="mt-1 block text-xs text-rose-700">{fieldErrors.xfs_profile}</span>}
                     </label>
                     <label className="block sm:col-span-2">
-                      <span className="mb-1 block text-sm font-medium text-slate-700">XFS Logical Service</span>
+                      <span className="mb-1 block text-sm font-medium text-slate-700">اسم خدمة XFS</span>
                       <input
                         className={`focus-ring w-full rounded-lg border px-3 py-2 ${
                           fieldErrors.xfs_logical_service ? "border-rose-400 bg-rose-50" : "border-slate-300"
@@ -1149,6 +1415,12 @@ export default function Atms({ atms, onChanged }) {
                         <span className="mt-1 block text-xs text-rose-700">{fieldErrors.xfs_logical_service}</span>
                       )}
                     </label>
+                    <details className="group sm:col-span-2 rounded-lg border border-slate-200 bg-white">
+                      <summary className="focus-ring flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 [&::-webkit-details-marker]:hidden">
+                        <span>إعدادات XFS المتقدمة</span>
+                        <ChevronDown size={16} className="text-slate-400 transition group-open:rotate-180" />
+                      </summary>
+                      <div className="grid gap-3 border-t border-slate-100 p-3 sm:grid-cols-2">
                     <label className="block sm:col-span-2">
                       <span className="mb-1 block text-sm font-medium text-slate-700">XFS msxfs.dll Path</span>
                       <input
@@ -1183,12 +1455,14 @@ export default function Atms({ atms, onChanged }) {
                         <span className="mt-1 block text-xs text-rose-700">{fieldErrors.xfs_version_range}</span>
                       )}
                     </label>
+                      </div>
+                    </details>
                   </div>
                 </section>
 
                 <section className="rounded-lg border border-slate-200 bg-white">
                   <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
-                    <div className="font-semibold text-slate-950">Switch Probe</div>
+                    <div className="font-semibold text-slate-950">فحص السويتش</div>
                     <button
                       type="button"
                       onClick={() =>
@@ -1271,11 +1545,9 @@ export default function Atms({ atms, onChanged }) {
                 </section>
               </div>
 
-              <section className="mt-4 rounded-lg border border-slate-200 bg-white">
-                <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 font-semibold text-slate-950">
-                  Paths & Intervals
-                </div>
-                <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="mt-4">
+                <SettingsGroup title="المسارات والفترات" icon={Clock3} meta="إعدادات متقدمة">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                   {settingsFields.map(([key, label, placeholder]) => (
                     <label key={key} className={key.endsWith("_path") ? "block md:col-span-2" : "block"}>
                       <span className="mb-1 block text-sm font-medium text-slate-700">{label}</span>
@@ -1292,7 +1564,8 @@ export default function Atms({ atms, onChanged }) {
                     </label>
                   ))}
                 </div>
-              </section>
+                </SettingsGroup>
+              </div>
 
               <div className="mt-4">
                 <CassetteLayoutEditor
@@ -1303,12 +1576,20 @@ export default function Atms({ atms, onChanged }) {
                 />
               </div>
 
-              <section className="mt-4 rounded-lg border border-slate-200 bg-white">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
-                  <div className="flex items-center gap-2 font-semibold text-slate-950">
-                    <Activity size={17} />
-                    <span>Agent Diagnostics</span>
-                  </div>
+              <div className="mt-4">
+                <SettingsGroup title="سجل الأحداث" icon={ScrollText} meta={`${atmEvents.length} حدث`}>
+                  <AtmEventTimeline
+                    events={atmEvents}
+                    loading={loadingEvents}
+                    onRefresh={() => loadEvents(selectedAtm.atm_id)}
+                  />
+                </SettingsGroup>
+              </div>
+
+              <div className="mt-4">
+                <SettingsGroup title="تشخيص Agent" icon={Activity} meta="فحص عند الحاجة">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-sm text-slate-500">يعرض آخر حالة خدمة الـ Agent والأخطاء عند الحاجة.</div>
                   <button
                     type="button"
                     onClick={() => loadDiagnostics(selectedAtm.atm_id)}
@@ -1320,7 +1601,7 @@ export default function Atms({ atms, onChanged }) {
                     <span>{loadingDiagnostics ? "جار التحديث" : "تحديث"}</span>
                   </button>
                 </div>
-                <div className="p-4">
+                <div>
                   {loadingDiagnostics && (
                     <div className="rounded-lg bg-slate-50 px-3 py-4 text-center text-sm text-slate-500">
                       جار تحميل التشخيص...
@@ -1387,7 +1668,49 @@ export default function Atms({ atms, onChanged }) {
                     </div>
                   )}
                 </div>
-              </section>
+                </SettingsGroup>
+              </div>
+
+              <div className="mt-4">
+                <SettingsGroup
+                  title="API Key"
+                  icon={KeyRound}
+                  meta="إجراء نادر"
+                  defaultOpen={Boolean(generatedKey && generatedKeyAtmId === selectedAtm.atm_id)}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-sm text-slate-500">استخدمه فقط عند إعادة تثبيت Agent أو تغيير بيانات الاعتماد.</div>
+                    <button
+                      type="button"
+                      onClick={regenerateApiKey}
+                      disabled={regeneratingKey}
+                      className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-amber-300 px-4 py-2 text-sm text-amber-800 hover:bg-amber-50 disabled:opacity-60"
+                      title="توليد API Key جديد"
+                    >
+                      <KeyRound size={16} />
+                      <span>{regeneratingKey ? "جاري التوليد..." : "Regenerate API Key"}</span>
+                    </button>
+                  </div>
+                  {generatedKey && generatedKeyAtmId === selectedAtm.atm_id && (
+                    <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                      <div className="font-medium">API Key جديد للصراف {generatedKeyAtmId}</div>
+                      <div className="mt-2 overflow-x-auto rounded border border-amber-200 bg-white px-2 py-1 font-mono text-xs" dir="ltr">
+                        {buildInstallCommand(generatedKeyAtmId, generatedKey)}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={copyInstallCommand}
+                        className="focus-ring mt-3 inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs text-amber-900 hover:bg-amber-100"
+                        title="نسخ أمر التثبيت"
+                      >
+                        <Clipboard size={14} />
+                        <span>Copy Install Command</span>
+                      </button>
+                      {copyMessage && <div className="mt-2 text-xs">{copyMessage}</div>}
+                    </div>
+                  )}
+                </SettingsGroup>
+              </div>
 
               {selectedAtm.last_config_error && (
                 <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -1409,13 +1732,13 @@ export default function Atms({ atms, onChanged }) {
                   title="حفظ إعدادات الصراف"
                 >
                   <Save size={17} />
-                  <span>{savingSettings ? "جار الحفظ..." : "Save"}</span>
+                  <span>{savingSettings ? "جار الحفظ..." : "حفظ"}</span>
                 </button>
                 <button
                   type="button"
                   onClick={regenerateApiKey}
                   disabled={regeneratingKey}
-                  className="focus-ring inline-flex min-h-11 items-center gap-2 rounded-lg border border-amber-300 px-4 py-2 text-sm text-amber-800 hover:bg-amber-50 disabled:opacity-60"
+                  className="hidden"
                   title="توليد API Key جديد"
                 >
                   <KeyRound size={17} />
@@ -1425,7 +1748,7 @@ export default function Atms({ atms, onChanged }) {
                   <button
                     type="button"
                     onClick={copyInstallCommand}
-                    className="focus-ring inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                    className="hidden"
                     title="نسخ أمر التثبيت"
                   >
                     <Clipboard size={17} />

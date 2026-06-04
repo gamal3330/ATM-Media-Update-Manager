@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api } from "./api/client";
+import { api, clearAuthToken, getAuthToken } from "./api/client";
 import Layout, { nav } from "./components/Layout";
 import AgentDownloads from "./pages/AgentDownloads";
 import Atms from "./pages/Atms";
@@ -7,6 +7,7 @@ import CashMonitoring from "./pages/CashMonitoring";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
 import Logs from "./pages/Logs";
+import NotificationCenter from "./pages/NotificationCenter";
 import Packages from "./pages/Packages";
 import Settings from "./pages/Settings";
 import UploadPackage from "./pages/UploadPackage";
@@ -46,7 +47,7 @@ export default function App() {
     } catch (err) {
       setGlobalError(err.message || "تعذر تحميل البيانات");
       if (err.status === 401) {
-        localStorage.removeItem("atm_media_token");
+        clearAuthToken();
         setUser(null);
       }
     } finally {
@@ -66,7 +67,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (localStorage.getItem("atm_media_token")) {
+    if (getAuthToken()) {
       api
         .me()
         .then((currentUser) => {
@@ -75,7 +76,7 @@ export default function App() {
           refreshLogs();
         })
         .catch(() => {
-          localStorage.removeItem("atm_media_token");
+          clearAuthToken();
           setUser(null);
         });
     }
@@ -91,11 +92,11 @@ export default function App() {
   }, [activePage, user, visiblePage]);
 
   function logout() {
-    localStorage.removeItem("atm_media_token");
+    clearAuthToken();
     setUser(null);
   }
 
-  if (!user && !localStorage.getItem("atm_media_token")) {
+  if (!user && !getAuthToken()) {
     return <Login onLogin={(loggedInUser) => { setUser(loggedInUser); refreshCore(); refreshLogs(); }} />;
   }
 
@@ -105,9 +106,12 @@ export default function App() {
   if (visiblePage === "upload") page = <UploadPackage onUploaded={refreshCore} onOpenPackages={() => setActivePage("packages")} />;
   if (visiblePage === "packages") page = <Packages packages={packages} atms={atms} onChanged={refreshCore} />;
   if (visiblePage === "cash") page = <CashMonitoring atms={atms} />;
+  if (visiblePage === "notifications") page = <NotificationCenter />;
   if (visiblePage === "agent-downloads") page = <AgentDownloads />;
   if (visiblePage === "logs") page = <Logs logs={logs} auditLogs={auditLogs} onRefresh={refreshLogs} />;
-  if (visiblePage === "settings") page = <Settings onOpenAgentDownloads={() => setActivePage("agent-downloads")} />;
+  if (visiblePage === "settings") {
+    page = <Settings atms={atms} onChanged={refreshCore} onOpenAgentDownloads={() => setActivePage("agent-downloads")} />;
+  }
   if (visiblePage === "users") page = <UserManagement currentUser={user} />;
 
   return (

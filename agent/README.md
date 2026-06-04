@@ -1,6 +1,6 @@
-# ATM Unified Agent
+# QIB ATM Manager Agent
 
-Permanent pull-based Windows Agent for ATM Media Update Manager. It is one executable and one Windows Service with modular internals.
+Permanent pull-based Windows Agent for QIB ATM Manager. It is one executable and one Windows Service with modular internals.
 
 ## Local Config
 
@@ -59,13 +59,13 @@ another folder, copies the new executable, recreates the service, and starts it 
 The installer writes files to:
 
 ```text
-C:\Program Files\ATM Media Agent
+C:\Program Files\QIB ATM Manager Agent
 ```
 
 It creates and starts this Windows Service:
 
 ```text
-ATM Unified Agent Service
+QIB ATM Manager Agent Service
 ```
 
 The service name is:
@@ -82,7 +82,7 @@ atm-agent.exe uninstall
 atm-agent.exe status
 atm-agent.exe version
 atm-agent.exe xfs-cdm-diagnose
-atm-agent.exe run --config "C:\Program Files\ATM Media Agent\config.json"
+atm-agent.exe run --config "C:\Program Files\QIB ATM Manager Agent\config.json"
 atm-agent.exe run --config config.json --once
 ```
 
@@ -144,7 +144,7 @@ atm-agent.exe xfs-cdm-diagnose --json
 - Update packages must be ZIP files containing allowed image extensions only.
 - ZIP entries with absolute paths or path traversal are rejected.
 - Cash monitoring is DISPENSE_ONLY and reads CDM cash dispenser data only.
-- Supported dispense providers are `mock`, `xfs_cdm`, and `vendor_cdm`.
+- Supported dispense provider for production cash monitoring is `xfs_cdm`; `vendor_cdm` is reserved for a future vendor integration.
 - The module reads dispense cassettes, reject count, and retract count when available.
 - There is no CIM, Cash-In, Deposit, Recycler, dispense command, cash unit exchange, reset counters, shell, PowerShell, or script execution path.
 - The API key is only stored locally on the ATM and is stored as a hash on the server.

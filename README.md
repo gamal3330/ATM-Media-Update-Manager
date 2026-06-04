@@ -1,4 +1,4 @@
-# ATM Media Update Manager
+# QIB ATM Manager
 
 MVP لإدارة تحديث ملفات الصور على صرافات Windows عبر نموذج Pull آمن. السيرفر لا يدخل إلى الصرافات ولا يفتح جلسات عليها؛ كل صراف يشغل Agent يسأل السيرفر عن التحديثات عندما يكون متصلاً عبر VPN.
 
@@ -6,7 +6,7 @@ MVP لإدارة تحديث ملفات الصور على صرافات Windows ع
 
 - `backend/`: FastAPI + SQLite + SQLAlchemy.
 - `frontend/`: React + Tailwind Dashboard.
-- `agent/`: ATM Unified Agent دائم قابل للبناء كملف `atm-agent.exe` ويعمل كـ Windows Service واحدة.
+- `agent/`: QIB ATM Manager Agent دائم قابل للبناء كملف `atm-agent.exe` ويعمل كـ Windows Service واحدة.
 
 ## التشغيل المحلي
 
@@ -116,7 +116,7 @@ atm-agent.exe install --server-url="https://atm-update-server.local" --atm-id="A
 بعد التثبيت تعمل الخدمة تلقائياً مع Windows باسم:
 
 ```text
-ATM Unified Agent Service
+QIB ATM Manager Agent Service
 ```
 
 أوامر مفيدة:
@@ -124,7 +124,7 @@ ATM Unified Agent Service
 ```bat
 atm-agent.exe uninstall
 atm-agent.exe status
-atm-agent.exe run --config "C:\Program Files\ATM Media Agent\config.json" --once
+atm-agent.exe run --config "C:\Program Files\QIB ATM Manager Agent\config.json" --once
 ```
 
 تفاصيل أكثر في `agent/README.md`.
@@ -148,7 +148,7 @@ pytest
 2. من صفحة الصرافات يمكنك توليد `API Key` جديد ونسخ أمر التثبيت الجاهز.
 3. ارفع ZIP يحتوي صوراً فقط.
 4. عيّن الحزمة للصرافات المستهدفة.
-5. عندما يتصل الـ Unified Agent، يرسل heartbeat ويسحب config الوحدات المفعلة.
+5. عندما يتصل الـ QIB ATM Manager Agent، يرسل heartbeat ويسحب config الوحدات المفعلة.
 6. Media Update Module يتحقق من وجود تحديث، ثم يرسل تقدم العملية للسيرفر: تنزيل ZIP، التحقق من SHA256، فك الضغط، Backup، ونسخ الملفات.
 7. إذا كان ZIP يحتوي مجلداً رئيسياً واحداً فقط، ينسخ الـ Agent محتوياته مباشرة داخل `media_path`. المجلدات الداخلية المهمة مثل مجلدات المقاسات تبقى كما هي.
 8. في حال الفشل، يحاول Rollback من آخر Backup ويرسل سبب الفشل للسيرفر.
@@ -209,9 +209,9 @@ sc.exe query ATMUnifiedAgent
 - زر `Retry Failed` يعيد الصرافات الفاشلة إلى `pending` فقط دون إعادة تعيين الناجحة.
 - يمكن أيضاً اختيار صرافات فاشلة يدوياً وإعادة إرسال التعيين لها.
 
-## ATM Unified Agent
+## QIB ATM Manager Agent
 
-- يوجد Agent واحد فقط وخدمة Windows واحدة باسم `ATM Unified Agent Service`.
+- يوجد Agent واحد فقط وخدمة Windows واحدة باسم `QIB ATM Manager Agent Service`.
 - الكود الداخلي Modular ويحتوي حالياً على `media_update` و`cash_monitoring`.
 - يمكن تفعيل أو تعطيل كل Module من إعدادات الصراف في لوحة التحكم.
 - لا يستقبل الـ Agent أوامر Shell أو PowerShell أو PS1 من السيرفر.

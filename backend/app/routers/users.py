@@ -16,6 +16,7 @@ PAGE_LABELS = {
     "upload": "رفع الحزمة",
     "packages": "التحديثات",
     "cash": "مراقبة النقد",
+    "notifications": "مركز التنبيهات",
     "agent-downloads": "Agent Downloads",
     "logs": "السجلات",
     "settings": "الإعدادات",

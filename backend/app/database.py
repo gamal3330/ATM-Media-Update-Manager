@@ -45,7 +45,7 @@ def migrate_existing_schema() -> None:
                     connection.execute(text("ALTER TABLE users ADD COLUMN allowed_pages JSON NOT NULL DEFAULT '[]'"))
 
             all_pages_json = (
-                '["dashboard","atms","upload","packages","cash","agent-downloads","logs","settings","users"]'
+                '["dashboard","atms","upload","packages","cash","notifications","agent-downloads","logs","settings","users"]'
             )
             default_pages_json = '["dashboard"]'
             connection.execute(
@@ -53,7 +53,8 @@ def migrate_existing_schema() -> None:
                     """
                     UPDATE users
                     SET allowed_pages = :all_pages
-                    WHERE role IN ('admin', 'system_admin') AND (allowed_pages IS NULL OR allowed_pages = '[]')
+                    WHERE role IN ('admin', 'system_admin')
+                        AND (allowed_pages IS NULL OR allowed_pages = '[]' OR allowed_pages NOT LIKE '%"notifications"%')
                     """
                 ),
                 {"all_pages": all_pages_json},
@@ -91,7 +92,7 @@ def migrate_existing_schema() -> None:
                 "media_update_enabled": "BOOLEAN NOT NULL DEFAULT 1",
                 "cash_monitoring_enabled": "BOOLEAN NOT NULL DEFAULT 0",
                 "module_status_json": "JSON NOT NULL DEFAULT '{}'",
-                "cash_provider": "VARCHAR(40) NOT NULL DEFAULT 'mock'",
+                "cash_provider": "VARCHAR(40) NOT NULL DEFAULT 'xfs_cdm'",
                 "xfs_profile": "VARCHAR(40) NOT NULL DEFAULT 'ncr_aptra'",
                 "xfs_logical_service": "VARCHAR(120) NOT NULL DEFAULT 'MediaDispenser1'",
                 "xfs_msxfs_path": "VARCHAR(500)",
@@ -125,10 +126,23 @@ def migrate_existing_schema() -> None:
                     """
                 )
             )
+            connection.execute(
+                text(
+                    """
+                    UPDATE atms
+                    SET
+                        cash_provider = 'xfs_cdm',
+                        config_version = config_version + 1,
+                        config_updated_at = COALESCE(updated_at, created_at, config_updated_at)
+                    WHERE cash_provider = 'mock'
+                    """
+                )
+            )
 
         if "atm_agent_configs" in table_names:
             existing_columns = {column["name"] for column in inspector.get_columns("atm_agent_configs")}
             config_columns = {
+                "cash_provider": "VARCHAR(40) NOT NULL DEFAULT 'xfs_cdm'",
                 "atm_cash_mode": "VARCHAR(40) NOT NULL DEFAULT 'DISPENSE_ONLY'",
                 "xfs_profile": "VARCHAR(40) NOT NULL DEFAULT 'ncr_aptra'",
                 "xfs_logical_service": "VARCHAR(120) NOT NULL DEFAULT 'MediaDispenser1'",
@@ -139,6 +153,7 @@ def migrate_existing_schema() -> None:
             for name, definition in config_columns.items():
                 if name not in existing_columns:
                     connection.execute(text(f"ALTER TABLE atm_agent_configs ADD COLUMN {name} {definition}"))
+            connection.execute(text("UPDATE atm_agent_configs SET cash_provider = 'xfs_cdm' WHERE cash_provider = 'mock'"))
 
         if "atm_cash_units" in table_names:
             existing_columns = {column["name"] for column in inspector.get_columns("atm_cash_units")}

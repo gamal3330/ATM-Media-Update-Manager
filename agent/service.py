@@ -26,7 +26,7 @@ def run_service(config_path: Path) -> None:
 
     class ATMUnifiedAgentWindowsService(win32serviceutil.ServiceFramework):
         _svc_name_ = "ATMUnifiedAgent"
-        _svc_display_name_ = "ATM Unified Agent Service"
+        _svc_display_name_ = "QIB ATM Manager Agent Service"
         _svc_description_ = "Pull-based unified ATM agent"
 
         def __init__(self, args):
@@ -41,7 +41,7 @@ def run_service(config_path: Path) -> None:
 
         def SvcDoRun(self):
             self.ReportServiceStatus(win32service.SERVICE_RUNNING)
-            servicemanager.LogInfoMsg("ATM Unified Agent service entered running state")
+            servicemanager.LogInfoMsg("QIB ATM Manager Agent service entered running state")
             write_bootstrap_log(config_path, "Windows service entered running state")
             try:
                 from atm_agent import AtmAgent
@@ -50,7 +50,7 @@ def run_service(config_path: Path) -> None:
             except Exception:
                 details = traceback.format_exc()
                 write_bootstrap_log(config_path, f"Service failed during startup or run:\n{details}")
-                servicemanager.LogErrorMsg(f"ATM Unified Agent failed: {details}")
+                servicemanager.LogErrorMsg(f"QIB ATM Manager Agent failed: {details}")
                 raise
 
     servicemanager.Initialize()

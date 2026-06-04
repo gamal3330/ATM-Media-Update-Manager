@@ -1,6 +1,6 @@
-import { ArrowLeft, Gauge, Image, LockKeyhole, Monitor, Network } from "lucide-react";
+import { ArrowLeft, LockKeyhole, Monitor } from "lucide-react";
 import { useState } from "react";
-import { api } from "../api/client";
+import { api, setAuthToken } from "../api/client";
 
 export default function Login({ onLogin }) {
   const [username, setUsername] = useState("");
@@ -14,7 +14,7 @@ export default function Login({ onLogin }) {
     setError("");
     try {
       const result = await api.login({ username, password });
-      localStorage.setItem("atm_media_token", result.access_token);
+      setAuthToken(result.access_token);
       onLogin(result.user);
     } catch (err) {
       setError(err.message || "فشل تسجيل الدخول");
@@ -30,7 +30,7 @@ export default function Login({ onLogin }) {
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-lg bg-teal-700 text-white shadow-sm">
             <Monitor size={27} />
           </div>
-          <h1 className="text-2xl font-semibold text-slate-950">ATM Media Update Manager</h1>
+          <h1 className="text-2xl font-semibold text-slate-950">QIB ATM Manager</h1>
         </div>
 
         <form onSubmit={submit} className="w-full rounded-lg border border-slate-200 bg-white p-6 shadow-sm lg:p-7">
@@ -74,20 +74,6 @@ export default function Login({ onLogin }) {
             <ArrowLeft size={18} />
           </button>
 
-          <div className="mt-6 grid grid-cols-3 gap-2 text-center text-xs font-semibold text-slate-500">
-            <span className="inline-flex items-center justify-center gap-1 rounded-lg bg-slate-50 px-2 py-2">
-              <Network size={14} />
-              VPN
-            </span>
-            <span className="inline-flex items-center justify-center gap-1 rounded-lg bg-slate-50 px-2 py-2">
-              <Image size={14} />
-              Media
-            </span>
-            <span className="inline-flex items-center justify-center gap-1 rounded-lg bg-slate-50 px-2 py-2">
-              <Gauge size={14} />
-              CDM
-            </span>
-          </div>
         </form>
       </div>
     </div>

@@ -10,7 +10,7 @@ export default function StatCard({ label, value, tone = "neutral" }) {
   return (
     <div className={`rounded-lg border p-4 shadow-sm ${tones[tone]}`}>
       <div className="text-sm text-slate-600">{label}</div>
-      <div className="mt-2 text-3xl font-semibold">{value}</div>
+      <div className="mt-2 text-2xl font-semibold sm:text-3xl">{value}</div>
     </div>
   );
 }

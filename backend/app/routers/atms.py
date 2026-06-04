@@ -8,6 +8,7 @@ from ..cash_layout import normalized_cash_layout
 from ..database import get_db
 from ..models import (
     ATM,
+    AuditLog,
     AgentCommand,
     AgentLog,
     AtmAgentConfig,
@@ -17,6 +18,8 @@ from ..models import (
     AtmCashUnit,
     AtmRejectRetractStatus,
     AtmSwitchProbe,
+    NotificationDelivery,
+    NotificationRecipient,
     UpdateResult,
     UpdateTarget,
     User,
@@ -26,6 +29,7 @@ from ..schemas import (
     ATMDiagnostics,
     ATMCreate,
     ATMCreateResponse,
+    AtmEventRead,
     ATMRead,
     ATMRebootRequest,
     ATMUpdate,
@@ -126,7 +130,7 @@ def create_atm(
         config_sync_interval_seconds=payload.config_sync_interval_seconds or 120,
         media_update_enabled=True if payload.media_update_enabled is None else payload.media_update_enabled,
         cash_monitoring_enabled=False if payload.cash_monitoring_enabled is None else payload.cash_monitoring_enabled,
-        cash_provider=payload.cash_provider or "mock",
+        cash_provider=payload.cash_provider or "xfs_cdm",
         xfs_profile=xfs_profile,
         xfs_logical_service=payload.xfs_logical_service or default_xfs_logical_service(xfs_profile),
         xfs_msxfs_path=payload.xfs_msxfs_path,
@@ -226,7 +230,7 @@ def get_atm_diagnostics(
         summary = "Service not reporting"
         recommended_action = (
             "On the ATM, run: sc.exe query ATMUnifiedAgent, then check "
-            "C:\\Program Files\\ATM Media Agent\\logs\\agent.log."
+            "C:\\Program Files\\QIB ATM Manager Agent\\logs\\agent.log."
         )
         if last_reboot_command and last_reboot_command.status == "completed":
             summary = "Service not reporting after reboot"
@@ -249,6 +253,320 @@ def get_atm_diagnostics(
         recent_logs=recent_logs,
         recent_commands=recent_commands,
     )
+
+
+def event_severity_from_status(status_value: str | None) -> str:
+    status_text = (status_value or "").lower()
+    if status_text in {"failed", "error", "cancelled", "critical"}:
+        return "error"
+    if status_text in {"pending", "acknowledged", "running", "warning", "open"}:
+        return "warning"
+    if status_text in {"success", "completed", "applied", "sent", "closed", "ok"}:
+        return "success"
+    return "info"
+
+
+def event_severity_from_log(level: str | None) -> str:
+    level_text = (level or "").lower()
+    if level_text == "error":
+        return "error"
+    if level_text == "warning":
+        return "warning"
+    return "info"
+
+
+def event_item(
+    *,
+    event_id: str,
+    occurred_at: datetime | None,
+    source: str,
+    event_type: str,
+    title: str,
+    severity: str = "info",
+    message: str | None = None,
+    status_value: str | None = None,
+    actor: str | None = None,
+    details: dict | None = None,
+) -> AtmEventRead | None:
+    if occurred_at is None:
+        return None
+    if occurred_at.tzinfo is None:
+        occurred_at = occurred_at.replace(tzinfo=timezone.utc)
+    return AtmEventRead(
+        id=event_id,
+        occurred_at=occurred_at,
+        source=source,
+        event_type=event_type,
+        severity=severity,
+        title=title,
+        message=message,
+        status=status_value,
+        actor=actor,
+        details=details or {},
+    )
+
+
+@router.get("/{atm_id}/events", response_model=list[AtmEventRead])
+def list_atm_events(
+    atm_id: str,
+    limit: int = 80,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[AtmEventRead]:
+    atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
+    if not atm:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ATM not found")
+
+    per_source_limit = max(10, min(limit, 200))
+    events: list[AtmEventRead] = []
+
+    def add(item: AtmEventRead | None) -> None:
+        if item is not None:
+            events.append(item)
+
+    add(
+        event_item(
+            event_id=f"atm:last-heartbeat:{atm.id}",
+            occurred_at=atm.last_heartbeat_at or atm.last_seen,
+            source="agent",
+            event_type="heartbeat",
+            title="آخر اتصال من Agent",
+            severity="success" if atm.is_online else "warning",
+            message=f"Agent {atm.agent_version or '-'} · latency {atm.latency_ms if atm.latency_ms is not None else '-'} ms",
+            status_value="online" if atm.is_online else "offline",
+        )
+    )
+    add(
+        event_item(
+            event_id=f"atm:last-config-sync:{atm.id}",
+            occurred_at=atm.last_config_sync_at,
+            source="config",
+            event_type="config_sync",
+            title="آخر مزامنة إعدادات",
+            severity="success" if atm.applied_config_version >= atm.config_version else "warning",
+            message=f"Applied {atm.applied_config_version} / Current {atm.config_version}",
+            status_value="synced" if atm.applied_config_version >= atm.config_version else "pending",
+        )
+    )
+
+    for log in (
+        db.query(AgentLog)
+        .filter(AgentLog.atm_id == atm.id)
+        .order_by(AgentLog.created_at.desc())
+        .limit(per_source_limit)
+        .all()
+    ):
+        add(
+            event_item(
+                event_id=f"agent-log:{log.id}",
+                occurred_at=log.created_at,
+                source="agent",
+                event_type="agent_log",
+                title=f"Agent log · {log.level}",
+                severity=event_severity_from_log(log.level),
+                message=log.message,
+                status_value=log.level,
+                details=log.context or {},
+            )
+        )
+
+    for command in (
+        db.query(AgentCommand)
+        .filter(AgentCommand.atm_id == atm.id)
+        .order_by(AgentCommand.created_at.desc())
+        .limit(per_source_limit)
+        .all()
+    ):
+        add(
+            event_item(
+                event_id=f"agent-command:{command.id}",
+                occurred_at=command.completed_at or command.acknowledged_at or command.created_at,
+                source="command",
+                event_type=command.command_type,
+                title=f"أمر Agent · {command.command_type}",
+                severity=event_severity_from_status(command.status),
+                message=command.last_error,
+                status_value=command.status,
+                actor=command.requested_by,
+                details=command.payload or {},
+            )
+        )
+
+    for alert in (
+        db.query(AtmCashAlert)
+        .filter(AtmCashAlert.atm_id == atm.id)
+        .order_by(AtmCashAlert.opened_at.desc())
+        .limit(per_source_limit)
+        .all()
+    ):
+        add(
+            event_item(
+                event_id=f"cash-alert-opened:{alert.id}",
+                occurred_at=alert.opened_at,
+                source="cash",
+                event_type=alert.alert_type,
+                title=f"تنبيه نقد · {alert.alert_type}",
+                severity="error" if alert.severity == "critical" else "warning",
+                message=alert.message,
+                status_value=alert.status,
+                details={
+                    "unit_no": alert.unit_no,
+                    "current_count": alert.current_count,
+                    "threshold_count": alert.threshold_count,
+                },
+            )
+        )
+        add(
+            event_item(
+                event_id=f"cash-alert-closed:{alert.id}",
+                occurred_at=alert.closed_at,
+                source="cash",
+                event_type=f"{alert.alert_type}_CLOSED",
+                title=f"إغلاق تنبيه نقد · {alert.alert_type}",
+                severity="success",
+                message=alert.message,
+                status_value="closed",
+                details={"unit_no": alert.unit_no},
+            )
+        )
+
+    for snapshot in (
+        db.query(AtmCashSnapshot)
+        .filter(AtmCashSnapshot.atm_id == atm.id)
+        .order_by(AtmCashSnapshot.received_at.desc())
+        .limit(20)
+        .all()
+    ):
+        units_count = len((snapshot.snapshot_json or {}).get("cash_units") or [])
+        add(
+            event_item(
+                event_id=f"cash-snapshot:{snapshot.id}",
+                occurred_at=snapshot.received_at,
+                source="cash",
+                event_type="cash_snapshot",
+                title="وصول قراءة نقد",
+                severity="success",
+                message=f"{units_count} cassette readings · {snapshot.source}",
+                status_value="received",
+                details={"read_at": snapshot.read_at.isoformat(), "source": snapshot.source},
+            )
+        )
+
+    for probe in (
+        db.query(AtmSwitchProbe)
+        .filter(AtmSwitchProbe.atm_id == atm.id)
+        .order_by(AtmSwitchProbe.requested_at.desc())
+        .limit(per_source_limit)
+        .all()
+    ):
+        add(
+            event_item(
+                event_id=f"switch-probe:{probe.id}",
+                occurred_at=probe.completed_at or probe.started_at or probe.requested_at,
+                source="switch",
+                event_type="switch_probe",
+                title="فحص السويتش",
+                severity=event_severity_from_status(probe.status),
+                message=probe.error_message or f"{probe.host}:{probe.port}",
+                status_value=probe.status,
+                actor=probe.requested_by,
+                details={"host": probe.host, "port": probe.port, "latency_ms": probe.latency_ms},
+            )
+        )
+
+    for target in (
+        db.query(UpdateTarget)
+        .filter(UpdateTarget.atm_id == atm.id)
+        .order_by(UpdateTarget.assigned_at.desc())
+        .limit(per_source_limit)
+        .all()
+    ):
+        version = target.package.version if target.package else str(target.package_id)
+        add(
+            event_item(
+                event_id=f"update-target:{target.id}",
+                occurred_at=target.completed_at or target.last_progress_at or target.assigned_at,
+                source="media",
+                event_type="update_target",
+                title=f"تحديث وسائط · {version}",
+                severity=event_severity_from_status(target.status),
+                message=target.last_error or target.progress_message,
+                status_value=target.status,
+                details={
+                    "package_id": target.package_id,
+                    "version": version,
+                    "progress_percent": target.progress_percent,
+                    "progress_phase": target.progress_phase,
+                    "attempt_count": target.attempt_count,
+                },
+            )
+        )
+
+    for result in (
+        db.query(UpdateResult)
+        .filter(UpdateResult.atm_id == atm.id)
+        .order_by(UpdateResult.created_at.desc())
+        .limit(per_source_limit)
+        .all()
+    ):
+        version = result.package.version if result.package else str(result.package_id)
+        add(
+            event_item(
+                event_id=f"update-result:{result.id}",
+                occurred_at=result.finished_at or result.started_at or result.created_at,
+                source="media",
+                event_type="update_result",
+                title=f"نتيجة تحديث · {version}",
+                severity=event_severity_from_status(result.status),
+                message=result.message,
+                status_value=result.status,
+                details={"package_id": result.package_id, "version": version},
+            )
+        )
+
+    for delivery in (
+        db.query(NotificationDelivery)
+        .filter(NotificationDelivery.atm_id == atm.id)
+        .order_by(NotificationDelivery.created_at.desc())
+        .limit(per_source_limit)
+        .all()
+    ):
+        add(
+            event_item(
+                event_id=f"notification-delivery:{delivery.id}",
+                occurred_at=delivery.sent_at or delivery.created_at,
+                source="notification",
+                event_type=delivery.event_type,
+                title="إرسال تنبيه بريد",
+                severity=event_severity_from_status(delivery.status),
+                message=delivery.error_message or delivery.subject,
+                status_value=delivery.status,
+                details={"recipient_email": delivery.recipient_email, "subject": delivery.subject},
+            )
+        )
+
+    for audit in (
+        db.query(AuditLog)
+        .filter(AuditLog.entity_type == "atm", AuditLog.entity_id == atm.atm_id)
+        .order_by(AuditLog.created_at.desc())
+        .limit(per_source_limit)
+        .all()
+    ):
+        add(
+            event_item(
+                event_id=f"audit:{audit.id}",
+                occurred_at=audit.created_at,
+                source="audit",
+                event_type=audit.action,
+                title=f"إجراء إداري · {audit.action}",
+                severity="info",
+                actor=audit.actor_id,
+                details=audit.details or {},
+            )
+        )
+
+    events.sort(key=lambda item: item.occurred_at, reverse=True)
+    return events[: max(1, min(limit, 200))]
 
 
 @router.post("/{atm_id}/regenerate-api-key", response_model=ATMCreateResponse)
@@ -436,7 +754,7 @@ def request_atm_reboot(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AgentCommand:
-    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Remote ATM commands are disabled for ATM Unified Agent")
+    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Remote ATM commands are disabled for QIB ATM Manager Agent")
     atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
     if not atm:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ATM not found")
@@ -472,7 +790,7 @@ def request_atm_reboot(
         status="pending",
         requested_by=current_user.username,
         payload={
-            "reason": payload.reason or "Requested from ATM Media Update Manager",
+            "reason": payload.reason or "Requested from QIB ATM Manager",
             "delay_seconds": payload.delay_seconds,
             "force": force,
         },
@@ -555,6 +873,8 @@ def delete_atm(
     db.query(AtmCashUnit).filter(AtmCashUnit.atm_id == atm.id).delete(synchronize_session=False)
     db.query(AtmRejectRetractStatus).filter(AtmRejectRetractStatus.atm_id == atm.id).delete(synchronize_session=False)
     db.query(AtmSwitchProbe).filter(AtmSwitchProbe.atm_id == atm.id).delete(synchronize_session=False)
+    db.query(NotificationDelivery).filter(NotificationDelivery.atm_id == atm.id).delete(synchronize_session=False)
+    db.query(NotificationRecipient).filter(NotificationRecipient.atm_id == atm.id).delete(synchronize_session=False)
     db.query(AtmCashSnapshot).filter(AtmCashSnapshot.atm_id == atm.id).delete(synchronize_session=False)
     db.query(AtmCashAlert).filter(AtmCashAlert.atm_id == atm.id).delete(synchronize_session=False)
     db.query(AtmCashThreshold).filter(AtmCashThreshold.atm_id == atm.id).delete(synchronize_session=False)

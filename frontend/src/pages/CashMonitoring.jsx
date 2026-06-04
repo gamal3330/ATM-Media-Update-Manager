@@ -1,8 +1,7 @@
-import { AlertTriangle, Banknote, Download, FileText, PackageCheck, RefreshCw, Timer, TrendingDown } from "lucide-react";
+import { AlertTriangle, Banknote, PackageCheck, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { formatApiDate } from "../api/time";
-import StatCard from "../components/StatCard";
 
 function statusTone(status) {
   const value = String(status || "").toUpperCase();
@@ -23,22 +22,6 @@ function alertUnitLabel(alert) {
   return `Cassette ${alert.unit_no}`;
 }
 
-function riskTone(risk) {
-  const value = String(risk || "").toUpperCase();
-  if (value === "CRITICAL") return "bg-rose-50 text-rose-700";
-  if (value === "LOW") return "bg-amber-50 text-amber-700";
-  if (value === "STALE") return "bg-slate-100 text-slate-600";
-  if (value === "OK") return "bg-emerald-50 text-emerald-700";
-  return "bg-slate-100 text-slate-600";
-}
-
-function formatDays(value) {
-  if (value === null || value === undefined) return "-";
-  if (Number(value) <= 0) return "الآن";
-  if (Number(value) < 1) return "أقل من يوم";
-  return `${Number(value).toFixed(1)} يوم`;
-}
-
 function getCashModuleStatus(atm) {
   return String(atm?.module_status_json?.cash_monitoring || (atm?.cash_monitoring_enabled ? "pending" : "disabled"));
 }
@@ -49,6 +32,51 @@ function cashStatusTone(status) {
   if (value === "error") return "bg-rose-50 text-rose-700";
   if (value === "disabled") return "bg-slate-100 text-slate-600";
   return "bg-amber-50 text-amber-700";
+}
+
+const LAYOUT_REVIEW_CODES = new Set([
+  "CURRENCY_MISMATCH",
+  "DENOMINATION_MISMATCH",
+  "MISSING_READING",
+  "UNCONFIGURED_CASSETTE",
+  "CONFIG_PENDING",
+  "NO_READING",
+  "CASH_MONITORING_DISABLED",
+]);
+
+function layoutVerificationStatus(verification) {
+  if (!verification) return { label: "-", tone: "bg-slate-100 text-slate-600", matched: false };
+  const issueCount = Number(verification.mismatch_count || 0);
+  if (issueCount > 0) return { label: "غير مطابقة", tone: "bg-rose-50 text-rose-700", matched: false };
+  if (String(verification.status || "").toLowerCase() === "no_reading") {
+    return { label: "بانتظار قراءة", tone: "bg-amber-50 text-amber-700", matched: false };
+  }
+  return { label: "مطابقة", tone: "bg-emerald-50 text-emerald-700", matched: true };
+}
+
+function verificationIssueText(issue) {
+  const cassette = issue.cassette_no ? `كاسيت ${issue.cassette_no}: ` : "";
+  const values = issue.expected || issue.reported ? `المتوقع ${issue.expected || "-"}، المقروء ${issue.reported || "-"}` : "";
+  const known = {
+    CURRENCY_MISMATCH: "العملة لا تطابق إعدادات النظام",
+    DENOMINATION_MISMATCH: "الفئة لا تطابق إعدادات النظام",
+    MISSING_READING: "الكاسيت موجود في النظام ولم يظهر في قراءة الصراف",
+    UNCONFIGURED_CASSETTE: "الصراف أرسل كاسيت غير معرّف في النظام",
+    CONFIG_PENDING: "إعدادات الصراف لم تطبق على الـ Agent بعد",
+    NO_READING: "لم تصل قراءة نقد من الصراف بعد",
+    CASH_MONITORING_DISABLED: "مراقبة النقد غير مفعلة لهذا الصراف",
+    CASH_LOW: "العدد أقل من حد التنبيه",
+    CASH_CRITICAL: "العدد أقل من الحد الحرج",
+    CASH_EMPTY: "الكاسيت فارغ",
+    CASSETTE_MISSING: "الكاسيت غير موجود أو غير مقروء",
+    CASSETTE_INOP: "الكاسيت في حالة عطل",
+    REJECT_BIN_HIGH: "عدد reject مرتفع",
+    REJECT_BIN_FULL: "صندوق reject ممتلئ",
+    RETRACT_OCCURRED: "توجد أوراق مرتجعة في retract",
+    REJECT_BIN_STATUS: "حالة reject تحتاج مراجعة",
+    RETRACT_BIN_STATUS: "حالة retract تحتاج مراجعة",
+  };
+  return `${cassette}${known[issue.code] || issue.message}${values ? ` (${values})` : ""}`;
 }
 
 function configSyncLabel(atm) {
@@ -68,20 +96,93 @@ function getNoCashReason(details) {
   return `لا توجد snapshot نقد بعد. انتظر ${atm.cash_read_interval_seconds || 120} ثانية أو شغّل atm-agent.exe status على الصراف.`;
 }
 
-function downloadCsv(filename, rows) {
-  const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
-  const blob = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
+function readNowStatusMessage(command) {
+  const status = String(command?.status || "pending").toLowerCase();
+  const commandLabel = command?.id ? `#${command.id}` : "";
+  if (status === "acknowledged") return `استلم الـ Agent طلب القراءة ${commandLabel} وهو قيد التنفيذ.`;
+  if (status === "completed") return `اكتملت قراءة النقد ${commandLabel}. سيتم تحديث القيم الآن.`;
+  if (status === "failed") return `فشلت قراءة النقد ${commandLabel}: ${command?.last_error || "راجع سجلات الـ Agent."}`;
+  return `طلب قراءة النقد ${commandLabel} قيد الانتظار. إذا بقي معلقاً فحدّث نسخة الـ Agent وتأكد أن الخدمة تعمل.`;
+}
+
+function latestCashReadAt(details) {
+  const timestamps = (details?.units || []).map((unit) => unit.read_at).filter(Boolean);
+  if (details?.reject_retract?.read_at) timestamps.push(details.reject_retract.read_at);
+  if (timestamps.length === 0) return null;
+  return timestamps.sort((left, right) => Date.parse(right) - Date.parse(left))[0];
+}
+
+function parseTimestamp(value) {
+  const parsed = Date.parse(value || "");
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function shouldShowFailedCashReadCommand(command, lastReadAt) {
+  if (String(command?.status || "").toLowerCase() !== "failed") return false;
+  const readTimestamp = parseTimestamp(lastReadAt);
+  const commandTimestamp = parseTimestamp(command.completed_at || command.acknowledged_at || command.created_at);
+  if (readTimestamp && commandTimestamp && readTimestamp > commandTimestamp) return false;
+  return true;
+}
+
+function issueSummaryItems(summary) {
+  return [
+    { key: "low", label: "منخفض", value: summary?.cash_low_atms || 0, tone: "border-amber-200 bg-amber-50 text-amber-800" },
+    { key: "critical", label: "حرج", value: summary?.cash_critical_atms || 0, tone: "border-rose-200 bg-rose-50 text-rose-700" },
+    { key: "empty", label: "فارغ", value: summary?.cash_empty_atms || 0, tone: "border-rose-200 bg-rose-50 text-rose-700" },
+    { key: "stale", label: "قراءة قديمة", value: summary?.cash_stale_atms || 0, tone: "border-amber-200 bg-amber-50 text-amber-800" },
+    { key: "alerts", label: "تنبيهات", value: summary?.open_alerts || 0, tone: "border-slate-200 bg-slate-50 text-slate-700" },
+  ].filter((item) => Number(item.value) > 0);
+}
+
+function QuietSummary({ summary }) {
+  const items = issueSummaryItems(summary);
+  if (items.length === 0) {
+    return (
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 shadow-sm">
+        الوضع النقدي مستقر
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {items.map((item) => (
+        <span key={item.key} className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium ${item.tone}`}>
+          <span>{item.label}</span>
+          <span className="font-semibold">{item.value}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function BinSummary({ label, count, capacity, status }) {
+  return (
+    <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-medium text-slate-600">{label}</span>
+        <span className={`rounded-full px-2 py-1 text-xs ${statusTone(status)}`}>{status || "-"}</span>
+      </div>
+      <div className="mt-2 flex items-end justify-between gap-3">
+        <span className="text-2xl font-semibold text-slate-950">{count ?? "-"}</span>
+        <span className="text-xs text-slate-500">/{capacity ?? "-"}</span>
+      </div>
+    </div>
+  );
+}
+
+function isStaleCashRead(details) {
+  const readAt = latestCashReadAt(details);
+  const staleMinutes = Number(details?.atm?.cash_stale_after_minutes || 10);
+  if (!readAt) return false;
+  const parsed = Date.parse(readAt);
+  if (Number.isNaN(parsed)) return false;
+  return Date.now() - parsed > staleMinutes * 60 * 1000;
 }
 
 export default function CashMonitoring({ atms }) {
   const [summary, setSummary] = useState(null);
-  const [report, setReport] = useState(null);
   const [alerts, setAlerts] = useState([]);
   const [selectedAtmId, setSelectedAtmId] = useState("");
   const [details, setDetails] = useState(null);
@@ -107,16 +208,27 @@ export default function CashMonitoring({ atms }) {
   }, [alerts, details]);
   const selectedAtmDiagnostics = details?.atm;
   const cashModuleStatus = getCashModuleStatus(selectedAtmDiagnostics);
+  const selectedAtmForAction = selectedAtmDiagnostics || atms.find((atm) => atm.atm_id === selectedAtmId);
+  const verification = details?.verification;
+  const layoutStatus = layoutVerificationStatus(verification);
+  const layoutReviewIssues = useMemo(
+    () => (verification?.issues || []).filter((issue) => LAYOUT_REVIEW_CODES.has(issue.code)),
+    [verification],
+  );
+  const lastReadAt = latestCashReadAt(details);
+  const cashReadStale = isStaleCashRead(details);
+  const lastCashReadCommand = details?.last_cash_read_command;
+  const showFailedCashReadCommand = shouldShowFailedCashReadCommand(lastCashReadCommand, lastReadAt);
+  const canReadNow = Boolean(selectedAtmId && selectedAtmForAction?.cash_monitoring_enabled && !readNowLoading);
 
-  async function load() {
+  async function load(preferredAtmId = selectedAtmId) {
     setLoading(true);
     setError("");
     try {
-      const [summaryData, alertData, reportData] = await Promise.all([api.getCashSummary(), api.listCashAlerts(), api.getCashReport()]);
+      const [summaryData, alertData] = await Promise.all([api.getCashSummary(), api.listCashAlerts()]);
       setSummary(summaryData);
       setAlerts(alertData);
-      setReport(reportData);
-      const nextAtmId = selectedAtmId || cashEnabledAtms[0]?.atm_id || atms[0]?.atm_id || "";
+      const nextAtmId = preferredAtmId || selectedAtmId || cashEnabledAtms[0]?.atm_id || atms[0]?.atm_id || "";
       if (nextAtmId) {
         setSelectedAtmId(nextAtmId);
         setDetails(await api.getCashAtm(nextAtmId));
@@ -126,26 +238,6 @@ export default function CashMonitoring({ atms }) {
     } finally {
       setLoading(false);
     }
-  }
-
-  function exportReport() {
-    const rows = [
-      ["ATM ID", "Name", "Branch", "Last Read", "Stale", "Risk", "Total Notes", "Lowest Cassette", "Lowest Count", "Days To Empty", "Open Alerts"],
-      ...(report?.atms || []).map((item) => [
-        item.atm_id,
-        item.name,
-        item.branch,
-        item.last_read_at || "-",
-        item.is_stale ? "yes" : "no",
-        item.highest_risk,
-        item.total_note_count,
-        item.lowest_cassette_no || "-",
-        item.lowest_current_count ?? "-",
-        item.forecast_days_to_empty ?? "-",
-        item.open_alert_count,
-      ]),
-    ];
-    downloadCsv("atm-cash-report.csv", rows);
   }
 
   async function selectAtm(atmId) {
@@ -161,15 +253,20 @@ export default function CashMonitoring({ atms }) {
 
   async function requestReadNow() {
     const atmId = selectedAtmId || details?.atm?.atm_id;
-    if (!atmId) return;
+    if (!atmId || !selectedAtmForAction?.cash_monitoring_enabled) return;
     setReadNowLoading(true);
     setReadNowMessage("");
     setError("");
     try {
-      await api.requestCashReadNow(atmId);
-      setReadNowMessage("تم إرسال طلب قراءة نقد فورية. سينفذه الـ Agent تلقائياً ثم ستظهر القيم بعد التحديث.");
+      const command = await api.requestCashReadNow(atmId);
+      const message = readNowStatusMessage(command);
+      if (String(command?.status || "").toLowerCase() === "failed") {
+        setError(message);
+      } else {
+        setReadNowMessage(message);
+      }
       window.setTimeout(() => {
-        selectAtm(atmId);
+        load(atmId);
       }, 5000);
     } catch (err) {
       setError(err.message || "تعذر إرسال طلب قراءة النقد");
@@ -180,7 +277,7 @@ export default function CashMonitoring({ atms }) {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [atms]);
 
   return (
     <section>
@@ -190,12 +287,11 @@ export default function CashMonitoring({ atms }) {
             <Banknote size={25} />
             <span>مراقبة النقد</span>
           </h1>
-          <p className="text-sm text-slate-500">CDM Read-Only لصرافات السحب فقط: dispense cassettes و reject/retract</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             onClick={requestReadNow}
-            disabled={readNowLoading || !selectedAtmId}
+            disabled={!canReadNow}
             className="focus-ring inline-flex items-center gap-2 rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
             title="طلب قراءة نقد فورية من الـ Agent"
           >
@@ -203,7 +299,7 @@ export default function CashMonitoring({ atms }) {
             <span>{readNowLoading ? "جار الطلب" : "قراءة نقد الآن"}</span>
           </button>
           <button
-            onClick={load}
+            onClick={() => load()}
             disabled={loading}
             className="focus-ring inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
             title="تحديث بيانات النقد"
@@ -225,15 +321,9 @@ export default function CashMonitoring({ atms }) {
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <StatCard label="Cash Low" value={summary?.cash_low_atms || 0} tone={summary?.cash_low_atms ? "warn" : "good"} />
-        <StatCard label="Cash Critical" value={summary?.cash_critical_atms || 0} tone={summary?.cash_critical_atms ? "bad" : "good"} />
-        <StatCard label="Cash Empty" value={summary?.cash_empty_atms || 0} tone={summary?.cash_empty_atms ? "bad" : "good"} />
-        <StatCard label="Data Stale" value={summary?.cash_stale_atms || 0} tone={summary?.cash_stale_atms ? "warn" : "good"} />
-        <StatCard label="Open Alerts" value={summary?.open_alerts || 0} tone={summary?.open_alerts ? "bad" : "neutral"} />
-      </div>
+      <QuietSummary summary={summary} />
 
-      <div className="mt-6 grid gap-4 xl:grid-cols-[320px_1fr]">
+      <div className="mt-6 grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
         <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 px-4 py-3 font-medium">الصرافات</div>
           <div className="divide-y divide-slate-100">
@@ -255,271 +345,213 @@ export default function CashMonitoring({ atms }) {
           </div>
         </div>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           {selectedAtmDiagnostics && (
-            <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-sm md:grid-cols-4">
-              <div>
-                <div className="text-xs text-slate-500">Cash Module</div>
-                <span className={`mt-1 inline-flex rounded-full px-2 py-1 text-xs font-semibold ${cashStatusTone(cashModuleStatus)}`}>
-                  {cashModuleStatus}
-                </span>
-              </div>
-              <div>
-                <div className="text-xs text-slate-500">Last Heartbeat</div>
-                <div className="mt-1 font-medium text-slate-950">{formatApiDate(selectedAtmDiagnostics.last_heartbeat_at)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-slate-500">Config</div>
-                <div className="mt-1 font-medium text-slate-950">
-                  {configSyncLabel(selectedAtmDiagnostics)} · {selectedAtmDiagnostics.applied_config_version}/{selectedAtmDiagnostics.config_version}
+            <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate font-semibold text-slate-950">{selectedAtmDiagnostics.name}</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {selectedAtmDiagnostics.atm_id} · آخر قراءة {formatApiDate(lastReadAt)}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${cashStatusTone(cashModuleStatus)}`}>
+                    Cash: {cashModuleStatus}
+                  </span>
+                  <span
+                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                      Number(selectedAtmDiagnostics.config_version) === Number(selectedAtmDiagnostics.applied_config_version)
+                        ? "bg-emerald-50 text-emerald-700"
+                        : "bg-amber-50 text-amber-700"
+                    }`}
+                  >
+                    Config: {configSyncLabel(selectedAtmDiagnostics)}
+                  </span>
+                  <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${layoutStatus.tone}`}>
+                    {layoutStatus.label}
+                  </span>
+                  {cashReadStale && (
+                    <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                      قراءة قديمة
+                    </span>
+                  )}
                 </div>
               </div>
-              <div>
-                <div className="text-xs text-slate-500">XFS</div>
-                <div className="mt-1 font-medium text-slate-950" dir="ltr">
-                  {selectedAtmDiagnostics.xfs_profile || "-"} · {selectedAtmDiagnostics.xfs_logical_service || "-"}
-                </div>
-              </div>
-              {(!details.units || details.units.length === 0) && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800 md:col-span-4">
+              {(!details?.units || details.units.length === 0) && (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
                   {getNoCashReason(details)}
+                </div>
+              )}
+              {cashReadStale && (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
+                  آخر قراءة نقد محفوظة قديمة: {formatApiDate(lastReadAt)}. نفّذ قراءة ناجحة من الـ Agent قبل اعتماد الأعداد الحالية.
+                </div>
+              )}
+              {showFailedCashReadCommand && (
+                <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">
+                  آخر طلب قراءة فشل: {lastCashReadCommand.last_error || "راجع سجلات الـ Agent."}
                 </div>
               )}
             </div>
           )}
 
-          <div className="grid gap-4 lg:grid-cols-3">
-            <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
-                <PackageCheck size={17} />
-                <span>Available Cash</span>
+          {verification && layoutReviewIssues.length > 0 && (
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <AlertTriangle size={18} className="shrink-0" />
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">اختلاف في مطابقة الصناديق</span>
+                      <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-rose-700 ring-1 ring-rose-200">
+                        غير مطابقة
+                      </span>
+                    </div>
+                    <div className="mt-0.5 truncate text-xs text-rose-700">
+                      {verification.matched_units}/{verification.total_units} كاسيت مطابق · اختلافات {verification.mismatch_count || layoutReviewIssues.length}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-xs text-rose-700">
+                  {formatApiDate(verification.checked_at)}
+                </div>
               </div>
-              <div className="mt-3 space-y-2">
+              {layoutReviewIssues.length > 0 && (
+                <details className="mt-2 border-t border-rose-200 pt-2 text-xs">
+                  <summary className="cursor-pointer font-medium">عرض أسباب الاختلاف</summary>
+                  <div className="mt-2 max-h-28 space-y-1 overflow-y-auto">
+                    {layoutReviewIssues.slice(0, 6).map((issue, index) => (
+                      <div key={`${issue.code}-${issue.cassette_no || "atm"}-${index}`} className="leading-5">
+                        <span className="font-semibold">{issue.code}</span>
+                        <span className="mx-2 text-rose-300">·</span>
+                        <span>{verificationIssueText(issue)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </div>
+          )}
+
+          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
+              <PackageCheck size={17} />
+              <span>الأرصدة الحالية</span>
+            </div>
+            <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_150px_150px]">
+              <div className="grid gap-2 sm:grid-cols-3">
                 {availableByCurrency.map(([currency, value]) => (
-                  <div key={currency} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
-                    <span className="font-medium text-slate-600">{currency}</span>
-                    <span className="font-semibold text-slate-950">{formatCashValue(value)}</span>
+                  <div key={currency} className="rounded-lg bg-slate-50 px-3 py-2">
+                    <div className="text-xs font-medium text-slate-500">{currency}</div>
+                    <div className="mt-1 font-semibold text-slate-950">{formatCashValue(value)}</div>
                   </div>
                 ))}
                 {availableByCurrency.length === 0 && <div className="text-sm text-slate-500">لا توجد قراءة نقد بعد</div>}
               </div>
-            </div>
-            <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="text-sm font-medium text-slate-600">Reject Bin</div>
-              <div className="mt-3 flex items-end justify-between">
-                <div className="text-3xl font-semibold text-slate-950">{details?.reject_retract?.reject_count ?? "-"}</div>
-                <span className={`rounded-full px-2 py-1 text-xs ${statusTone(details?.reject_retract?.reject_status)}`}>
-                  {details?.reject_retract?.reject_status || "-"}
-                </span>
-              </div>
-              <div className="mt-1 text-xs text-slate-500">
-                Capacity {details?.reject_retract?.reject_max_capacity ?? "-"}
-              </div>
-            </div>
-            <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="text-sm font-medium text-slate-600">Retract Bin</div>
-              <div className="mt-3 flex items-end justify-between">
-                <div className="text-3xl font-semibold text-slate-950">{details?.reject_retract?.retract_count ?? "-"}</div>
-                <span className={`rounded-full px-2 py-1 text-xs ${statusTone(details?.reject_retract?.retract_status)}`}>
-                  {details?.reject_retract?.retract_status || "-"}
-                </span>
-              </div>
-              <div className="mt-1 text-xs text-slate-500">
-                Capacity {details?.reject_retract?.retract_max_capacity ?? "-"}
-              </div>
+              <BinSummary
+                label="Reject"
+                count={details?.reject_retract?.reject_count}
+                capacity={details?.reject_retract?.reject_max_capacity}
+                status={details?.reject_retract?.reject_status}
+              />
+              <BinSummary
+                label="Retract"
+                count={details?.reject_retract?.retract_count}
+                capacity={details?.reject_retract?.retract_max_capacity}
+                status={details?.reject_retract?.retract_status}
+              />
             </div>
           </div>
 
-          <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-4 py-3">
-            <div className="font-medium text-slate-950">Dispense Cassettes</div>
-            <div className="mt-1 text-xs text-slate-500">
-              {details?.atm ? `${details.atm.atm_id} · ${details.atm.atm_cash_mode || "DISPENSE_ONLY"}` : "اختر صرافاً"}
+          <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-200 px-4 py-3">
+              <div className="font-medium text-slate-950">صناديق السحب</div>
+              <div className="mt-1 text-xs text-slate-500">
+                {details?.atm ? `${details.atm.atm_id} · ${details.atm.atm_cash_mode || "DISPENSE_ONLY"}` : "اختر صرافاً"}
+              </div>
             </div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="bg-slate-50 text-slate-600">
-                <tr>
-                  <th className="px-4 py-3 text-right font-medium">Cassette</th>
-                  <th className="px-4 py-3 text-right font-medium">Expected</th>
-                  <th className="px-4 py-3 text-right font-medium">Reported</th>
-                  <th className="px-4 py-3 text-right font-medium">Current</th>
-                  <th className="px-4 py-3 text-right font-medium">Low / Critical</th>
-                  <th className="px-4 py-3 text-right font-medium">Reject</th>
-                  <th className="px-4 py-3 text-right font-medium">Physical</th>
-                  <th className="px-4 py-3 text-right font-medium">Status</th>
-                  <th className="px-4 py-3 text-right font-medium">Last Read</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {(details?.units || []).map((unit) => (
-                  <tr key={unit.id}>
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-slate-950">{unit.cassette_no}</div>
-                      <div className="text-xs text-slate-500">{unit.cassette_name || unit.cassette_id || "-"}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      {unit.expected_currency} {unit.expected_denomination}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={unit.layout_match_status === "MATCH" ? "" : "font-semibold text-rose-700"}>
-                        {unit.reported_currency} {unit.reported_denomination}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 font-semibold text-slate-950">{unit.current_count}</td>
-                    <td className="px-4 py-3">{unit.low_threshold} / {unit.critical_threshold}</td>
-                    <td className="px-4 py-3">{unit.reject_count}</td>
-                    <td className="px-4 py-3">{unit.physical_status}</td>
-                    <td className="px-4 py-3">
-                      <span className={`rounded-full px-2 py-1 text-xs ${statusTone(unit.status)}`}>{unit.status}</span>
-                      {unit.layout_match_status !== "MATCH" && (
-                        <div className="mt-1 text-xs font-medium text-rose-700">{unit.layout_match_status}</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">{formatApiDate(unit.read_at)}</td>
-                  </tr>
-                ))}
-                {(!details || details.units.length === 0) && (
+            <div className="overflow-x-auto">
+              <table className="min-w-[760px] divide-y divide-slate-200 text-sm">
+                <thead className="bg-slate-50 text-slate-600">
                   <tr>
-                    <td colSpan="9" className="px-4 py-8 text-center text-slate-500">
-                      {getNoCashReason(details)}
-                    </td>
+                    <th className="px-4 py-3 text-right font-medium">Cassette</th>
+                    <th className="px-4 py-3 text-right font-medium">Cash</th>
+                    <th className="px-4 py-3 text-right font-medium">Current</th>
+                    <th className="px-4 py-3 text-right font-medium">Low / Critical</th>
+                    <th className="px-4 py-3 text-right font-medium">Reject</th>
+                    <th className="px-4 py-3 text-right font-medium">Status</th>
+                    <th className="px-4 py-3 text-right font-medium">Last Read</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-          <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
-            <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-              <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
-                <div>
-                  <div className="flex items-center gap-2 font-medium text-slate-950">
-                    <TrendingDown size={18} />
-                    <span>توقع نفاد النقد</span>
-                  </div>
-                  <div className="mt-1 text-xs text-slate-500">مبني على آخر قراءات CDM الناجحة</div>
-                </div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-200 text-sm">
-                  <thead className="bg-slate-50 text-slate-600">
-                    <tr>
-                      <th className="px-4 py-3 text-right font-medium">Cassette</th>
-                      <th className="px-4 py-3 text-right font-medium">الحالة</th>
-                      <th className="px-4 py-3 text-right font-medium">معدل يومي</th>
-                      <th className="px-4 py-3 text-right font-medium">إلى Low</th>
-                      <th className="px-4 py-3 text-right font-medium">إلى Empty</th>
-                      <th className="px-4 py-3 text-right font-medium">عينات</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {(details?.forecasts || []).map((item) => (
-                      <tr key={`${item.atm_id}-${item.cassette_no}`}>
-                        <td className="px-4 py-3">
-                          <div className="font-semibold text-slate-950">{item.cassette_no}</div>
-                          <div className="text-xs text-slate-500">{item.currency} {item.denomination}</div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`rounded-full px-2 py-1 text-xs font-semibold ${riskTone(item.risk)}`}>{item.risk}</span>
-                        </td>
-                        <td className="px-4 py-3">{item.notes_per_day ? `${formatCashValue(item.notes_per_day)} ورقة` : "-"}</td>
-                        <td className="px-4 py-3">{formatDays(item.days_to_low)}</td>
-                        <td className="px-4 py-3 font-semibold text-slate-950">{formatDays(item.days_to_empty)}</td>
-                        <td className="px-4 py-3">{item.sample_count}</td>
-                      </tr>
-                    ))}
-                    {(!details || (details.forecasts || []).length === 0) && (
-                      <tr>
-                        <td colSpan="6" className="px-4 py-8 text-center text-slate-500">
-                          يحتاج التوقع إلى قراءتين نقديتين ناجحتين على الأقل.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-              <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
-                <div className="flex items-center gap-2 font-medium text-slate-950">
-                  <FileText size={18} />
-                  <span>تقرير مختصر</span>
-                </div>
-                <button
-                  onClick={exportReport}
-                  className="focus-ring inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs hover:bg-slate-50"
-                  disabled={!report?.atms?.length}
-                >
-                  <Download size={15} />
-                  CSV
-                </button>
-              </div>
-              <div className="space-y-3 p-4">
-                <div className="rounded-lg bg-slate-50 px-3 py-3">
-                  <div className="text-xs font-medium text-slate-500">صرافات مفعلة</div>
-                  <div className="mt-1 text-2xl font-semibold text-slate-950">{report?.atms?.length || 0}</div>
-                </div>
-                <div className="rounded-lg bg-slate-50 px-3 py-3">
-                  <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
-                    <Timer size={15} />
-                    <span>أقرب نفاد متوقع</span>
-                  </div>
-                  <div className="mt-1 text-2xl font-semibold text-slate-950">
-                    {formatDays(report?.forecast_risks?.[0]?.days_to_empty)}
-                  </div>
-                  <div className="mt-1 text-xs text-slate-500">
-                    {report?.forecast_risks?.[0]
-                      ? `${report.forecast_risks[0].atm_name} · Cassette ${report.forecast_risks[0].cassette_no}`
-                      : "لا توجد مخاطر حالية"}
-                  </div>
-                </div>
-                <div>
-                  <div className="mb-2 text-xs font-semibold text-slate-500">أعلى المخاطر</div>
-                  <div className="space-y-2">
-                    {(report?.forecast_risks || []).slice(0, 4).map((item) => (
-                      <div key={`${item.atm_id}-${item.cassette_no}`} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 px-3 py-2 text-xs">
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(details?.units || []).map((unit) => (
+                    <tr key={unit.id}>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-slate-950">{unit.cassette_no}</div>
+                        <div className="text-xs text-slate-500">{unit.cassette_name || unit.cassette_id || "-"}</div>
+                      </td>
+                      <td className="px-4 py-3">
                         <div>
-                          <div className="font-semibold text-slate-950">{item.atm_name}</div>
-                          <div className="text-slate-500">Cassette {item.cassette_no} · {item.current_count} ورقة</div>
+                          {unit.expected_currency} {unit.expected_denomination}
                         </div>
-                        <span className={`rounded-full px-2 py-1 font-semibold ${riskTone(item.risk)}`}>{formatDays(item.days_to_empty)}</span>
-                      </div>
-                    ))}
-                    {(!report?.forecast_risks || report.forecast_risks.length === 0) && (
-                      <div className="rounded-lg bg-slate-50 px-3 py-3 text-center text-xs text-slate-500">لا توجد مخاطر نقد حالية</div>
-                    )}
-                  </div>
-                </div>
-              </div>
+                        {unit.layout_match_status !== "MATCH" && (
+                          <div className="mt-1 text-xs font-medium text-rose-700">
+                            Reported: {unit.reported_currency} {unit.reported_denomination}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-slate-950">{unit.current_count}</td>
+                      <td className="px-4 py-3">{unit.low_threshold} / {unit.critical_threshold}</td>
+                      <td className="px-4 py-3">{unit.reject_count}</td>
+                      <td className="px-4 py-3">
+                        <span className={`rounded-full px-2 py-1 text-xs ${statusTone(unit.status)}`}>{unit.status}</span>
+                        {unit.layout_match_status !== "MATCH" && (
+                          <div className="mt-1 text-xs font-medium text-rose-700">{unit.layout_match_status}</div>
+                        )}
+                        {unit.physical_status && !["PRESENT", "OK"].includes(String(unit.physical_status).toUpperCase()) && (
+                          <div className="mt-1 text-xs text-slate-500">{unit.physical_status}</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">{formatApiDate(unit.read_at)}</td>
+                    </tr>
+                  ))}
+                  {(!details || details.units.length === 0) && (
+                    <tr>
+                      <td colSpan="7" className="px-4 py-8 text-center text-slate-500">
+                        {getNoCashReason(details)}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
+
       </div>
       </div>
 
-      <div className="mt-6 rounded-lg border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 font-medium">
-          <AlertTriangle size={18} />
-          <span>التنبيهات المفتوحة</span>
-        </div>
-        <div className="divide-y divide-slate-100">
-          {selectedAlerts.slice(0, 20).map((alert) => (
-            <div key={alert.id} className="px-4 py-3 text-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="font-medium text-slate-950">{alert.message}</div>
-                <span className={`rounded-full px-2 py-1 text-xs ${statusTone(alert.alert_type)}`}>{alert.alert_type}</span>
+      {selectedAlerts.length > 0 && (
+        <div className="mt-6 rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 font-medium">
+            <AlertTriangle size={18} />
+            <span>التنبيهات المفتوحة</span>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {selectedAlerts.slice(0, 20).map((alert) => (
+              <div key={alert.id} className="px-4 py-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="font-medium text-slate-950">{alert.message}</div>
+                  <span className={`rounded-full px-2 py-1 text-xs ${statusTone(alert.alert_type)}`}>{alert.alert_type}</span>
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {alertUnitLabel(alert)} · Current {alert.current_count} · Threshold {alert.threshold_count} · {formatApiDate(alert.opened_at)}
+                </div>
               </div>
-              <div className="mt-1 text-xs text-slate-500">
-                {alertUnitLabel(alert)} · Current {alert.current_count} · Threshold {alert.threshold_count} · {formatApiDate(alert.opened_at)}
-              </div>
-            </div>
-          ))}
-          {selectedAlerts.length === 0 && <div className="px-4 py-8 text-center text-sm text-slate-500">لا توجد تنبيهات مفتوحة لهذا الصراف</div>}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </section>
   );
 }
