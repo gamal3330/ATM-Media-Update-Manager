@@ -183,10 +183,6 @@ public class MainActivity extends Activity {
         TextView loginButton = actionButton("تسجيل الدخول", Color.WHITE, COLOR_TEAL, COLOR_TEAL);
         card.addView(loginButton, matchHeight(dp(52)));
 
-        TextView note = text("كل البيانات تأتي من API مباشرة، ولا يتم فتح النظام داخل WebView.", 12, COLOR_MUTED, Typeface.NORMAL);
-        note.setGravity(Gravity.CENTER);
-        root.addView(note, margin(matchWrap(), 0, dp(14), 0, 0));
-
         loginButton.setOnClickListener(view -> {
             String enteredUsername = usernameInput.getText().toString().trim();
             String enteredPassword = passwordInput.getText().toString();
