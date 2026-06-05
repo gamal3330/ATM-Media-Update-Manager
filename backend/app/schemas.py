@@ -954,6 +954,7 @@ class CashSummary(BaseModel):
     open_alerts: int
     units: list[CashUnitRead]
     low_cash_atms: list[CashLowAtmRead] = Field(default_factory=list)
+    empty_cash_atms: list[CashLowAtmRead] = Field(default_factory=list)
 
 
 class CashAtmReportRead(BaseModel):

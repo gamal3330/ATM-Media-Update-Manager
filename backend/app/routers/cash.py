@@ -869,39 +869,43 @@ def cash_summary(
     critical_atms = {alert.atm_id for alert in open_alerts if alert.alert_type == "CASH_CRITICAL"}
     empty_atms = {alert.atm_id for alert in open_alerts if alert.alert_type == "CASH_EMPTY"}
     units_by_atm_cassette = {(unit.atm_id, unit.cassette_no): unit for unit in units}
-    low_cash_by_atm: dict[int, dict[str, Any]] = {}
-    for alert in open_alerts:
-        if alert.alert_type != "CASH_LOW":
-            continue
-        atm = atms_by_id.get(alert.atm_id)
-        if atm is None:
-            continue
-        unit = units_by_atm_cassette.get((alert.atm_id, alert.unit_no))
-        threshold = max(1, int(alert.threshold_count or 1))
-        ratio = int(alert.current_count) / threshold
-        existing = low_cash_by_atm.get(alert.atm_id)
-        if existing and ratio >= existing["_ratio"]:
-            continue
-        low_cash_by_atm[alert.atm_id] = {
-            "_ratio": ratio,
-            "atm_id": atm.atm_id,
-            "name": atm.name,
-            "branch": atm.branch,
-            "cassette_no": alert.unit_no,
-            "currency": unit.expected_currency if unit else "",
-            "denomination": unit.expected_denomination if unit else 0,
-            "current_count": alert.current_count,
-            "threshold_count": alert.threshold_count,
-            "status": unit.status if unit else alert.alert_type,
-            "read_at": unit.read_at if unit else alert.opened_at,
-        }
-    low_cash_atms = [
-        {key: value for key, value in item.items() if key != "_ratio"}
-        for item in sorted(
-            low_cash_by_atm.values(),
-            key=lambda detail: (detail["_ratio"], str(detail["atm_id"])),
-        )
-    ]
+    def cash_alert_atm_details(alert_type: str) -> list[dict[str, Any]]:
+        details_by_atm: dict[int, dict[str, Any]] = {}
+        for alert in open_alerts:
+            if alert.alert_type != alert_type:
+                continue
+            atm = atms_by_id.get(alert.atm_id)
+            if atm is None:
+                continue
+            unit = units_by_atm_cassette.get((alert.atm_id, alert.unit_no))
+            threshold = max(1, int(alert.threshold_count or 1))
+            ratio = int(alert.current_count) / threshold
+            existing = details_by_atm.get(alert.atm_id)
+            if existing and ratio >= existing["_ratio"]:
+                continue
+            details_by_atm[alert.atm_id] = {
+                "_ratio": ratio,
+                "atm_id": atm.atm_id,
+                "name": atm.name,
+                "branch": atm.branch,
+                "cassette_no": alert.unit_no,
+                "currency": unit.expected_currency if unit else "",
+                "denomination": unit.expected_denomination if unit else 0,
+                "current_count": alert.current_count,
+                "threshold_count": alert.threshold_count,
+                "status": unit.status if unit else alert.alert_type,
+                "read_at": unit.read_at if unit else alert.opened_at,
+            }
+        return [
+            {key: value for key, value in item.items() if key != "_ratio"}
+            for item in sorted(
+                details_by_atm.values(),
+                key=lambda detail: (detail["_ratio"], str(detail["atm_id"])),
+            )
+        ]
+
+    low_cash_atms = cash_alert_atm_details("CASH_LOW")
+    empty_cash_atms = cash_alert_atm_details("CASH_EMPTY")
 
     now = utcnow()
     stale_atms: set[int] = set()
@@ -930,6 +934,7 @@ def cash_summary(
         open_alerts=len(open_alerts),
         units=units,
         low_cash_atms=low_cash_atms,
+        empty_cash_atms=empty_cash_atms,
     )
 
 

@@ -128,17 +128,36 @@ function SummaryTile({ label, value, tone = "slate", icon: Icon, children }) {
   );
 }
 
-function CashLowDetails({ items = [] }) {
+function CashRiskDetails({
+  items = [],
+  count = 0,
+  title = "صرافات على وشك الانتهاء",
+  emptyText = "لا توجد صرافات منخفضة النقد حالياً.",
+  pendingText = "توجد صرافات منخفضة، لكن تفاصيلها لم تصل بعد. حدّث البيانات أو أعد تشغيل backend.",
+  tone = "amber",
+}) {
+  const toneClasses = {
+    amber: {
+      item: "bg-amber-50",
+      badge: "text-amber-800 ring-amber-200",
+    },
+    rose: {
+      item: "bg-rose-50",
+      badge: "text-rose-800 ring-rose-200",
+    },
+  };
+  const classes = toneClasses[tone] || toneClasses.amber;
+
   if (!items.length) {
-    return <div className="text-sm text-slate-500">توجد صرافات منخفضة، لكن تفاصيلها لم تصل بعد. حدّث البيانات أو أعد تشغيل backend.</div>;
+    return <div className="text-sm text-slate-500">{count > 0 ? pendingText : emptyText}</div>;
   }
 
   return (
     <div>
-      <div className="mb-2 text-sm font-semibold text-slate-950">صرافات على وشك الانتهاء</div>
+      <div className="mb-2 text-sm font-semibold text-slate-950">{title}</div>
       <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
         {items.slice(0, 10).map((item) => (
-          <div key={`${item.atm_id}-${item.cassette_no}`} className="rounded-lg bg-amber-50 px-3 py-2 text-sm">
+          <div key={`${item.atm_id}-${item.cassette_no}`} className={`rounded-lg px-3 py-2 text-sm ${classes.item}`}>
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <div className="truncate font-semibold text-slate-950">{item.name}</div>
@@ -146,7 +165,7 @@ function CashLowDetails({ items = [] }) {
                   {item.atm_id} · {item.branch} · Cassette {item.cassette_no}
                 </div>
               </div>
-              <span className="shrink-0 rounded-full bg-white px-2 py-1 text-xs font-semibold text-amber-800 ring-1 ring-amber-200">
+              <span className={`shrink-0 rounded-full bg-white px-2 py-1 text-xs font-semibold ring-1 ${classes.badge}`}>
                 {item.current_count}/{item.threshold_count}
               </span>
             </div>
@@ -161,16 +180,22 @@ function CashLowDetails({ items = [] }) {
   );
 }
 
-function fallbackCashLowDetails(cashSummary, atms) {
+function fallbackCashRiskDetails(cashSummary, atms, mode = "low") {
   const atmsByInternalId = new Map(atms.map((atm) => [Number(atm.id), atm]));
   const byAtm = new Map();
   (cashSummary?.units || []).forEach((unit) => {
     const current = Number(unit.current_count);
     const low = Number(unit.low_threshold);
-    if (!Number.isFinite(current) || !Number.isFinite(low) || current > low) return;
+    if (!Number.isFinite(current)) return;
+    if (mode === "empty") {
+      if (current > 0) return;
+    } else if (!Number.isFinite(low) || current > low) {
+      return;
+    }
     const atm = atmsByInternalId.get(Number(unit.atm_id));
     if (!atm) return;
-    const ratio = low > 0 ? current / low : current;
+    const threshold = mode === "empty" ? Number(unit.critical_threshold || unit.low_threshold || 1) : low;
+    const ratio = threshold > 0 ? current / threshold : current;
     const existing = byAtm.get(Number(unit.atm_id));
     if (existing && ratio >= existing._ratio) return;
     byAtm.set(Number(unit.atm_id), {
@@ -182,7 +207,7 @@ function fallbackCashLowDetails(cashSummary, atms) {
       currency: unit.expected_currency || unit.reported_currency || "",
       denomination: unit.expected_denomination || unit.reported_denomination || 0,
       current_count: current,
-      threshold_count: low,
+      threshold_count: threshold,
       status: unit.status,
       read_at: unit.read_at,
     });
@@ -277,7 +302,10 @@ export default function Dashboard({ atms, packages, cashSummary, loading, onRefr
   const cashEmpty = cashSummary?.cash_empty_atms || 0;
   const cashLowDetails = (cashSummary?.low_cash_atms || []).length
     ? cashSummary.low_cash_atms
-    : fallbackCashLowDetails(cashSummary, atms);
+    : fallbackCashRiskDetails(cashSummary, atms, "low");
+  const cashEmptyDetails = (cashSummary?.empty_cash_atms || []).length
+    ? cashSummary.empty_cash_atms
+    : fallbackCashRiskDetails(cashSummary, atms, "empty");
 
   const sortedAtms = useMemo(
     () =>
@@ -338,9 +366,18 @@ export default function Dashboard({ atms, packages, cashSummary, loading, onRefr
         <SummaryTile label="Online" value={online} tone="emerald" icon={Wifi} />
         <SummaryTile label="Offline" value={offline} tone={offline ? "rose" : "emerald"} icon={WifiOff} />
         <SummaryTile label="Cash Low" value={cashLow} tone={cashLow ? "amber" : "emerald"} icon={Gauge}>
-          <CashLowDetails items={cashLowDetails} />
+          <CashRiskDetails items={cashLowDetails} count={cashLow} />
         </SummaryTile>
-        <SummaryTile label="Cash Empty" value={cashEmpty} tone={cashEmpty ? "rose" : "emerald"} icon={ShieldAlert} />
+        <SummaryTile label="Cash Empty" value={cashEmpty} tone={cashEmpty ? "rose" : "emerald"} icon={ShieldAlert}>
+          <CashRiskDetails
+            items={cashEmptyDetails}
+            count={cashEmpty}
+            title="صرافات نفد منها النقد"
+            emptyText="لا توجد صرافات فارغة النقد حالياً."
+            pendingText="توجد صرافات فارغة، لكن تفاصيلها لم تصل بعد. حدّث البيانات أو أعد تشغيل backend."
+            tone="rose"
+          />
+        </SummaryTile>
       </div>
 
       <div className="mt-6 flex items-center justify-between gap-3">

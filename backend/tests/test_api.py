@@ -588,6 +588,8 @@ def test_cash_snapshot_updates_units_and_alerts() -> None:
         assert summary.json()["cash_low_atms"] >= 1
         assert summary.json()["cash_critical_atms"] >= 1
         assert summary.json()["cash_empty_atms"] >= 1
+        assert len(summary.json()["low_cash_atms"]) >= 1
+        assert len(summary.json()["empty_cash_atms"]) >= 1
 
 
 def test_cash_snapshot_ignores_suspicious_regression() -> None:
