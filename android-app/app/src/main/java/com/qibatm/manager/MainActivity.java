@@ -11,6 +11,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -119,8 +120,8 @@ public class MainActivity extends Activity {
         heroTop.addView(brand, margin(weightWrap(1), 0, 0, dp(12), 0));
 
         LinearLayout apiCard = column();
-        apiCard.setPadding(dp(16), dp(14), dp(16), dp(14));
-        apiCard.setBackground(cardBackground(COLOR_CARD, COLOR_LINE, 8));
+        apiCard.setPadding(dp(16), dp(16), dp(16), dp(16));
+        apiCard.setBackground(cardBackground(COLOR_CARD, colorWithAlpha(COLOR_TEAL, 80), 8));
         apiCard.setElevation(dp(1));
         root.addView(apiCard, margin(matchWrap(), 0, dp(12), 0, dp(12)));
 
@@ -128,19 +129,27 @@ public class MainActivity extends Activity {
         apiHeader.setGravity(Gravity.CENTER_VERTICAL);
         apiCard.addView(apiHeader, matchWrap());
 
-        LinearLayout apiText = column();
-        TextView apiLabel = text("عنوان API", 14, COLOR_INK, Typeface.BOLD);
+        TextView apiLabel = text("عنوان API", 17, COLOR_INK, Typeface.BOLD);
         apiLabel.setGravity(Gravity.RIGHT);
-        apiText.addView(apiLabel, matchWrap());
+        apiHeader.addView(apiLabel, weightWrap(1));
+        apiHeader.addView(chip("جاهز", COLOR_TEAL, COLOR_TEAL_SOFT));
+
+        LinearLayout apiAddress = row();
+        apiAddress.setGravity(Gravity.CENTER_VERTICAL);
+        apiCard.addView(apiAddress, margin(matchWrap(), 0, dp(12), 0, 0));
+
         TextView apiValue = text(serverUrl, 13, COLOR_MUTED, Typeface.NORMAL);
         apiValue.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
         apiValue.setTextDirection(View.TEXT_DIRECTION_LTR);
-        apiText.addView(apiValue, matchWrap());
-        apiHeader.addView(apiText, weightWrap(1));
+        apiValue.setSingleLine(true);
+        apiValue.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+        apiValue.setPadding(dp(12), 0, dp(12), 0);
+        apiValue.setBackground(cardBackground(Color.rgb(248, 250, 252), Color.TRANSPARENT, 8));
+        apiAddress.addView(apiValue, weightHeight(1, dp(46)));
 
-        TextView apiSettingsButton = actionButton("تغيير", COLOR_TEAL, COLOR_TEAL_SOFT, Color.TRANSPARENT);
+        TextView apiSettingsButton = actionButton("تغيير", Color.WHITE, COLOR_TEAL, COLOR_TEAL);
         apiSettingsButton.setOnClickListener(view -> showApiSettingsDialog());
-        apiHeader.addView(apiSettingsButton, margin(widthHeight(dp(92), dp(42)), dp(10), 0, 0, 0));
+        apiAddress.addView(apiSettingsButton, margin(widthHeight(dp(86), dp(46)), dp(10), 0, 0, 0));
 
         LinearLayout card = column();
         card.setPadding(dp(20), dp(20), dp(20), dp(20));
