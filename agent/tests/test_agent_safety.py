@@ -7,8 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
+import atm_agent
 from backup_manager import create_backup, restore_backup
-from atm_agent import choose_run_mode, write_hidden_task_runner
+from atm_agent import choose_run_mode, powershell_executable, write_hidden_task_runner
 from checksum import sha256_file
 from cash_monitoring_module import CashMonitoringModule
 from config_manager import load_local_config, parse_remote_config
@@ -106,6 +107,21 @@ def test_hidden_task_runner_quotes_program_files_paths(tmp_path):
     assert 'shell.Run """' in content
     assert '"" run --config ""' in content
     assert '""", 0, False' in content
+
+
+def test_powershell_executable_prefers_sysnative_for_32_bit_agent(tmp_path, monkeypatch):
+    windir = tmp_path / "Windows"
+    sysnative = windir / "Sysnative" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    system32 = windir / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    sysnative.parent.mkdir(parents=True)
+    system32.parent.mkdir(parents=True)
+    sysnative.write_text("", encoding="ascii")
+    system32.write_text("", encoding="ascii")
+
+    monkeypatch.setattr(atm_agent.os, "name", "nt")
+    monkeypatch.setenv("WINDIR", str(windir))
+
+    assert powershell_executable() == str(sysnative)
 
 
 def test_remote_config_rejects_paths_outside_atm_root():

@@ -262,12 +262,28 @@ def write_hidden_task_runner(target_exe: Path, config_path: Path, install_dir: P
 
 
 def run_powershell(script: str) -> subprocess.CompletedProcess[str]:
+    executable = powershell_executable()
     return subprocess.run(
-        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        [executable, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
         capture_output=True,
         text=True,
         check=False,
     )
+
+
+def powershell_executable() -> str:
+    if os.name != "nt":
+        return "powershell.exe"
+
+    windows_dir = Path(os.environ.get("WINDIR", r"C:\Windows"))
+    candidates = [
+        windows_dir / "Sysnative" / "WindowsPowerShell" / "v1.0" / "powershell.exe",
+        windows_dir / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return "powershell.exe"
 
 
 def scheduled_task_status(task_name: str = SCHEDULED_TASK_NAME) -> str:
