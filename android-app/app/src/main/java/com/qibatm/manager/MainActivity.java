@@ -542,23 +542,39 @@ public class MainActivity extends Activity {
         ScrollView scrollView = new ScrollView(this);
         scrollView.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         scrollView.setTextDirection(View.TEXT_DIRECTION_RTL);
+        scrollView.setBackgroundColor(COLOR_BG);
 
         LinearLayout body = column();
-        body.setPadding(dp(4), dp(8), dp(4), dp(4));
+        body.setPadding(dp(12), dp(12), dp(12), dp(12));
         scrollView.addView(body, matchWrap());
 
-        TextView title = text(atm.name, 21, COLOR_INK, Typeface.BOLD);
-        title.setGravity(Gravity.RIGHT);
-        body.addView(title, matchWrap());
+        LinearLayout header = column();
+        header.setPadding(dp(16), dp(14), dp(16), dp(14));
+        header.setBackground(cardBackground(COLOR_CARD, COLOR_LINE, 8));
+        body.addView(header, matchWrap());
 
-        TextView subtitle = text(atm.atmId + " · " + atm.branch + " · " + atm.vpnIp, 13, COLOR_MUTED, Typeface.NORMAL);
+        TextView title = text(atm.name, 22, COLOR_INK, Typeface.BOLD);
+        title.setGravity(Gravity.RIGHT);
+        header.addView(title, matchWrap());
+
+        TextView subtitle = text(atm.branch + " · " + atm.vpnIp + " · " + atm.atmId, 13, COLOR_MUTED, Typeface.NORMAL);
         subtitle.setGravity(Gravity.RIGHT);
-        body.addView(subtitle, margin(matchWrap(), 0, dp(4), 0, dp(12)));
+        header.addView(subtitle, margin(matchWrap(), 0, dp(4), 0, dp(10)));
+
+        LinearLayout statusLine = row();
+        statusLine.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(statusLine, matchWrap());
+        statusLine.addView(chip(atm.isOnline ? "متصل" : "غير متصل", atm.isOnline ? COLOR_TEAL : COLOR_RED, atm.isOnline ? COLOR_TEAL_SOFT : COLOR_RED_SOFT));
+        statusLine.addView(chip("Cash: " + emptyToDash(atm.cashStatus), COLOR_TEAL, COLOR_TEAL_SOFT), margin(weightWrap(1), dp(8), 0, 0, 0));
+
+        if (!details.units.isEmpty()) {
+            body.addView(cashTotalsPanel(details), margin(matchWrap(), 0, dp(10), 0, dp(10)));
+        }
 
         if (details.rejectRetract != null) {
             LinearLayout rr = row();
-            rr.addView(detailMetric("Reject Bin", String.valueOf(details.rejectRetract.rejectCount), "Capacity " + details.rejectRetract.rejectMaxCapacity), weightHeight(1, dp(92)));
-            rr.addView(detailMetric("Retract Bin", String.valueOf(details.rejectRetract.retractCount), "Capacity " + details.rejectRetract.retractMaxCapacity), margin(weightHeight(1, dp(92)), dp(8), 0, 0, 0));
+            rr.addView(detailMetric("Reject Bin", String.valueOf(details.rejectRetract.rejectCount), "Capacity " + details.rejectRetract.rejectMaxCapacity, details.rejectRetract.rejectCount > 0 ? COLOR_AMBER : COLOR_TEAL), weightHeight(1, dp(98)));
+            rr.addView(detailMetric("Retract Bin", String.valueOf(details.rejectRetract.retractCount), "Capacity " + details.rejectRetract.retractMaxCapacity, details.rejectRetract.retractCount > 0 ? COLOR_AMBER : COLOR_TEAL), margin(weightHeight(1, dp(98)), dp(8), 0, 0, 0));
             body.addView(rr, margin(matchWrap(), 0, 0, 0, dp(12)));
         }
 
@@ -569,6 +585,14 @@ public class MainActivity extends Activity {
             empty.setBackground(cardBackground(Color.rgb(248, 250, 252), COLOR_LINE, 8));
             body.addView(empty, matchWrap());
         } else {
+            LinearLayout sectionHeader = row();
+            sectionHeader.setGravity(Gravity.CENTER_VERTICAL);
+            TextView unitsTitle = text("صناديق النقد", 18, COLOR_INK, Typeface.BOLD);
+            unitsTitle.setGravity(Gravity.RIGHT);
+            sectionHeader.addView(unitsTitle, weightWrap(1));
+            sectionHeader.addView(chip(String.valueOf(details.units.size()), COLOR_MUTED, Color.rgb(248, 250, 252)));
+            body.addView(sectionHeader, margin(matchWrap(), 0, 0, 0, dp(8)));
+
             for (CashUnit unit : details.units) {
                 body.addView(cashUnitRow(unit), margin(matchWrap(), 0, 0, 0, dp(8)));
             }
@@ -592,13 +616,31 @@ public class MainActivity extends Activity {
         dialog.show();
     }
 
-    private LinearLayout detailMetric(String label, String value, String meta) {
+    private LinearLayout cashTotalsPanel(CashDetails details) {
+        LinearLayout panel = column();
+        panel.setPadding(dp(14), dp(12), dp(14), dp(12));
+        panel.setBackground(cardBackground(COLOR_CARD, COLOR_LINE, 8));
+
+        TextView title = text("ملخص النقد", 16, COLOR_INK, Typeface.BOLD);
+        title.setGravity(Gravity.RIGHT);
+        panel.addView(title, matchWrap());
+
+        LinearLayout row = row();
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        panel.addView(row, margin(matchWrap(), 0, dp(10), 0, 0));
+        row.addView(metricText("الصناديق", String.valueOf(details.units.size())), weightWrap(1));
+        row.addView(metricText("الأوراق", String.valueOf(totalNoteCount(details))), margin(weightWrap(1), dp(8), 0, 0, 0));
+        row.addView(metricText("منخفض/فارغ", riskUnitCount(details)), margin(weightWrap(1), dp(8), 0, 0, 0));
+        return panel;
+    }
+
+    private LinearLayout detailMetric(String label, String value, String meta, int color) {
         LinearLayout card = column();
         card.setPadding(dp(12), dp(10), dp(12), dp(10));
-        card.setBackground(cardBackground(Color.rgb(248, 250, 252), Color.TRANSPARENT, 8));
+        card.setBackground(cardBackground(color == COLOR_TEAL ? COLOR_TEAL_SOFT : COLOR_AMBER_SOFT, Color.TRANSPARENT, 8));
         TextView labelView = text(label, 13, COLOR_MUTED, Typeface.BOLD);
         labelView.setGravity(Gravity.RIGHT);
-        TextView valueView = text(value, 28, COLOR_INK, Typeface.BOLD);
+        TextView valueView = text(value, 28, color, Typeface.BOLD);
         valueView.setGravity(Gravity.RIGHT);
         TextView metaView = text(meta, 12, COLOR_MUTED, Typeface.NORMAL);
         metaView.setGravity(Gravity.RIGHT);
@@ -609,16 +651,17 @@ public class MainActivity extends Activity {
     }
 
     private LinearLayout cashUnitRow(CashUnit unit) {
+        CashUnitTone tone = cashUnitTone(unit);
         LinearLayout row = column();
-        row.setPadding(dp(12), dp(10), dp(12), dp(10));
-        row.setBackground(cardBackground(Color.rgb(248, 250, 252), Color.TRANSPARENT, 8));
+        row.setPadding(dp(12), dp(11), dp(12), dp(11));
+        row.setBackground(cardBackground(tone.fill, colorWithAlpha(tone.color, 70), 8));
 
         LinearLayout first = row();
         first.setGravity(Gravity.CENTER_VERTICAL);
         row.addView(first, matchWrap());
 
         LinearLayout titleBox = column();
-        TextView title = text("Cassette " + unit.cassetteNo, 16, COLOR_INK, Typeface.BOLD);
+        TextView title = text("Cassette " + unit.cassetteNo, 17, COLOR_INK, Typeface.BOLD);
         title.setGravity(Gravity.RIGHT);
         titleBox.addView(title, matchWrap());
         TextView cash = text(unit.expectedCurrency + " " + unit.expectedDenomination + " · آخر قراءة " + cleanDate(unit.readAt), 12, COLOR_MUTED, Typeface.NORMAL);
@@ -626,16 +669,21 @@ public class MainActivity extends Activity {
         titleBox.addView(cash, matchWrap());
         first.addView(titleBox, weightWrap(1));
 
-        int statusColor = unit.status.equalsIgnoreCase("OK") ? COLOR_TEAL : COLOR_AMBER;
-        int statusFill = unit.status.equalsIgnoreCase("OK") ? COLOR_TEAL_SOFT : COLOR_AMBER_SOFT;
-        first.addView(chip(unit.status, statusColor, statusFill));
+        first.addView(chip(tone.label, tone.color, Color.WHITE));
 
         LinearLayout counts = row();
         counts.setGravity(Gravity.CENTER_VERTICAL);
         row.addView(counts, margin(matchWrap(), 0, dp(10), 0, 0));
-        counts.addView(metricText("Current", String.valueOf(unit.currentCount)), weightWrap(1));
+        counts.addView(metricText("Current", unit.currentCount + "/" + unit.maxCapacity), weightWrap(1));
         counts.addView(metricText("Rejects", String.valueOf(unit.rejectCount)), margin(weightWrap(1), dp(8), 0, 0, 0));
         counts.addView(metricText("Low / Critical", unit.lowThreshold + " / " + unit.criticalThreshold), margin(weightWrap(1), dp(8), 0, 0, 0));
+
+        LinearLayout progressTrack = row();
+        progressTrack.setBackground(cardBackground(Color.WHITE, Color.TRANSPARENT, 12));
+        row.addView(progressTrack, margin(matchHeight(dp(8)), 0, dp(10), 0, 0));
+        View progress = new View(this);
+        progress.setBackground(cardBackground(tone.color, Color.TRANSPARENT, 12));
+        progressTrack.addView(progress, widthHeight(dp(cashUnitProgressWidth(unit)), dp(8)));
         return row;
     }
 
@@ -648,6 +696,47 @@ public class MainActivity extends Activity {
         box.addView(labelView, matchWrap());
         box.addView(valueView, matchWrap());
         return box;
+    }
+
+    private int totalNoteCount(CashDetails details) {
+        int total = 0;
+        for (CashUnit unit : details.units) {
+            total += Math.max(0, unit.currentCount);
+        }
+        return total;
+    }
+
+    private String riskUnitCount(CashDetails details) {
+        int risky = 0;
+        for (CashUnit unit : details.units) {
+            CashUnitTone tone = cashUnitTone(unit);
+            if (!"OK".equals(tone.label)) {
+                risky++;
+            }
+        }
+        return risky + "/" + details.units.size();
+    }
+
+    private CashUnitTone cashUnitTone(CashUnit unit) {
+        if (unit.currentCount <= 0) {
+            return new CashUnitTone("EMPTY", COLOR_RED, COLOR_RED_SOFT);
+        }
+        if (unit.criticalThreshold > 0 && unit.currentCount <= unit.criticalThreshold) {
+            return new CashUnitTone("CRITICAL", COLOR_RED, COLOR_RED_SOFT);
+        }
+        if (unit.lowThreshold > 0 && unit.currentCount <= unit.lowThreshold) {
+            return new CashUnitTone("LOW", COLOR_AMBER, COLOR_AMBER_SOFT);
+        }
+        if (!unit.status.equalsIgnoreCase("OK")) {
+            return new CashUnitTone(unit.status, COLOR_AMBER, COLOR_AMBER_SOFT);
+        }
+        return new CashUnitTone("OK", COLOR_TEAL, COLOR_TEAL_SOFT);
+    }
+
+    private int cashUnitProgressWidth(CashUnit unit) {
+        int capacity = Math.max(1, unit.maxCapacity);
+        float ratio = Math.max(0f, Math.min(1f, (float) unit.currentCount / (float) capacity));
+        return Math.max(12, Math.round(260f * ratio));
     }
 
     private void requestCashReadNow(AtmItem atm) {
@@ -828,6 +917,7 @@ public class MainActivity extends Activity {
                     unit.optInt("reject_count", 0),
                     unit.optInt("low_threshold", 0),
                     unit.optInt("critical_threshold", 0),
+                    unit.optInt("max_capacity", 1),
                     unit.optString("status", "-"),
                     unit.optString("read_at", "")
                 ));
@@ -1143,10 +1233,11 @@ public class MainActivity extends Activity {
         final int rejectCount;
         final int lowThreshold;
         final int criticalThreshold;
+        final int maxCapacity;
         final String status;
         final String readAt;
 
-        CashUnit(int cassetteNo, String expectedCurrency, int expectedDenomination, int currentCount, int rejectCount, int lowThreshold, int criticalThreshold, String status, String readAt) {
+        CashUnit(int cassetteNo, String expectedCurrency, int expectedDenomination, int currentCount, int rejectCount, int lowThreshold, int criticalThreshold, int maxCapacity, String status, String readAt) {
             this.cassetteNo = cassetteNo;
             this.expectedCurrency = expectedCurrency;
             this.expectedDenomination = expectedDenomination;
@@ -1154,8 +1245,21 @@ public class MainActivity extends Activity {
             this.rejectCount = rejectCount;
             this.lowThreshold = lowThreshold;
             this.criticalThreshold = criticalThreshold;
+            this.maxCapacity = maxCapacity;
             this.status = status;
             this.readAt = readAt;
+        }
+    }
+
+    private static class CashUnitTone {
+        final String label;
+        final int color;
+        final int fill;
+
+        CashUnitTone(String label, int color, int fill) {
+            this.label = label;
+            this.color = color;
+            this.fill = fill;
         }
     }
 }
