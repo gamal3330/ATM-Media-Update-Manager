@@ -94,25 +94,26 @@ public class MainActivity extends Activity {
 
         LinearLayout root = column();
         root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setPadding(dp(18), dp(18), dp(18), dp(22));
+        root.setPadding(dp(18), dp(20), dp(18), dp(24));
         scrollView.addView(root, matchWrap());
 
         LinearLayout hero = column();
         hero.setPadding(dp(20), dp(20), dp(20), dp(20));
         hero.setBackground(cardBackground(COLOR_TEAL, COLOR_TEAL, 8));
+        hero.setElevation(dp(2));
         root.addView(hero, matchWrap());
 
         LinearLayout heroTop = row();
         heroTop.setGravity(Gravity.CENTER_VERTICAL);
         hero.addView(heroTop, matchWrap());
 
-        TextView mark = text("Q", 22, COLOR_TEAL, Typeface.BOLD);
+        TextView mark = text("QIB", 18, COLOR_TEAL, Typeface.BOLD);
         mark.setGravity(Gravity.CENTER);
         mark.setBackground(cardBackground(Color.WHITE, Color.TRANSPARENT, 8));
-        heroTop.addView(mark, widthHeight(dp(46), dp(46)));
+        heroTop.addView(mark, widthHeight(dp(58), dp(46)));
 
         LinearLayout brand = column();
-        TextView title = text("QIB ATM Manager", 25, Color.WHITE, Typeface.BOLD);
+        TextView title = text("QIB ATM Manager", 26, Color.WHITE, Typeface.BOLD);
         title.setGravity(Gravity.RIGHT);
         brand.addView(title, matchWrap());
         TextView subtitle = text("تطبيق مراقبة الصرافات عبر API", 14, Color.rgb(204, 251, 241), Typeface.NORMAL);
@@ -120,13 +121,16 @@ public class MainActivity extends Activity {
         brand.addView(subtitle, matchWrap());
         heroTop.addView(brand, margin(weightWrap(1), 0, 0, dp(12), 0));
 
-        TextView heroMeta = text("واجهة Android أصلية، خفيفة ومباشرة.", 13, Color.rgb(240, 253, 250), Typeface.NORMAL);
-        heroMeta.setGravity(Gravity.RIGHT);
-        hero.addView(heroMeta, margin(matchWrap(), 0, dp(16), 0, 0));
+        LinearLayout heroBadges = row();
+        heroBadges.setGravity(Gravity.CENTER_VERTICAL);
+        hero.addView(heroBadges, margin(matchWrap(), 0, dp(16), 0, 0));
+        heroBadges.addView(loginBadge("Native API"));
+        heroBadges.addView(loginBadge("Secure Session"), margin(widthHeight(dp(132), dp(34)), dp(8), 0, 0, 0));
 
         LinearLayout apiCard = column();
         apiCard.setPadding(dp(16), dp(14), dp(16), dp(14));
         apiCard.setBackground(cardBackground(COLOR_CARD, COLOR_LINE, 8));
+        apiCard.setElevation(dp(1));
         root.addView(apiCard, margin(matchWrap(), 0, dp(12), 0, dp(12)));
 
         LinearLayout apiHeader = row();
@@ -143,13 +147,14 @@ public class MainActivity extends Activity {
         apiText.addView(apiValue, matchWrap());
         apiHeader.addView(apiText, weightWrap(1));
 
-        Button apiSettingsButton = secondaryButton("تغيير");
+        TextView apiSettingsButton = actionButton("تغيير", COLOR_TEAL, COLOR_TEAL_SOFT, Color.TRANSPARENT);
         apiSettingsButton.setOnClickListener(view -> showApiSettingsDialog());
         apiHeader.addView(apiSettingsButton, margin(widthHeight(dp(92), dp(42)), dp(10), 0, 0, 0));
 
         LinearLayout card = column();
         card.setPadding(dp(20), dp(20), dp(20), dp(20));
         card.setBackground(cardBackground(COLOR_CARD, COLOR_LINE, 8));
+        card.setElevation(dp(2));
         root.addView(card, matchWrap());
 
         TextView loginTitle = text("تسجيل الدخول", 22, COLOR_INK, Typeface.BOLD);
@@ -175,10 +180,10 @@ public class MainActivity extends Activity {
         error.setVisibility(errorMessage == null ? View.GONE : View.VISIBLE);
         card.addView(error, margin(matchWrap(), 0, 0, 0, dp(12)));
 
-        Button loginButton = primaryButton("تسجيل الدخول");
+        TextView loginButton = actionButton("تسجيل الدخول", Color.WHITE, COLOR_TEAL, COLOR_TEAL);
         card.addView(loginButton, matchHeight(dp(52)));
 
-        TextView note = text("لا يستخدم التطبيق WebView، كل البيانات تأتي من API مباشرة.", 12, COLOR_MUTED, Typeface.NORMAL);
+        TextView note = text("كل البيانات تأتي من API مباشرة، ولا يتم فتح النظام داخل WebView.", 12, COLOR_MUTED, Typeface.NORMAL);
         note.setGravity(Gravity.CENTER);
         root.addView(note, margin(matchWrap(), 0, dp(14), 0, 0));
 
@@ -925,6 +930,23 @@ public class MainActivity extends Activity {
         textView.setPadding(dp(12), dp(7), dp(12), dp(7));
         textView.setBackground(cardBackground(fill, Color.TRANSPARENT, 24));
         return textView;
+    }
+
+    private TextView loginBadge(String value) {
+        TextView badge = text(value, 12, Color.rgb(204, 251, 241), Typeface.BOLD);
+        badge.setGravity(Gravity.CENTER);
+        badge.setPadding(dp(12), dp(7), dp(12), dp(7));
+        badge.setBackground(cardBackground(Color.argb(50, 255, 255, 255), Color.TRANSPARENT, 18));
+        return badge;
+    }
+
+    private TextView actionButton(String label, int textColor, int fill, int stroke) {
+        TextView button = text(label, 15, textColor, Typeface.BOLD);
+        button.setGravity(Gravity.CENTER);
+        button.setPadding(dp(14), 0, dp(14), 0);
+        button.setBackground(cardBackground(fill, stroke, 8));
+        button.setClickable(true);
+        return button;
     }
 
     private LinearLayout labeledInput(String label, EditText input) {
