@@ -679,7 +679,7 @@ public class MainActivity extends Activity {
         AlertDialog dialog = new AlertDialog.Builder(this)
             .setTitle("نتيجة فحص Switch")
             .setView(body)
-            .setNegativeButton("تحديث القائمة", (d, which) -> loadDashboard())
+            .setNegativeButton("تحديث النتيجة", null)
             .setPositiveButton("إغلاق", null)
             .create();
 
@@ -687,12 +687,43 @@ public class MainActivity extends Activity {
             Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
             Button negative = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
             if (positive != null) positive.setTextColor(COLOR_TEAL);
-            if (negative != null) negative.setTextColor(COLOR_MUTED);
+            if (negative != null) {
+                negative.setTextColor(COLOR_MUTED);
+                negative.setOnClickListener(view -> refreshSwitchProbeDialog(atm, state));
+            }
         });
         dialog.show();
         state.dialog = dialog;
         state.update(probe, errorMessage);
         return state;
+    }
+
+    private void refreshSwitchProbeDialog(AtmItem atm, SwitchProbeDialogState state) {
+        SwitchProbe currentProbe = state.currentProbe;
+        if (currentProbe == null || currentProbe.id <= 0) {
+            Toast.makeText(this, "ما زال طلب الفحص قيد الإرسال.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        Toast.makeText(this, "جاري تحديث نتيجة الفحص.", Toast.LENGTH_SHORT).show();
+        executor.execute(() -> {
+            try {
+                String encodedAtmId = URLEncoder.encode(atm.atmId, "UTF-8");
+                List<SwitchProbe> probes = parseSwitchProbes(request("/api/atms/" + encodedAtmId + "/switch-probes", "GET", null, token));
+                SwitchProbe latest = currentProbe;
+                for (SwitchProbe probe : probes) {
+                    if (probe.id == currentProbe.id) {
+                        latest = probe;
+                        break;
+                    }
+                }
+                SwitchProbe result = latest;
+                mainHandler.post(() -> state.update(result, ""));
+            } catch (Exception exception) {
+                String message = friendlyError(exception);
+                mainHandler.post(() -> state.update(currentProbe, message));
+            }
+        });
     }
 
     private TextView switchProbeMetric(LinearLayout parent, String label, LinearLayout.LayoutParams params) {
@@ -1396,11 +1427,13 @@ public class MainActivity extends Activity {
         TextView latencyValue;
         TextView requestedValue;
         TextView completedValue;
+        SwitchProbe currentProbe;
 
         void update(SwitchProbe probe, String fallbackError) {
             if (probe == null) {
                 return;
             }
+            currentProbe = probe;
 
             int color = switchProbeColor(probe.status);
             int fill = switchProbeFill(probe.status);
