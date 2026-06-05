@@ -42,6 +42,7 @@ public class MainActivity extends Activity {
     private static final String PREFS_NAME = "qib_atm_manager";
     private static final String PREF_TOKEN = "access_token";
     private static final String PREF_USERNAME = "username";
+    private static final String PREF_SERVER_URL = "server_url";
 
     private static final int COLOR_BG = Color.rgb(244, 247, 251);
     private static final int COLOR_CARD = Color.WHITE;
@@ -61,6 +62,7 @@ public class MainActivity extends Activity {
     private SharedPreferences prefs;
     private String token;
     private String username;
+    private String serverUrl;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,6 +73,10 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         token = prefs.getString(PREF_TOKEN, null);
         username = prefs.getString(PREF_USERNAME, "");
+        serverUrl = normalizeServerUrl(prefs.getString(PREF_SERVER_URL, BuildConfig.SERVER_URL));
+        if (serverUrl.isEmpty()) {
+            serverUrl = normalizeServerUrl(BuildConfig.SERVER_URL);
+        }
 
         if (token == null || token.trim().isEmpty()) {
             showLogin(null);
@@ -87,9 +93,25 @@ public class MainActivity extends Activity {
         scrollView.setTextDirection(View.TEXT_DIRECTION_RTL);
 
         LinearLayout root = column();
-        root.setGravity(Gravity.CENTER);
+        root.setGravity(Gravity.CENTER_HORIZONTAL);
         root.setPadding(dp(22), dp(28), dp(22), dp(28));
         scrollView.addView(root, matchWrap());
+
+        LinearLayout topBar = row();
+        topBar.setGravity(Gravity.CENTER_VERTICAL);
+        Button apiSettingsButton = secondaryButton("إعدادات API");
+        apiSettingsButton.setOnClickListener(view -> showApiSettingsDialog());
+        topBar.addView(apiSettingsButton, widthHeight(dp(128), dp(44)));
+
+        LinearLayout topText = column();
+        TextView topTitle = text("تطبيق API أصلي", 14, COLOR_TEAL, Typeface.BOLD);
+        topTitle.setGravity(Gravity.RIGHT);
+        topText.addView(topTitle, matchWrap());
+        TextView topSubtitle = text("اضبط عنوان السيرفر قبل تسجيل الدخول", 12, COLOR_MUTED, Typeface.NORMAL);
+        topSubtitle.setGravity(Gravity.RIGHT);
+        topText.addView(topSubtitle, matchWrap());
+        topBar.addView(topText, margin(weightWrap(1), dp(10), 0, 0, 0));
+        root.addView(topBar, margin(matchWrap(), 0, 0, 0, dp(14)));
 
         LinearLayout card = column();
         card.setPadding(dp(22), dp(22), dp(22), dp(22));
@@ -104,8 +126,10 @@ public class MainActivity extends Activity {
         subtitle.setGravity(Gravity.RIGHT);
         card.addView(subtitle, margin(matchWrap(), 0, dp(6), 0, dp(20)));
 
-        TextView server = chip("API: " + BuildConfig.SERVER_URL, COLOR_TEAL, COLOR_TEAL_SOFT);
+        TextView server = chip("API: " + serverUrl, COLOR_TEAL, COLOR_TEAL_SOFT);
         server.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        server.setClickable(true);
+        server.setOnClickListener(view -> showApiSettingsDialog());
         card.addView(server, margin(matchWrap(), 0, 0, 0, dp(18)));
 
         EditText usernameInput = input("اسم المستخدم");
@@ -142,6 +166,64 @@ public class MainActivity extends Activity {
         setContentView(scrollView);
     }
 
+    private void showApiSettingsDialog() {
+        LinearLayout body = column();
+        body.setPadding(dp(4), dp(8), dp(4), dp(4));
+
+        TextView hint = text("أدخل عنوان API كاملاً. مثال: http://172.16.23.34:8001", 13, COLOR_MUTED, Typeface.NORMAL);
+        hint.setGravity(Gravity.RIGHT);
+        body.addView(hint, margin(matchWrap(), 0, 0, 0, dp(10)));
+
+        EditText serverInput = input("عنوان API");
+        serverInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        serverInput.setText(serverUrl);
+        serverInput.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        serverInput.setTextDirection(View.TEXT_DIRECTION_LTR);
+        body.addView(serverInput, matchHeight(dp(52)));
+
+        TextView warning = text("عند تغيير العنوان سيتم تسجيل الخروج من الجلسة الحالية.", 12, COLOR_AMBER, Typeface.NORMAL);
+        warning.setGravity(Gravity.RIGHT);
+        body.addView(warning, margin(matchWrap(), 0, dp(10), 0, 0));
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle("إعدادات API")
+            .setView(body)
+            .setNegativeButton("إلغاء", null)
+            .setPositiveButton("حفظ", null)
+            .create();
+
+        dialog.setOnShowListener(d -> {
+            Button save = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            Button cancel = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
+            if (save != null) {
+                save.setTextColor(COLOR_TEAL);
+                save.setOnClickListener(view -> {
+                    String normalized = normalizeServerUrl(serverInput.getText().toString());
+                    if (!isValidServerUrl(normalized)) {
+                        serverInput.setError("اكتب عنواناً يبدأ بـ http:// أو https://");
+                        return;
+                    }
+
+                    boolean changed = !normalized.equals(serverUrl);
+                    serverUrl = normalized;
+                    SharedPreferences.Editor editor = prefs.edit().putString(PREF_SERVER_URL, serverUrl);
+                    if (changed) {
+                        token = null;
+                        editor.remove(PREF_TOKEN);
+                    }
+                    editor.apply();
+                    dialog.dismiss();
+                    Toast.makeText(this, "تم حفظ عنوان API", Toast.LENGTH_SHORT).show();
+                    showLogin(changed ? "تم تحديث عنوان API. سجّل الدخول مرة أخرى." : null);
+                });
+            }
+            if (cancel != null) {
+                cancel.setTextColor(COLOR_MUTED);
+            }
+        });
+        dialog.show();
+    }
+
     private void performLogin(String enteredUsername, String enteredPassword) {
         showBlockingStatus("جاري تسجيل الدخول", "يتم الاتصال بالسيرفر عبر API.");
         executor.execute(() -> {
@@ -169,7 +251,7 @@ public class MainActivity extends Activity {
     }
 
     private void loadDashboard() {
-        showBlockingStatus("جاري تحميل البيانات", "يتم قراءة الصرافات وملخص النقد من API.");
+        showBlockingStatus("جاري تحميل البيانات", "API: " + serverUrl);
         executor.execute(() -> {
             try {
                 List<AtmItem> atms = parseAtms(request("/api/atms", "GET", null, token));
@@ -538,11 +620,15 @@ public class MainActivity extends Activity {
         });
         root.addView(logout, margin(matchHeight(dp(48)), 0, dp(8), 0, 0));
 
+        Button apiSettings = ghostButton("إعدادات API");
+        apiSettings.setOnClickListener(view -> showApiSettingsDialog());
+        root.addView(apiSettings, margin(matchHeight(dp(48)), 0, dp(8), 0, 0));
+
         setContentView(root);
     }
 
     private String request(String path, String method, String body, String bearerToken) throws Exception {
-        URL url = new URL(BuildConfig.SERVER_URL + path);
+        URL url = new URL(serverUrl + path);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setRequestMethod(method);
         connection.setConnectTimeout(12000);
@@ -657,6 +743,27 @@ public class MainActivity extends Activity {
         prefs.edit().remove(PREF_TOKEN).apply();
     }
 
+    private String normalizeServerUrl(String value) {
+        String cleaned = value == null ? "" : value.trim();
+        String lower = cleaned.toLowerCase();
+        if (!cleaned.isEmpty() && !lower.startsWith("http://") && !lower.startsWith("https://")) {
+            cleaned = "http://" + cleaned;
+        }
+        while (cleaned.endsWith("/")) {
+            cleaned = cleaned.substring(0, cleaned.length() - 1);
+        }
+        return cleaned;
+    }
+
+    private boolean isValidServerUrl(String value) {
+        if (value == null) {
+            return false;
+        }
+        String lower = value.toLowerCase();
+        return (lower.startsWith("http://") && value.length() > "http://".length())
+            || (lower.startsWith("https://") && value.length() > "https://".length());
+    }
+
     private String friendlyError(Exception exception) {
         if (exception instanceof ApiException) {
             ApiException apiException = (ApiException) exception;
@@ -737,6 +844,7 @@ public class MainActivity extends Activity {
         editText.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         editText.setTextDirection(View.TEXT_DIRECTION_RTL);
         editText.setPadding(dp(14), 0, dp(14), 0);
+        editText.setMinHeight(dp(52));
         editText.setBackground(cardBackground(Color.WHITE, Color.rgb(203, 213, 225), 8));
         return editText;
     }
