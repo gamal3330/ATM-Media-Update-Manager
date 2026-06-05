@@ -116,9 +116,6 @@ public class MainActivity extends Activity {
         TextView title = text("QIB ATM Manager", 26, Color.WHITE, Typeface.BOLD);
         title.setGravity(Gravity.RIGHT);
         brand.addView(title, matchWrap());
-        TextView subtitle = text("تطبيق مراقبة الصرافات عبر API", 14, Color.rgb(204, 251, 241), Typeface.NORMAL);
-        subtitle.setGravity(Gravity.RIGHT);
-        brand.addView(subtitle, matchWrap());
         heroTop.addView(brand, margin(weightWrap(1), 0, 0, dp(12), 0));
 
         LinearLayout heroBadges = row();
