@@ -550,6 +550,7 @@ public class MainActivity extends Activity {
         String value = status == null ? "" : status.toLowerCase();
         if (value.equals("success")) return "نجح";
         if (value.equals("failed")) return "فشل";
+        if (value.equals("sending")) return "جار إرسال الطلب";
         if (value.equals("running")) return "قيد الفحص";
         if (value.equals("pending")) return "بانتظار Agent";
         return "لم يفحص";
@@ -564,7 +565,7 @@ public class MainActivity extends Activity {
         String value = status == null ? "" : status.toLowerCase();
         if (value.equals("success")) return COLOR_TEAL;
         if (value.equals("failed")) return COLOR_RED;
-        if (value.equals("running") || value.equals("pending")) return COLOR_AMBER;
+        if (value.equals("sending") || value.equals("running") || value.equals("pending")) return COLOR_AMBER;
         return COLOR_MUTED;
     }
 
@@ -572,18 +573,23 @@ public class MainActivity extends Activity {
         String value = status == null ? "" : status.toLowerCase();
         if (value.equals("success")) return COLOR_TEAL_SOFT;
         if (value.equals("failed")) return COLOR_RED_SOFT;
-        if (value.equals("running") || value.equals("pending")) return COLOR_AMBER_SOFT;
+        if (value.equals("sending") || value.equals("running") || value.equals("pending")) return COLOR_AMBER_SOFT;
         return Color.rgb(248, 250, 252);
     }
 
     private void requestSwitchProbe(AtmItem atm) {
-        Toast.makeText(this, "تم إرسال طلب فحص Switch إلى " + atm.name, Toast.LENGTH_SHORT).show();
+        SwitchProbeDialogState dialogState = showSwitchProbeDialog(
+            atm,
+            new SwitchProbe(0, atm.switchProbeHost, atm.switchProbePort, "sending", -1, "", "", ""),
+            ""
+        );
         executor.execute(() -> {
             try {
                 String encodedAtmId = URLEncoder.encode(atm.atmId, "UTF-8");
                 SwitchProbe probe = parseSwitchProbe(request("/api/atms/" + encodedAtmId + "/switch-probe", "POST", null, token));
+                mainHandler.post(() -> dialogState.update(probe, ""));
                 SwitchProbe latest = pollSwitchProbeResult(atm, probe);
-                mainHandler.post(() -> showSwitchProbeDialog(atm, latest, ""));
+                mainHandler.post(() -> dialogState.update(latest, ""));
             } catch (Exception exception) {
                 String message = friendlyError(exception);
                 SwitchProbe failed = new SwitchProbe(
@@ -596,7 +602,7 @@ public class MainActivity extends Activity {
                     "",
                     message
                 );
-                mainHandler.post(() -> showSwitchProbeDialog(atm, failed, message));
+                mainHandler.post(() -> dialogState.update(failed, message));
             }
         });
     }
@@ -617,7 +623,8 @@ public class MainActivity extends Activity {
         return latest;
     }
 
-    private void showSwitchProbeDialog(AtmItem atm, SwitchProbe probe, String errorMessage) {
+    private SwitchProbeDialogState showSwitchProbeDialog(AtmItem atm, SwitchProbe probe, String errorMessage) {
+        SwitchProbeDialogState state = new SwitchProbeDialogState();
         LinearLayout body = column();
         body.setPadding(dp(4), dp(8), dp(4), dp(4));
 
@@ -628,42 +635,35 @@ public class MainActivity extends Activity {
         LinearLayout statusRow = row();
         statusRow.setGravity(Gravity.CENTER_VERTICAL);
         body.addView(statusRow, margin(matchWrap(), 0, dp(12), 0, 0));
-        statusRow.addView(chip(formatSwitchProbeStatus(probe.status), switchProbeColor(probe.status), switchProbeFill(probe.status)));
+        state.statusView = chip("", COLOR_MUTED, Color.rgb(248, 250, 252));
+        statusRow.addView(state.statusView);
 
-        TextView target = text(emptyToDash(probe.host) + ":" + (probe.port > 0 ? probe.port : "-"), 13, COLOR_MUTED, Typeface.BOLD);
-        target.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
-        target.setTextDirection(View.TEXT_DIRECTION_LTR);
-        target.setSingleLine(true);
-        target.setEllipsize(TextUtils.TruncateAt.MIDDLE);
-        target.setPadding(dp(12), dp(8), dp(12), dp(8));
-        target.setBackground(cardBackground(Color.rgb(248, 250, 252), Color.TRANSPARENT, 8));
-        statusRow.addView(target, margin(weightWrap(1), dp(8), 0, 0, 0));
+        state.targetView = text("", 13, COLOR_MUTED, Typeface.BOLD);
+        state.targetView.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        state.targetView.setTextDirection(View.TEXT_DIRECTION_LTR);
+        state.targetView.setSingleLine(true);
+        state.targetView.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+        state.targetView.setPadding(dp(12), dp(8), dp(12), dp(8));
+        state.targetView.setBackground(cardBackground(Color.rgb(248, 250, 252), Color.TRANSPARENT, 8));
+        statusRow.addView(state.targetView, margin(weightWrap(1), dp(8), 0, 0, 0));
 
-        TextView message = text(switchProbeMessage(probe), 14, switchProbeColor(probe.status), Typeface.BOLD);
-        message.setGravity(Gravity.RIGHT);
-        message.setPadding(dp(12), dp(10), dp(12), dp(10));
-        message.setBackground(cardBackground(switchProbeFill(probe.status), Color.TRANSPARENT, 8));
-        body.addView(message, margin(matchWrap(), 0, dp(12), 0, 0));
+        state.messageView = text("", 14, COLOR_AMBER, Typeface.BOLD);
+        state.messageView.setGravity(Gravity.RIGHT);
+        state.messageView.setPadding(dp(12), dp(10), dp(12), dp(10));
+        body.addView(state.messageView, margin(matchWrap(), 0, dp(12), 0, 0));
 
-        if (probe.errorMessage != null && !probe.errorMessage.trim().isEmpty()) {
-            TextView error = text(probe.errorMessage, 12, COLOR_RED, Typeface.NORMAL);
-            error.setGravity(Gravity.RIGHT);
-            error.setPadding(dp(12), dp(10), dp(12), dp(10));
-            error.setBackground(cardBackground(COLOR_RED_SOFT, Color.TRANSPARENT, 8));
-            body.addView(error, margin(matchWrap(), 0, dp(8), 0, 0));
-        } else if (errorMessage != null && !errorMessage.trim().isEmpty()) {
-            TextView error = text(errorMessage, 12, COLOR_RED, Typeface.NORMAL);
-            error.setGravity(Gravity.RIGHT);
-            error.setPadding(dp(12), dp(10), dp(12), dp(10));
-            error.setBackground(cardBackground(COLOR_RED_SOFT, Color.TRANSPARENT, 8));
-            body.addView(error, margin(matchWrap(), 0, dp(8), 0, 0));
-        }
+        state.errorView = text("", 12, COLOR_RED, Typeface.NORMAL);
+        state.errorView.setGravity(Gravity.RIGHT);
+        state.errorView.setPadding(dp(12), dp(10), dp(12), dp(10));
+        state.errorView.setBackground(cardBackground(COLOR_RED_SOFT, Color.TRANSPARENT, 8));
+        state.errorView.setVisibility(View.GONE);
+        body.addView(state.errorView, margin(matchWrap(), 0, dp(8), 0, 0));
 
         LinearLayout metrics = row();
         metrics.setGravity(Gravity.CENTER_VERTICAL);
         body.addView(metrics, margin(matchWrap(), 0, dp(12), 0, 0));
-        metrics.addView(metricText("Latency", probe.latencyMs >= 0 ? probe.latencyMs + " ms" : "-"), weightWrap(1));
-        metrics.addView(metricText("وقت الطلب", cleanDate(probe.requestedAt)), margin(weightWrap(1), dp(8), 0, 0, 0));
+        state.latencyValue = switchProbeMetric(metrics, "Latency", weightWrap(1));
+        state.requestedValue = switchProbeMetric(metrics, "وقت الطلب", margin(weightWrap(1), dp(8), 0, 0, 0));
 
         LinearLayout completed = column();
         completed.setPadding(dp(10), dp(8), dp(10), dp(8));
@@ -671,9 +671,9 @@ public class MainActivity extends Activity {
         TextView completedLabel = text("وقت النتيجة", 11, COLOR_MUTED, Typeface.BOLD);
         completedLabel.setGravity(Gravity.RIGHT);
         completed.addView(completedLabel, matchWrap());
-        TextView completedValue = text(cleanDate(probe.completedAt), 14, COLOR_INK, Typeface.BOLD);
-        completedValue.setGravity(Gravity.RIGHT);
-        completed.addView(completedValue, matchWrap());
+        state.completedValue = text("-", 14, COLOR_INK, Typeface.BOLD);
+        state.completedValue.setGravity(Gravity.RIGHT);
+        completed.addView(state.completedValue, matchWrap());
         body.addView(completed, margin(matchWrap(), 0, dp(8), 0, 0));
 
         AlertDialog dialog = new AlertDialog.Builder(this)
@@ -690,10 +690,30 @@ public class MainActivity extends Activity {
             if (negative != null) negative.setTextColor(COLOR_MUTED);
         });
         dialog.show();
+        state.dialog = dialog;
+        state.update(probe, errorMessage);
+        return state;
+    }
+
+    private TextView switchProbeMetric(LinearLayout parent, String label, LinearLayout.LayoutParams params) {
+        LinearLayout box = column();
+        box.setPadding(dp(10), dp(8), dp(10), dp(8));
+        box.setBackground(cardBackground(Color.rgb(248, 250, 252), Color.TRANSPARENT, 8));
+        TextView labelView = text(label, 11, COLOR_MUTED, Typeface.BOLD);
+        labelView.setGravity(Gravity.RIGHT);
+        box.addView(labelView, matchWrap());
+        TextView valueView = text("-", 14, COLOR_INK, Typeface.BOLD);
+        valueView.setGravity(Gravity.RIGHT);
+        box.addView(valueView, matchWrap());
+        parent.addView(box, params);
+        return valueView;
     }
 
     private String switchProbeMessage(SwitchProbe probe) {
         String status = probe.status == null ? "" : probe.status.toLowerCase();
+        if (status.equals("sending")) {
+            return "جار إرسال طلب الفحص إلى الخادم.";
+        }
         if (status.equals("success")) {
             return "تم الوصول إلى Switch بنجاح.";
         }
@@ -1365,6 +1385,59 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         executor.shutdownNow();
         super.onDestroy();
+    }
+
+    private class SwitchProbeDialogState {
+        AlertDialog dialog;
+        TextView statusView;
+        TextView targetView;
+        TextView messageView;
+        TextView errorView;
+        TextView latencyValue;
+        TextView requestedValue;
+        TextView completedValue;
+
+        void update(SwitchProbe probe, String fallbackError) {
+            if (probe == null) {
+                return;
+            }
+
+            int color = switchProbeColor(probe.status);
+            int fill = switchProbeFill(probe.status);
+
+            statusView.setText(formatSwitchProbeStatus(probe.status));
+            statusView.setTextColor(color);
+            statusView.setBackground(cardBackground(fill, Color.TRANSPARENT, 24));
+
+            targetView.setText(emptyToDash(probe.host) + ":" + (probe.port > 0 ? probe.port : "-"));
+
+            messageView.setText(switchProbeMessage(probe));
+            messageView.setTextColor(color);
+            messageView.setBackground(cardBackground(fill, Color.TRANSPARENT, 8));
+
+            String error = cleanError(probe.errorMessage);
+            if (error.isEmpty()) {
+                error = cleanError(fallbackError);
+            }
+            if (error.isEmpty()) {
+                errorView.setVisibility(View.GONE);
+                errorView.setText("");
+            } else {
+                errorView.setText(error);
+                errorView.setVisibility(View.VISIBLE);
+            }
+
+            latencyValue.setText(probe.latencyMs >= 0 ? probe.latencyMs + " ms" : "-");
+            requestedValue.setText(cleanDate(probe.requestedAt));
+            completedValue.setText(cleanDate(probe.completedAt));
+        }
+
+        private String cleanError(String value) {
+            if (value == null || value.trim().isEmpty() || value.equals("null")) {
+                return "";
+            }
+            return value;
+        }
     }
 
     private static class ApiException extends Exception {
