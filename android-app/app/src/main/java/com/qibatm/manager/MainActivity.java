@@ -500,11 +500,19 @@ public class MainActivity extends Activity {
         statusRow.setGravity(Gravity.CENTER_VERTICAL);
         card.addView(statusRow, margin(matchWrap(), 0, dp(8), 0, 0));
         statusRow.addView(miniFact("Cash", emptyToDash(atm.cashStatus)), weightWrap(1));
-        TextView hint = text("تفاصيل النقد", 12, COLOR_TEAL, Typeface.BOLD);
-        hint.setGravity(Gravity.CENTER);
-        hint.setPadding(dp(10), dp(8), dp(10), dp(8));
-        hint.setBackground(cardBackground(COLOR_TEAL_SOFT, Color.TRANSPARENT, 8));
-        statusRow.addView(hint, margin(widthHeight(dp(112), dp(40)), dp(8), 0, 0, 0));
+        statusRow.addView(miniFact("Switch", formatSwitchProbe(atm)), margin(weightWrap(1), dp(8), 0, 0, 0));
+
+        LinearLayout actionRow = row();
+        actionRow.setGravity(Gravity.CENTER_VERTICAL);
+        card.addView(actionRow, margin(matchWrap(), 0, dp(8), 0, 0));
+
+        TextView cashButton = actionButton("تفاصيل النقد", COLOR_TEAL, COLOR_TEAL_SOFT, Color.TRANSPARENT);
+        cashButton.setOnClickListener(view -> loadAtmDetails(atm));
+        actionRow.addView(cashButton, weightHeight(1, dp(42)));
+
+        TextView switchButton = actionButton("فحص Switch", Color.WHITE, COLOR_TEAL, COLOR_TEAL);
+        switchButton.setOnClickListener(view -> requestSwitchProbe(atm));
+        actionRow.addView(switchButton, margin(weightHeight(1, dp(42)), dp(8), 0, 0, 0));
         return card;
     }
 
@@ -519,6 +527,183 @@ public class MainActivity extends Activity {
         box.addView(labelView, matchWrap());
         box.addView(valueView, matchWrap());
         return box;
+    }
+
+    private String formatSwitchProbe(AtmItem atm) {
+        String status = atm.lastSwitchProbeStatus == null ? "" : atm.lastSwitchProbeStatus.toLowerCase();
+        if (status.equals("success")) {
+            return atm.lastSwitchProbeLatencyMs >= 0 ? atm.lastSwitchProbeLatencyMs + " ms" : "نجح";
+        }
+        if (status.equals("failed")) {
+            return "فشل";
+        }
+        if (status.equals("running")) {
+            return "قيد الفحص";
+        }
+        if (status.equals("pending")) {
+            return "بانتظار Agent";
+        }
+        return "لم يفحص";
+    }
+
+    private String formatSwitchProbeStatus(String status) {
+        String value = status == null ? "" : status.toLowerCase();
+        if (value.equals("success")) return "نجح";
+        if (value.equals("failed")) return "فشل";
+        if (value.equals("running")) return "قيد الفحص";
+        if (value.equals("pending")) return "بانتظار Agent";
+        return "لم يفحص";
+    }
+
+    private boolean isFinalSwitchProbe(String status) {
+        String value = status == null ? "" : status.toLowerCase();
+        return value.equals("success") || value.equals("failed");
+    }
+
+    private int switchProbeColor(String status) {
+        String value = status == null ? "" : status.toLowerCase();
+        if (value.equals("success")) return COLOR_TEAL;
+        if (value.equals("failed")) return COLOR_RED;
+        if (value.equals("running") || value.equals("pending")) return COLOR_AMBER;
+        return COLOR_MUTED;
+    }
+
+    private int switchProbeFill(String status) {
+        String value = status == null ? "" : status.toLowerCase();
+        if (value.equals("success")) return COLOR_TEAL_SOFT;
+        if (value.equals("failed")) return COLOR_RED_SOFT;
+        if (value.equals("running") || value.equals("pending")) return COLOR_AMBER_SOFT;
+        return Color.rgb(248, 250, 252);
+    }
+
+    private void requestSwitchProbe(AtmItem atm) {
+        Toast.makeText(this, "تم إرسال طلب فحص Switch إلى " + atm.name, Toast.LENGTH_SHORT).show();
+        executor.execute(() -> {
+            try {
+                String encodedAtmId = URLEncoder.encode(atm.atmId, "UTF-8");
+                SwitchProbe probe = parseSwitchProbe(request("/api/atms/" + encodedAtmId + "/switch-probe", "POST", null, token));
+                SwitchProbe latest = pollSwitchProbeResult(atm, probe);
+                mainHandler.post(() -> showSwitchProbeDialog(atm, latest, ""));
+            } catch (Exception exception) {
+                String message = friendlyError(exception);
+                SwitchProbe failed = new SwitchProbe(
+                    0,
+                    atm.switchProbeHost,
+                    atm.switchProbePort,
+                    "failed",
+                    -1,
+                    "",
+                    "",
+                    message
+                );
+                mainHandler.post(() -> showSwitchProbeDialog(atm, failed, message));
+            }
+        });
+    }
+
+    private SwitchProbe pollSwitchProbeResult(AtmItem atm, SwitchProbe initialProbe) throws Exception {
+        SwitchProbe latest = initialProbe;
+        String encodedAtmId = URLEncoder.encode(atm.atmId, "UTF-8");
+        for (int attempt = 0; attempt < 18 && !isFinalSwitchProbe(latest.status); attempt++) {
+            Thread.sleep(attempt == 0 ? 1000 : 2000);
+            List<SwitchProbe> probes = parseSwitchProbes(request("/api/atms/" + encodedAtmId + "/switch-probes", "GET", null, token));
+            for (SwitchProbe probe : probes) {
+                if (probe.id == initialProbe.id) {
+                    latest = probe;
+                    break;
+                }
+            }
+        }
+        return latest;
+    }
+
+    private void showSwitchProbeDialog(AtmItem atm, SwitchProbe probe, String errorMessage) {
+        LinearLayout body = column();
+        body.setPadding(dp(4), dp(8), dp(4), dp(4));
+
+        TextView atmName = text(atm.name + " · " + atm.atmId, 18, COLOR_INK, Typeface.BOLD);
+        atmName.setGravity(Gravity.RIGHT);
+        body.addView(atmName, matchWrap());
+
+        LinearLayout statusRow = row();
+        statusRow.setGravity(Gravity.CENTER_VERTICAL);
+        body.addView(statusRow, margin(matchWrap(), 0, dp(12), 0, 0));
+        statusRow.addView(chip(formatSwitchProbeStatus(probe.status), switchProbeColor(probe.status), switchProbeFill(probe.status)));
+
+        TextView target = text(emptyToDash(probe.host) + ":" + (probe.port > 0 ? probe.port : "-"), 13, COLOR_MUTED, Typeface.BOLD);
+        target.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        target.setTextDirection(View.TEXT_DIRECTION_LTR);
+        target.setSingleLine(true);
+        target.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+        target.setPadding(dp(12), dp(8), dp(12), dp(8));
+        target.setBackground(cardBackground(Color.rgb(248, 250, 252), Color.TRANSPARENT, 8));
+        statusRow.addView(target, margin(weightWrap(1), dp(8), 0, 0, 0));
+
+        TextView message = text(switchProbeMessage(probe), 14, switchProbeColor(probe.status), Typeface.BOLD);
+        message.setGravity(Gravity.RIGHT);
+        message.setPadding(dp(12), dp(10), dp(12), dp(10));
+        message.setBackground(cardBackground(switchProbeFill(probe.status), Color.TRANSPARENT, 8));
+        body.addView(message, margin(matchWrap(), 0, dp(12), 0, 0));
+
+        if (probe.errorMessage != null && !probe.errorMessage.trim().isEmpty()) {
+            TextView error = text(probe.errorMessage, 12, COLOR_RED, Typeface.NORMAL);
+            error.setGravity(Gravity.RIGHT);
+            error.setPadding(dp(12), dp(10), dp(12), dp(10));
+            error.setBackground(cardBackground(COLOR_RED_SOFT, Color.TRANSPARENT, 8));
+            body.addView(error, margin(matchWrap(), 0, dp(8), 0, 0));
+        } else if (errorMessage != null && !errorMessage.trim().isEmpty()) {
+            TextView error = text(errorMessage, 12, COLOR_RED, Typeface.NORMAL);
+            error.setGravity(Gravity.RIGHT);
+            error.setPadding(dp(12), dp(10), dp(12), dp(10));
+            error.setBackground(cardBackground(COLOR_RED_SOFT, Color.TRANSPARENT, 8));
+            body.addView(error, margin(matchWrap(), 0, dp(8), 0, 0));
+        }
+
+        LinearLayout metrics = row();
+        metrics.setGravity(Gravity.CENTER_VERTICAL);
+        body.addView(metrics, margin(matchWrap(), 0, dp(12), 0, 0));
+        metrics.addView(metricText("Latency", probe.latencyMs >= 0 ? probe.latencyMs + " ms" : "-"), weightWrap(1));
+        metrics.addView(metricText("وقت الطلب", cleanDate(probe.requestedAt)), margin(weightWrap(1), dp(8), 0, 0, 0));
+
+        LinearLayout completed = column();
+        completed.setPadding(dp(10), dp(8), dp(10), dp(8));
+        completed.setBackground(cardBackground(Color.rgb(248, 250, 252), Color.TRANSPARENT, 8));
+        TextView completedLabel = text("وقت النتيجة", 11, COLOR_MUTED, Typeface.BOLD);
+        completedLabel.setGravity(Gravity.RIGHT);
+        completed.addView(completedLabel, matchWrap());
+        TextView completedValue = text(cleanDate(probe.completedAt), 14, COLOR_INK, Typeface.BOLD);
+        completedValue.setGravity(Gravity.RIGHT);
+        completed.addView(completedValue, matchWrap());
+        body.addView(completed, margin(matchWrap(), 0, dp(8), 0, 0));
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle("نتيجة فحص Switch")
+            .setView(body)
+            .setNegativeButton("تحديث القائمة", (d, which) -> loadDashboard())
+            .setPositiveButton("إغلاق", null)
+            .create();
+
+        dialog.setOnShowListener(d -> {
+            Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            Button negative = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
+            if (positive != null) positive.setTextColor(COLOR_TEAL);
+            if (negative != null) negative.setTextColor(COLOR_MUTED);
+        });
+        dialog.show();
+    }
+
+    private String switchProbeMessage(SwitchProbe probe) {
+        String status = probe.status == null ? "" : probe.status.toLowerCase();
+        if (status.equals("success")) {
+            return "تم الوصول إلى Switch بنجاح.";
+        }
+        if (status.equals("failed")) {
+            return "فشل الوصول إلى Switch من داخل الصراف.";
+        }
+        if (status.equals("running")) {
+            return "الـ Agent ينفذ الفحص الآن.";
+        }
+        return "تم إرسال الطلب. بانتظار أن يسحبه الـ Agent وينفذه عبر TCP.";
     }
 
     private void loadAtmDetails(AtmItem atm) {
@@ -871,7 +1056,13 @@ public class MainActivity extends Activity {
                 item.optBoolean("is_online", false),
                 item.optString("agent_version", ""),
                 item.optInt("latency_ms", 0),
-                cashStatus
+                cashStatus,
+                item.optString("switch_probe_host", ""),
+                item.optInt("switch_probe_port", 0),
+                item.optString("last_switch_probe_status", ""),
+                item.isNull("last_switch_probe_latency_ms") ? -1 : item.optInt("last_switch_probe_latency_ms", -1),
+                item.optString("last_switch_probe_error", ""),
+                item.optString("last_switch_probe_at", "")
             ));
         }
         return atms;
@@ -920,6 +1111,39 @@ public class MainActivity extends Activity {
             }
         }
         return details;
+    }
+
+    private SwitchProbe parseSwitchProbe(String response) throws Exception {
+        JSONObject json = new JSONObject(response);
+        return new SwitchProbe(
+            json.optInt("id", 0),
+            json.optString("host", ""),
+            json.optInt("port", 0),
+            json.optString("status", ""),
+            json.isNull("latency_ms") ? -1 : json.optInt("latency_ms", -1),
+            json.optString("requested_at", ""),
+            json.optString("completed_at", ""),
+            json.optString("error_message", "")
+        );
+    }
+
+    private List<SwitchProbe> parseSwitchProbes(String response) throws Exception {
+        JSONArray array = new JSONArray(response);
+        List<SwitchProbe> probes = new ArrayList<>();
+        for (int i = 0; i < array.length(); i++) {
+            JSONObject json = array.getJSONObject(i);
+            probes.add(new SwitchProbe(
+                json.optInt("id", 0),
+                json.optString("host", ""),
+                json.optInt("port", 0),
+                json.optString("status", ""),
+                json.isNull("latency_ms") ? -1 : json.optInt("latency_ms", -1),
+                json.optString("requested_at", ""),
+                json.optString("completed_at", ""),
+                json.optString("error_message", "")
+            ));
+        }
+        return probes;
     }
 
     private void clearSession() {
@@ -1174,8 +1398,30 @@ public class MainActivity extends Activity {
         final String agentVersion;
         final int latencyMs;
         final String cashStatus;
+        final String switchProbeHost;
+        final int switchProbePort;
+        final String lastSwitchProbeStatus;
+        final int lastSwitchProbeLatencyMs;
+        final String lastSwitchProbeError;
+        final String lastSwitchProbeAt;
 
-        AtmItem(String atmId, String name, String branch, String vpnIp, String status, boolean isOnline, String agentVersion, int latencyMs, String cashStatus) {
+        AtmItem(
+            String atmId,
+            String name,
+            String branch,
+            String vpnIp,
+            String status,
+            boolean isOnline,
+            String agentVersion,
+            int latencyMs,
+            String cashStatus,
+            String switchProbeHost,
+            int switchProbePort,
+            String lastSwitchProbeStatus,
+            int lastSwitchProbeLatencyMs,
+            String lastSwitchProbeError,
+            String lastSwitchProbeAt
+        ) {
             this.atmId = atmId;
             this.name = name;
             this.branch = branch;
@@ -1185,6 +1431,34 @@ public class MainActivity extends Activity {
             this.agentVersion = agentVersion;
             this.latencyMs = latencyMs;
             this.cashStatus = cashStatus;
+            this.switchProbeHost = switchProbeHost;
+            this.switchProbePort = switchProbePort;
+            this.lastSwitchProbeStatus = lastSwitchProbeStatus;
+            this.lastSwitchProbeLatencyMs = lastSwitchProbeLatencyMs;
+            this.lastSwitchProbeError = lastSwitchProbeError;
+            this.lastSwitchProbeAt = lastSwitchProbeAt;
+        }
+    }
+
+    private static class SwitchProbe {
+        final int id;
+        final String host;
+        final int port;
+        final String status;
+        final int latencyMs;
+        final String requestedAt;
+        final String completedAt;
+        final String errorMessage;
+
+        SwitchProbe(int id, String host, int port, String status, int latencyMs, String requestedAt, String completedAt, String errorMessage) {
+            this.id = id;
+            this.host = host;
+            this.port = port;
+            this.status = status;
+            this.latencyMs = latencyMs;
+            this.requestedAt = requestedAt;
+            this.completedAt = completedAt;
+            this.errorMessage = errorMessage;
         }
     }
 
