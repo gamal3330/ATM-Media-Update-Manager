@@ -1,266 +1,929 @@
 package com.qibatm.manager;
 
-import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.content.Intent;
+import android.app.AlertDialog;
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.graphics.Color;
-import android.net.Uri;
-import android.os.Build;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
-import android.webkit.ConsoleMessage;
-import android.webkit.WebChromeClient;
-import android.webkit.WebResourceError;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebResourceResponse;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URLEncoder;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
-    private static final int LOAD_TIMEOUT_MS = 12000;
+    private static final String PREFS_NAME = "qib_atm_manager";
+    private static final String PREF_TOKEN = "access_token";
+    private static final String PREF_USERNAME = "username";
 
-    private WebView webView;
-    private ProgressBar progressBar;
-    private LinearLayout statusPanel;
-    private TextView statusTitle;
-    private TextView statusMessage;
-    private final Handler handler = new Handler(Looper.getMainLooper());
-    private boolean pageVisible = false;
+    private static final int COLOR_BG = Color.rgb(244, 247, 251);
+    private static final int COLOR_CARD = Color.WHITE;
+    private static final int COLOR_INK = Color.rgb(15, 23, 42);
+    private static final int COLOR_MUTED = Color.rgb(100, 116, 139);
+    private static final int COLOR_LINE = Color.rgb(221, 230, 240);
+    private static final int COLOR_TEAL = Color.rgb(15, 118, 110);
+    private static final int COLOR_TEAL_SOFT = Color.rgb(224, 249, 241);
+    private static final int COLOR_AMBER = Color.rgb(146, 64, 14);
+    private static final int COLOR_AMBER_SOFT = Color.rgb(255, 251, 235);
+    private static final int COLOR_RED = Color.rgb(190, 18, 60);
+    private static final int COLOR_RED_SOFT = Color.rgb(255, 241, 242);
 
-    private final Runnable loadTimeout = new Runnable() {
-        @Override
-        public void run() {
-            if (!pageVisible) {
-                showConnectionError("انتهت مهلة فتح الصفحة.");
-            }
-        }
-    };
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    private SharedPreferences prefs;
+    private String token;
+    private String username;
 
     @Override
-    @SuppressLint("SetJavaScriptEnabled")
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        getWindow().setStatusBarColor(COLOR_TEAL);
+        getWindow().setNavigationBarColor(COLOR_INK);
 
-        FrameLayout root = new FrameLayout(this);
-        webView = new WebView(this);
-        webView.setBackgroundColor(Color.WHITE);
-        progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        statusPanel = new LinearLayout(this);
-        statusTitle = new TextView(this);
-        statusMessage = new TextView(this);
+        prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        token = prefs.getString(PREF_TOKEN, null);
+        username = prefs.getString(PREF_USERNAME, "");
 
-        root.addView(webView, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
-        ));
-
-        FrameLayout.LayoutParams progressParams = new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            dp(3)
-        );
-        progressParams.gravity = Gravity.TOP;
-        root.addView(progressBar, progressParams);
-
-        root.addView(buildStatusPanel(), new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
-        ));
-
-        setContentView(root);
-        configureWebView();
-        loadHome();
+        if (token == null || token.trim().isEmpty()) {
+            showLogin(null);
+        } else {
+            loadDashboard();
+        }
     }
 
-    private View buildStatusPanel() {
-        statusPanel.setOrientation(LinearLayout.VERTICAL);
-        statusPanel.setGravity(Gravity.CENTER);
-        statusPanel.setPadding(dp(28), dp(28), dp(28), dp(28));
-        statusPanel.setBackgroundColor(Color.rgb(248, 250, 252));
+    private void showLogin(String errorMessage) {
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setFillViewport(true);
+        scrollView.setBackgroundColor(COLOR_BG);
+        scrollView.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        scrollView.setTextDirection(View.TEXT_DIRECTION_RTL);
 
-        statusTitle.setGravity(Gravity.CENTER);
-        statusTitle.setTextColor(Color.rgb(15, 23, 42));
-        statusTitle.setTextSize(22);
-        statusTitle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        LinearLayout root = column();
+        root.setGravity(Gravity.CENTER);
+        root.setPadding(dp(22), dp(28), dp(22), dp(28));
+        scrollView.addView(root, matchWrap());
 
-        statusMessage.setGravity(Gravity.CENTER);
-        statusMessage.setTextColor(Color.rgb(71, 85, 105));
-        statusMessage.setTextSize(15);
-        statusMessage.setLineSpacing(0, 1.15f);
-        LinearLayout.LayoutParams messageParams = new LinearLayout.LayoutParams(
+        LinearLayout card = column();
+        card.setPadding(dp(22), dp(22), dp(22), dp(22));
+        card.setBackground(cardBackground(COLOR_CARD, COLOR_LINE, 8));
+        root.addView(card, matchWrap());
+
+        TextView title = text("QIB ATM Manager", 27, COLOR_INK, Typeface.BOLD);
+        title.setGravity(Gravity.RIGHT);
+        card.addView(title, matchWrap());
+
+        TextView subtitle = text("تسجيل الدخول إلى تطبيق المراقبة", 15, COLOR_MUTED, Typeface.NORMAL);
+        subtitle.setGravity(Gravity.RIGHT);
+        card.addView(subtitle, margin(matchWrap(), 0, dp(6), 0, dp(20)));
+
+        TextView server = chip("API: " + BuildConfig.SERVER_URL, COLOR_TEAL, COLOR_TEAL_SOFT);
+        server.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        card.addView(server, margin(matchWrap(), 0, 0, 0, dp(18)));
+
+        EditText usernameInput = input("اسم المستخدم");
+        usernameInput.setText(username == null ? "" : username);
+        card.addView(usernameInput, margin(matchWrap(), 0, 0, 0, dp(12)));
+
+        EditText passwordInput = input("كلمة المرور");
+        passwordInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        card.addView(passwordInput, margin(matchWrap(), 0, 0, 0, dp(14)));
+
+        TextView error = text(errorMessage == null ? "" : errorMessage, 14, COLOR_RED, Typeface.NORMAL);
+        error.setGravity(Gravity.RIGHT);
+        error.setVisibility(errorMessage == null ? View.GONE : View.VISIBLE);
+        card.addView(error, margin(matchWrap(), 0, 0, 0, dp(12)));
+
+        Button loginButton = primaryButton("دخول");
+        card.addView(loginButton, matchHeight(dp(50)));
+
+        TextView note = text("يتصل التطبيق بالـ API مباشرة ولا يستخدم WebView.", 13, COLOR_MUTED, Typeface.NORMAL);
+        note.setGravity(Gravity.CENTER);
+        root.addView(note, margin(matchWrap(), 0, dp(16), 0, 0));
+
+        loginButton.setOnClickListener(view -> {
+            String enteredUsername = usernameInput.getText().toString().trim();
+            String enteredPassword = passwordInput.getText().toString();
+            if (enteredUsername.isEmpty() || enteredPassword.isEmpty()) {
+                error.setText("أدخل اسم المستخدم وكلمة المرور.");
+                error.setVisibility(View.VISIBLE);
+                return;
+            }
+            performLogin(enteredUsername, enteredPassword);
+        });
+
+        setContentView(scrollView);
+    }
+
+    private void performLogin(String enteredUsername, String enteredPassword) {
+        showBlockingStatus("جاري تسجيل الدخول", "يتم الاتصال بالسيرفر عبر API.");
+        executor.execute(() -> {
+            try {
+                JSONObject payload = new JSONObject();
+                payload.put("username", enteredUsername);
+                payload.put("password", enteredPassword);
+
+                String response = request("/api/auth/login", "POST", payload.toString(), null);
+                JSONObject json = new JSONObject(response);
+                String accessToken = json.getString("access_token");
+
+                token = accessToken;
+                username = enteredUsername;
+                prefs.edit()
+                    .putString(PREF_TOKEN, token)
+                    .putString(PREF_USERNAME, username)
+                    .apply();
+
+                mainHandler.post(this::loadDashboard);
+            } catch (Exception exception) {
+                mainHandler.post(() -> showLogin(friendlyError(exception)));
+            }
+        });
+    }
+
+    private void loadDashboard() {
+        showBlockingStatus("جاري تحميل البيانات", "يتم قراءة الصرافات وملخص النقد من API.");
+        executor.execute(() -> {
+            try {
+                List<AtmItem> atms = parseAtms(request("/api/atms", "GET", null, token));
+                CashSummary summary = parseCashSummary(request("/api/cash/summary", "GET", null, token));
+                mainHandler.post(() -> showDashboard(atms, summary));
+            } catch (ApiException exception) {
+                if (exception.statusCode == 401) {
+                    clearSession();
+                    mainHandler.post(() -> showLogin("انتهت الجلسة أو بيانات الدخول غير صحيحة. سجّل الدخول مرة أخرى."));
+                } else {
+                    mainHandler.post(() -> showErrorScreen("تعذر تحميل البيانات", friendlyError(exception)));
+                }
+            } catch (Exception exception) {
+                mainHandler.post(() -> showErrorScreen("تعذر تحميل البيانات", friendlyError(exception)));
+            }
+        });
+    }
+
+    private void showDashboard(List<AtmItem> atms, CashSummary summary) {
+        int onlineCount = 0;
+        for (AtmItem atm : atms) {
+            if (atm.isOnline) {
+                onlineCount++;
+            }
+        }
+        int offlineCount = Math.max(0, atms.size() - onlineCount);
+
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setFillViewport(true);
+        scrollView.setBackgroundColor(COLOR_BG);
+        scrollView.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        scrollView.setTextDirection(View.TEXT_DIRECTION_RTL);
+
+        LinearLayout root = column();
+        root.setPadding(dp(16), dp(18), dp(16), dp(24));
+        scrollView.addView(root, matchWrap());
+
+        LinearLayout header = row();
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        root.addView(header, matchWrap());
+
+        LinearLayout titleBox = column();
+        TextView title = text("لوحة الصرافات", 26, COLOR_INK, Typeface.BOLD);
+        title.setGravity(Gravity.RIGHT);
+        titleBox.addView(title, matchWrap());
+        TextView meta = text("متصل عبر API مباشرة" + (username == null || username.isEmpty() ? "" : " · " + username), 13, COLOR_MUTED, Typeface.NORMAL);
+        meta.setGravity(Gravity.RIGHT);
+        titleBox.addView(meta, matchWrap());
+        header.addView(titleBox, weightWrap(1));
+
+        Button refresh = secondaryButton("تحديث");
+        refresh.setOnClickListener(view -> loadDashboard());
+        header.addView(refresh, widthHeight(dp(96), dp(44)));
+
+        Button logout = ghostButton("خروج");
+        logout.setOnClickListener(view -> {
+            clearSession();
+            showLogin(null);
+        });
+        header.addView(logout, margin(widthHeight(dp(82), dp(44)), dp(8), 0, 0, 0));
+
+        root.addView(summaryGrid(onlineCount, offlineCount, summary), margin(matchWrap(), 0, dp(16), 0, dp(14)));
+
+        TextView listTitle = text("الصرافات", 20, COLOR_INK, Typeface.BOLD);
+        listTitle.setGravity(Gravity.RIGHT);
+        root.addView(listTitle, margin(matchWrap(), 0, 0, 0, dp(8)));
+
+        if (atms.isEmpty()) {
+            TextView empty = text("لا توجد صرافات حالياً.", 15, COLOR_MUTED, Typeface.NORMAL);
+            empty.setGravity(Gravity.CENTER);
+            empty.setPadding(dp(18), dp(24), dp(18), dp(24));
+            empty.setBackground(cardBackground(COLOR_CARD, COLOR_LINE, 8));
+            root.addView(empty, matchWrap());
+        } else {
+            for (AtmItem atm : atms) {
+                root.addView(atmCard(atm), margin(matchWrap(), 0, 0, 0, dp(10)));
+            }
+        }
+
+        setContentView(scrollView);
+    }
+
+    private LinearLayout summaryGrid(int onlineCount, int offlineCount, CashSummary summary) {
+        LinearLayout grid = column();
+        grid.addView(summaryRow(
+            summaryCard("Online", String.valueOf(onlineCount), COLOR_TEAL, COLOR_TEAL_SOFT),
+            summaryCard("Offline", String.valueOf(offlineCount), COLOR_MUTED, Color.rgb(248, 250, 252))
+        ), matchWrap());
+        grid.addView(summaryRow(
+            summaryCard("Cash Low", String.valueOf(summary.cashLowAtms), COLOR_AMBER, COLOR_AMBER_SOFT),
+            summaryCard("Cash Empty", String.valueOf(summary.cashEmptyAtms), COLOR_RED, COLOR_RED_SOFT)
+        ), margin(matchWrap(), 0, dp(10), 0, 0));
+        TextView alerts = text(
+            "حرج: " + summary.cashCriticalAtms + " · تنبيهات مفتوحة: " + summary.openAlerts,
+            13,
+            COLOR_MUTED,
+            Typeface.BOLD
+        );
+        alerts.setGravity(Gravity.RIGHT);
+        grid.addView(alerts, margin(matchWrap(), 0, dp(8), 0, 0));
+        return grid;
+    }
+
+    private LinearLayout summaryRow(View left, View right) {
+        LinearLayout row = row();
+        row.addView(right, weightHeight(1, dp(112)));
+        row.addView(left, margin(weightHeight(1, dp(112)), dp(10), 0, 0, 0));
+        return row;
+    }
+
+    private LinearLayout summaryCard(String label, String value, int color, int fill) {
+        LinearLayout card = column();
+        card.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(16), dp(12), dp(16), dp(12));
+        card.setBackground(cardBackground(fill, colorWithAlpha(color, 90), 8));
+
+        TextView labelView = text(label, 14, COLOR_MUTED, Typeface.BOLD);
+        labelView.setGravity(Gravity.RIGHT);
+        TextView valueView = text(value, 34, color, Typeface.BOLD);
+        valueView.setGravity(Gravity.RIGHT);
+
+        card.addView(labelView, matchWrap());
+        card.addView(valueView, matchWrap());
+        return card;
+    }
+
+    private View atmCard(AtmItem atm) {
+        LinearLayout card = column();
+        card.setPadding(dp(16), dp(14), dp(16), dp(14));
+        card.setBackground(cardBackground(COLOR_CARD, atm.isOnline ? colorWithAlpha(COLOR_TEAL, 95) : COLOR_LINE, 8));
+        card.setClickable(true);
+        card.setOnClickListener(view -> loadAtmDetails(atm));
+
+        LinearLayout top = row();
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        card.addView(top, matchWrap());
+
+        LinearLayout titleBox = column();
+        TextView name = text(atm.name, 21, COLOR_INK, Typeface.BOLD);
+        name.setGravity(Gravity.RIGHT);
+        titleBox.addView(name, matchWrap());
+        TextView branch = text(atm.branch + " · " + atm.vpnIp + " · " + atm.atmId, 13, COLOR_MUTED, Typeface.NORMAL);
+        branch.setGravity(Gravity.RIGHT);
+        titleBox.addView(branch, matchWrap());
+        top.addView(titleBox, weightWrap(1));
+
+        top.addView(chip(atm.isOnline ? "متصل" : "غير متصل", atm.isOnline ? COLOR_TEAL : COLOR_RED, atm.isOnline ? COLOR_TEAL_SOFT : COLOR_RED_SOFT));
+
+        LinearLayout facts = row();
+        facts.setGravity(Gravity.CENTER_VERTICAL);
+        card.addView(facts, margin(matchWrap(), 0, dp(14), 0, 0));
+
+        facts.addView(miniFact("Latency", atm.latencyMs > 0 ? atm.latencyMs + " ms" : "-"), weightWrap(1));
+        facts.addView(miniFact("Agent", emptyToDash(atm.agentVersion)), margin(weightWrap(1), dp(8), 0, 0, 0));
+        facts.addView(miniFact("Cash", emptyToDash(atm.cashStatus)), margin(weightWrap(1), dp(8), 0, 0, 0));
+
+        TextView hint = text("اضغط لعرض تفاصيل النقد وطلب قراءة جديدة", 12, COLOR_MUTED, Typeface.NORMAL);
+        hint.setGravity(Gravity.RIGHT);
+        card.addView(hint, margin(matchWrap(), 0, dp(10), 0, 0));
+        return card;
+    }
+
+    private LinearLayout miniFact(String label, String value) {
+        LinearLayout box = column();
+        box.setPadding(dp(10), dp(9), dp(10), dp(9));
+        box.setBackground(cardBackground(Color.rgb(248, 250, 252), Color.TRANSPARENT, 8));
+        TextView labelView = text(label, 11, COLOR_MUTED, Typeface.BOLD);
+        labelView.setGravity(Gravity.RIGHT);
+        TextView valueView = text(value, 14, COLOR_INK, Typeface.BOLD);
+        valueView.setGravity(Gravity.RIGHT);
+        box.addView(labelView, matchWrap());
+        box.addView(valueView, matchWrap());
+        return box;
+    }
+
+    private void loadAtmDetails(AtmItem atm) {
+        Toast.makeText(this, "جاري قراءة تفاصيل " + atm.name, Toast.LENGTH_SHORT).show();
+        executor.execute(() -> {
+            try {
+                String encodedAtmId = URLEncoder.encode(atm.atmId, "UTF-8");
+                CashDetails details = parseCashDetails(request("/api/cash/atms/" + encodedAtmId, "GET", null, token));
+                mainHandler.post(() -> showCashDetailsDialog(atm, details));
+            } catch (Exception exception) {
+                mainHandler.post(() -> Toast.makeText(this, friendlyError(exception), Toast.LENGTH_LONG).show());
+            }
+        });
+    }
+
+    private void showCashDetailsDialog(AtmItem atm, CashDetails details) {
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        scrollView.setTextDirection(View.TEXT_DIRECTION_RTL);
+
+        LinearLayout body = column();
+        body.setPadding(dp(4), dp(8), dp(4), dp(4));
+        scrollView.addView(body, matchWrap());
+
+        TextView title = text(atm.name, 21, COLOR_INK, Typeface.BOLD);
+        title.setGravity(Gravity.RIGHT);
+        body.addView(title, matchWrap());
+
+        TextView subtitle = text(atm.atmId + " · " + atm.branch + " · " + atm.vpnIp, 13, COLOR_MUTED, Typeface.NORMAL);
+        subtitle.setGravity(Gravity.RIGHT);
+        body.addView(subtitle, margin(matchWrap(), 0, dp(4), 0, dp(12)));
+
+        if (details.rejectRetract != null) {
+            LinearLayout rr = row();
+            rr.addView(detailMetric("Reject Bin", String.valueOf(details.rejectRetract.rejectCount), "Capacity " + details.rejectRetract.rejectMaxCapacity), weightHeight(1, dp(92)));
+            rr.addView(detailMetric("Retract Bin", String.valueOf(details.rejectRetract.retractCount), "Capacity " + details.rejectRetract.retractMaxCapacity), margin(weightHeight(1, dp(92)), dp(8), 0, 0, 0));
+            body.addView(rr, margin(matchWrap(), 0, 0, 0, dp(12)));
+        }
+
+        if (details.units.isEmpty()) {
+            TextView empty = text("لا توجد قراءة نقد محفوظة لهذا الصراف.", 15, COLOR_MUTED, Typeface.NORMAL);
+            empty.setGravity(Gravity.CENTER);
+            empty.setPadding(dp(12), dp(22), dp(12), dp(22));
+            empty.setBackground(cardBackground(Color.rgb(248, 250, 252), COLOR_LINE, 8));
+            body.addView(empty, matchWrap());
+        } else {
+            for (CashUnit unit : details.units) {
+                body.addView(cashUnitRow(unit), margin(matchWrap(), 0, 0, 0, dp(8)));
+            }
+        }
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setView(scrollView)
+            .setNegativeButton("إغلاق", null)
+            .setPositiveButton("قراءة الآن", (dialogInterface, which) -> requestCashReadNow(atm))
+            .create();
+        dialog.setOnShowListener(d -> {
+            Button positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            Button negative = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
+            if (positive != null) {
+                positive.setTextColor(COLOR_TEAL);
+            }
+            if (negative != null) {
+                negative.setTextColor(COLOR_MUTED);
+            }
+        });
+        dialog.show();
+    }
+
+    private LinearLayout detailMetric(String label, String value, String meta) {
+        LinearLayout card = column();
+        card.setPadding(dp(12), dp(10), dp(12), dp(10));
+        card.setBackground(cardBackground(Color.rgb(248, 250, 252), Color.TRANSPARENT, 8));
+        TextView labelView = text(label, 13, COLOR_MUTED, Typeface.BOLD);
+        labelView.setGravity(Gravity.RIGHT);
+        TextView valueView = text(value, 28, COLOR_INK, Typeface.BOLD);
+        valueView.setGravity(Gravity.RIGHT);
+        TextView metaView = text(meta, 12, COLOR_MUTED, Typeface.NORMAL);
+        metaView.setGravity(Gravity.RIGHT);
+        card.addView(labelView, matchWrap());
+        card.addView(valueView, matchWrap());
+        card.addView(metaView, matchWrap());
+        return card;
+    }
+
+    private LinearLayout cashUnitRow(CashUnit unit) {
+        LinearLayout row = column();
+        row.setPadding(dp(12), dp(10), dp(12), dp(10));
+        row.setBackground(cardBackground(Color.rgb(248, 250, 252), Color.TRANSPARENT, 8));
+
+        LinearLayout first = row();
+        first.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(first, matchWrap());
+
+        LinearLayout titleBox = column();
+        TextView title = text("Cassette " + unit.cassetteNo, 16, COLOR_INK, Typeface.BOLD);
+        title.setGravity(Gravity.RIGHT);
+        titleBox.addView(title, matchWrap());
+        TextView cash = text(unit.expectedCurrency + " " + unit.expectedDenomination + " · آخر قراءة " + cleanDate(unit.readAt), 12, COLOR_MUTED, Typeface.NORMAL);
+        cash.setGravity(Gravity.RIGHT);
+        titleBox.addView(cash, matchWrap());
+        first.addView(titleBox, weightWrap(1));
+
+        int statusColor = unit.status.equalsIgnoreCase("OK") ? COLOR_TEAL : COLOR_AMBER;
+        int statusFill = unit.status.equalsIgnoreCase("OK") ? COLOR_TEAL_SOFT : COLOR_AMBER_SOFT;
+        first.addView(chip(unit.status, statusColor, statusFill));
+
+        LinearLayout counts = row();
+        counts.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(counts, margin(matchWrap(), 0, dp(10), 0, 0));
+        counts.addView(metricText("Current", String.valueOf(unit.currentCount)), weightWrap(1));
+        counts.addView(metricText("Rejects", String.valueOf(unit.rejectCount)), margin(weightWrap(1), dp(8), 0, 0, 0));
+        counts.addView(metricText("Low / Critical", unit.lowThreshold + " / " + unit.criticalThreshold), margin(weightWrap(1), dp(8), 0, 0, 0));
+        return row;
+    }
+
+    private LinearLayout metricText(String label, String value) {
+        LinearLayout box = column();
+        TextView labelView = text(label, 11, COLOR_MUTED, Typeface.BOLD);
+        labelView.setGravity(Gravity.RIGHT);
+        TextView valueView = text(value, 15, COLOR_INK, Typeface.BOLD);
+        valueView.setGravity(Gravity.RIGHT);
+        box.addView(labelView, matchWrap());
+        box.addView(valueView, matchWrap());
+        return box;
+    }
+
+    private void requestCashReadNow(AtmItem atm) {
+        Toast.makeText(this, "تم إرسال طلب قراءة إلى " + atm.name, Toast.LENGTH_SHORT).show();
+        executor.execute(() -> {
+            try {
+                String encodedAtmId = URLEncoder.encode(atm.atmId, "UTF-8");
+                request("/api/cash/atms/" + encodedAtmId + "/read-now", "POST", null, token);
+                mainHandler.post(() -> Toast.makeText(this, "تم قبول طلب القراءة.", Toast.LENGTH_LONG).show());
+            } catch (Exception exception) {
+                mainHandler.post(() -> Toast.makeText(this, friendlyError(exception), Toast.LENGTH_LONG).show());
+            }
+        });
+    }
+
+    private void showBlockingStatus(String title, String message) {
+        FrameLayout frame = new FrameLayout(this);
+        frame.setBackgroundColor(COLOR_BG);
+        frame.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        frame.setTextDirection(View.TEXT_DIRECTION_RTL);
+
+        LinearLayout body = column();
+        body.setGravity(Gravity.CENTER);
+        body.setPadding(dp(28), dp(28), dp(28), dp(28));
+
+        ProgressBar progress = new ProgressBar(this);
+        body.addView(progress, widthHeight(dp(54), dp(54)));
+
+        TextView titleView = text(title, 22, COLOR_INK, Typeface.BOLD);
+        titleView.setGravity(Gravity.CENTER);
+        body.addView(titleView, margin(matchWrap(), 0, dp(18), 0, 0));
+
+        TextView messageView = text(message, 14, COLOR_MUTED, Typeface.NORMAL);
+        messageView.setGravity(Gravity.CENTER);
+        body.addView(messageView, margin(matchWrap(), 0, dp(8), 0, 0));
+
+        frame.addView(body, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ));
+        setContentView(frame);
+    }
+
+    private void showErrorScreen(String title, String message) {
+        LinearLayout root = column();
+        root.setGravity(Gravity.CENTER);
+        root.setPadding(dp(24), dp(24), dp(24), dp(24));
+        root.setBackgroundColor(COLOR_BG);
+        root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        root.setTextDirection(View.TEXT_DIRECTION_RTL);
+
+        TextView titleView = text(title, 23, COLOR_INK, Typeface.BOLD);
+        titleView.setGravity(Gravity.CENTER);
+        root.addView(titleView, matchWrap());
+
+        TextView messageView = text(message, 15, COLOR_MUTED, Typeface.NORMAL);
+        messageView.setGravity(Gravity.CENTER);
+        root.addView(messageView, margin(matchWrap(), 0, dp(12), 0, dp(18)));
+
+        Button retry = primaryButton("إعادة المحاولة");
+        retry.setOnClickListener(view -> loadDashboard());
+        root.addView(retry, matchHeight(dp(50)));
+
+        Button logout = ghostButton("تسجيل دخول جديد");
+        logout.setOnClickListener(view -> {
+            clearSession();
+            showLogin(null);
+        });
+        root.addView(logout, margin(matchHeight(dp(48)), 0, dp(8), 0, 0));
+
+        setContentView(root);
+    }
+
+    private String request(String path, String method, String body, String bearerToken) throws Exception {
+        URL url = new URL(BuildConfig.SERVER_URL + path);
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        connection.setRequestMethod(method);
+        connection.setConnectTimeout(12000);
+        connection.setReadTimeout(20000);
+        connection.setRequestProperty("Accept", "application/json");
+        if (bearerToken != null && !bearerToken.trim().isEmpty()) {
+            connection.setRequestProperty("Authorization", "Bearer " + bearerToken);
+        }
+        if (body != null) {
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            connection.setFixedLengthStreamingMode(bytes.length);
+            try (OutputStream output = connection.getOutputStream()) {
+                output.write(bytes);
+            }
+        }
+
+        int statusCode = connection.getResponseCode();
+        InputStream stream = statusCode >= 400 ? connection.getErrorStream() : connection.getInputStream();
+        String response = readStream(stream);
+        connection.disconnect();
+
+        if (statusCode >= 400) {
+            throw new ApiException(statusCode, response);
+        }
+        return response;
+    }
+
+    private String readStream(InputStream stream) throws Exception {
+        if (stream == null) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                builder.append(line);
+            }
+        }
+        return builder.toString();
+    }
+
+    private List<AtmItem> parseAtms(String response) throws Exception {
+        JSONArray array = new JSONArray(response);
+        List<AtmItem> atms = new ArrayList<>();
+        for (int i = 0; i < array.length(); i++) {
+            JSONObject item = array.getJSONObject(i);
+            JSONObject modules = item.optJSONObject("module_status_json");
+            String cashStatus = modules == null ? "" : modules.optString("cash_monitoring", "");
+            atms.add(new AtmItem(
+                item.optString("atm_id", "-"),
+                item.optString("name", "-"),
+                item.optString("branch", "-"),
+                item.optString("vpn_ip", "-"),
+                item.optString("status", "-"),
+                item.optBoolean("is_online", false),
+                item.optString("agent_version", ""),
+                item.optInt("latency_ms", 0),
+                cashStatus
+            ));
+        }
+        return atms;
+    }
+
+    private CashSummary parseCashSummary(String response) throws Exception {
+        JSONObject json = new JSONObject(response);
+        return new CashSummary(
+            json.optInt("cash_low_atms", 0),
+            json.optInt("cash_empty_atms", 0),
+            json.optInt("cash_critical_atms", 0),
+            json.optInt("open_alerts", 0)
+        );
+    }
+
+    private CashDetails parseCashDetails(String response) throws Exception {
+        JSONObject json = new JSONObject(response);
+        CashDetails details = new CashDetails();
+
+        JSONObject rejectRetract = json.optJSONObject("reject_retract");
+        if (rejectRetract != null) {
+            details.rejectRetract = new RejectRetract(
+                rejectRetract.optInt("reject_count", 0),
+                rejectRetract.optInt("retract_count", 0),
+                rejectRetract.optInt("reject_max_capacity", 0),
+                rejectRetract.optInt("retract_max_capacity", 0)
+            );
+        }
+
+        JSONArray units = json.optJSONArray("units");
+        if (units != null) {
+            for (int i = 0; i < units.length(); i++) {
+                JSONObject unit = units.getJSONObject(i);
+                details.units.add(new CashUnit(
+                    unit.optInt("cassette_no", 0),
+                    unit.optString("expected_currency", unit.optString("reported_currency", "")),
+                    unit.optInt("expected_denomination", unit.optInt("reported_denomination", 0)),
+                    unit.optInt("current_count", 0),
+                    unit.optInt("reject_count", 0),
+                    unit.optInt("low_threshold", 0),
+                    unit.optInt("critical_threshold", 0),
+                    unit.optString("status", "-"),
+                    unit.optString("read_at", "")
+                ));
+            }
+        }
+        return details;
+    }
+
+    private void clearSession() {
+        token = null;
+        prefs.edit().remove(PREF_TOKEN).apply();
+    }
+
+    private String friendlyError(Exception exception) {
+        if (exception instanceof ApiException) {
+            ApiException apiException = (ApiException) exception;
+            String detail = apiException.detail();
+            if (detail.isEmpty()) {
+                detail = "HTTP " + apiException.statusCode;
+            }
+            return detail;
+        }
+        String message = exception.getMessage();
+        if (message == null || message.trim().isEmpty()) {
+            return "حدث خطأ غير معروف.";
+        }
+        return message;
+    }
+
+    private String emptyToDash(String value) {
+        if (value == null || value.trim().isEmpty() || value.equals("null")) {
+            return "-";
+        }
+        return value;
+    }
+
+    private String cleanDate(String value) {
+        if (value == null || value.trim().isEmpty() || value.equals("null")) {
+            return "-";
+        }
+        String cleaned = value.replace("T", " ");
+        int dot = cleaned.indexOf('.');
+        if (dot > 0) {
+            cleaned = cleaned.substring(0, dot);
+        }
+        return cleaned;
+    }
+
+    private LinearLayout column() {
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        layout.setTextDirection(View.TEXT_DIRECTION_RTL);
+        return layout;
+    }
+
+    private LinearLayout row() {
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.HORIZONTAL);
+        layout.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        layout.setTextDirection(View.TEXT_DIRECTION_RTL);
+        return layout;
+    }
+
+    private TextView text(String value, int sizeSp, int color, int style) {
+        TextView textView = new TextView(this);
+        textView.setText(value);
+        textView.setTextSize(sizeSp);
+        textView.setTextColor(color);
+        textView.setTypeface(Typeface.DEFAULT, style);
+        textView.setIncludeFontPadding(true);
+        textView.setTextDirection(View.TEXT_DIRECTION_RTL);
+        return textView;
+    }
+
+    private TextView chip(String value, int color, int fill) {
+        TextView textView = text(value, 13, color, Typeface.BOLD);
+        textView.setGravity(Gravity.CENTER);
+        textView.setPadding(dp(12), dp(7), dp(12), dp(7));
+        textView.setBackground(cardBackground(fill, Color.TRANSPARENT, 24));
+        return textView;
+    }
+
+    private EditText input(String hint) {
+        EditText editText = new EditText(this);
+        editText.setHint(hint);
+        editText.setSingleLine(true);
+        editText.setTextSize(16);
+        editText.setTextColor(COLOR_INK);
+        editText.setHintTextColor(COLOR_MUTED);
+        editText.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        editText.setTextDirection(View.TEXT_DIRECTION_RTL);
+        editText.setPadding(dp(14), 0, dp(14), 0);
+        editText.setBackground(cardBackground(Color.WHITE, Color.rgb(203, 213, 225), 8));
+        return editText;
+    }
+
+    private Button primaryButton(String label) {
+        Button button = new Button(this);
+        button.setText(label);
+        button.setAllCaps(false);
+        button.setTextColor(Color.WHITE);
+        button.setTextSize(16);
+        button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        button.setBackground(cardBackground(COLOR_TEAL, COLOR_TEAL, 8));
+        return button;
+    }
+
+    private Button secondaryButton(String label) {
+        Button button = new Button(this);
+        button.setText(label);
+        button.setAllCaps(false);
+        button.setTextColor(COLOR_INK);
+        button.setTextSize(14);
+        button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        button.setBackground(cardBackground(Color.WHITE, Color.rgb(203, 213, 225), 8));
+        return button;
+    }
+
+    private Button ghostButton(String label) {
+        Button button = secondaryButton(label);
+        button.setTextColor(COLOR_MUTED);
+        return button;
+    }
+
+    private GradientDrawable cardBackground(int fill, int stroke, int radiusDp) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(fill);
+        drawable.setCornerRadius(dp(radiusDp));
+        if (stroke != Color.TRANSPARENT) {
+            drawable.setStroke(dp(1), stroke);
+        }
+        return drawable;
+    }
+
+    private int colorWithAlpha(int color, int alpha) {
+        return Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color));
+    }
+
+    private LinearLayout.LayoutParams matchWrap() {
+        return new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         );
-        messageParams.setMargins(0, dp(12), 0, dp(18));
+    }
 
-        Button retryButton = new Button(this);
-        retryButton.setText("إعادة المحاولة");
-        retryButton.setOnClickListener(view -> loadHome());
-
-        Button browserButton = new Button(this);
-        browserButton.setText("فتح في المتصفح");
-        browserButton.setOnClickListener(view -> {
-            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(BuildConfig.SERVER_URL));
-            startActivity(intent);
-        });
-
-        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
+    private LinearLayout.LayoutParams matchHeight(int height) {
+        return new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
-            dp(48)
+            height
         );
-        buttonParams.setMargins(0, dp(8), 0, 0);
-
-        statusPanel.addView(statusTitle);
-        statusPanel.addView(statusMessage, messageParams);
-        statusPanel.addView(retryButton, buttonParams);
-        statusPanel.addView(browserButton, buttonParams);
-        return statusPanel;
     }
 
-    private void configureWebView() {
-        if (BuildConfig.DEBUG) {
-            WebView.setWebContentsDebuggingEnabled(true);
-        }
-
-        WebSettings settings = webView.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setDatabaseEnabled(true);
-        settings.setLoadWithOverviewMode(true);
-        settings.setUseWideViewPort(true);
-        settings.setBuiltInZoomControls(false);
-        settings.setDisplayZoomControls(false);
-        settings.setAllowFileAccess(false);
-        settings.setAllowContentAccess(false);
-        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        }
-
-        webView.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public void onProgressChanged(WebView view, int newProgress) {
-                progressBar.setProgress(newProgress);
-                progressBar.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
-            }
-
-            @Override
-            public boolean onConsoleMessage(ConsoleMessage consoleMessage) {
-                return super.onConsoleMessage(consoleMessage);
-            }
-        });
-
-        webView.setWebViewClient(new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                view.loadUrl(request.getUrl().toString());
-                return true;
-            }
-
-            @Override
-            @SuppressWarnings("deprecation")
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                view.loadUrl(url);
-                return true;
-            }
-
-            @Override
-            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
-                pageVisible = false;
-                showLoading();
-            }
-
-            @Override
-            public void onPageCommitVisible(WebView view, String url) {
-                pageVisible = true;
-                handler.removeCallbacks(loadTimeout);
-                statusPanel.setVisibility(View.GONE);
-            }
-
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                progressBar.setVisibility(View.GONE);
-            }
-
-            @Override
-            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                if (request != null && request.isForMainFrame()) {
-                    String description = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? String.valueOf(error.getDescription()) : "خطأ اتصال";
-                    showConnectionError(description);
-                }
-            }
-
-            @Override
-            @SuppressWarnings("deprecation")
-            public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-                showConnectionError(description);
-            }
-
-            @Override
-            public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse errorResponse) {
-                if (request != null && request.isForMainFrame()) {
-                    showConnectionError("HTTP " + errorResponse.getStatusCode() + " " + errorResponse.getReasonPhrase());
-                }
-            }
-        });
+    private LinearLayout.LayoutParams widthHeight(int width, int height) {
+        return new LinearLayout.LayoutParams(width, height);
     }
 
-    private void loadHome() {
-        pageVisible = false;
-        showLoading();
-        webView.loadUrl(BuildConfig.SERVER_URL);
-        handler.removeCallbacks(loadTimeout);
-        handler.postDelayed(loadTimeout, LOAD_TIMEOUT_MS);
+    private LinearLayout.LayoutParams weightWrap(float weight) {
+        return new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, weight);
     }
 
-    private void showLoading() {
-        progressBar.setVisibility(View.VISIBLE);
-        statusTitle.setText("جاري فتح QIB ATM Manager");
-        statusMessage.setText("يتم الاتصال بالسيرفر:\n" + BuildConfig.SERVER_URL);
-        statusPanel.setVisibility(View.VISIBLE);
+    private LinearLayout.LayoutParams weightHeight(float weight, int height) {
+        return new LinearLayout.LayoutParams(0, height, weight);
     }
 
-    private void showConnectionError(String details) {
-        handler.removeCallbacks(loadTimeout);
-        progressBar.setVisibility(View.GONE);
-        statusTitle.setText("تعذر فتح النظام");
-        statusMessage.setText(
-            "تأكد أن جهاز Android متصل بنفس الشبكة أو VPN، وأن السيرفر يعمل ويمكن فتحه من المتصفح.\n\n"
-                + BuildConfig.SERVER_URL
-                + "\n\nالتفاصيل: "
-                + details
-        );
-        statusPanel.setVisibility(View.VISIBLE);
-    }
-
-    @Override
-    public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
-            webView.goBack();
-            return;
-        }
-        super.onBackPressed();
-    }
-
-    @Override
-    protected void onDestroy() {
-        handler.removeCallbacks(loadTimeout);
-        if (webView != null) {
-            webView.destroy();
-        }
-        super.onDestroy();
+    private LinearLayout.LayoutParams margin(LinearLayout.LayoutParams params, int left, int top, int right, int bottom) {
+        params.setMargins(left, top, right, bottom);
+        return params;
     }
 
     private int dp(int value) {
         float density = getResources().getDisplayMetrics().density;
         return Math.round(value * density);
+    }
+
+    @Override
+    protected void onDestroy() {
+        executor.shutdownNow();
+        super.onDestroy();
+    }
+
+    private static class ApiException extends Exception {
+        final int statusCode;
+        final String response;
+
+        ApiException(int statusCode, String response) {
+            super("HTTP " + statusCode);
+            this.statusCode = statusCode;
+            this.response = response == null ? "" : response;
+        }
+
+        String detail() {
+            try {
+                JSONObject json = new JSONObject(response);
+                Object detail = json.opt("detail");
+                return detail == null ? "" : String.valueOf(detail);
+            } catch (Exception ignored) {
+                return response;
+            }
+        }
+    }
+
+    private static class AtmItem {
+        final String atmId;
+        final String name;
+        final String branch;
+        final String vpnIp;
+        final String status;
+        final boolean isOnline;
+        final String agentVersion;
+        final int latencyMs;
+        final String cashStatus;
+
+        AtmItem(String atmId, String name, String branch, String vpnIp, String status, boolean isOnline, String agentVersion, int latencyMs, String cashStatus) {
+            this.atmId = atmId;
+            this.name = name;
+            this.branch = branch;
+            this.vpnIp = vpnIp;
+            this.status = status;
+            this.isOnline = isOnline;
+            this.agentVersion = agentVersion;
+            this.latencyMs = latencyMs;
+            this.cashStatus = cashStatus;
+        }
+    }
+
+    private static class CashSummary {
+        final int cashLowAtms;
+        final int cashEmptyAtms;
+        final int cashCriticalAtms;
+        final int openAlerts;
+
+        CashSummary(int cashLowAtms, int cashEmptyAtms, int cashCriticalAtms, int openAlerts) {
+            this.cashLowAtms = cashLowAtms;
+            this.cashEmptyAtms = cashEmptyAtms;
+            this.cashCriticalAtms = cashCriticalAtms;
+            this.openAlerts = openAlerts;
+        }
+    }
+
+    private static class CashDetails {
+        final List<CashUnit> units = new ArrayList<>();
+        RejectRetract rejectRetract;
+    }
+
+    private static class RejectRetract {
+        final int rejectCount;
+        final int retractCount;
+        final int rejectMaxCapacity;
+        final int retractMaxCapacity;
+
+        RejectRetract(int rejectCount, int retractCount, int rejectMaxCapacity, int retractMaxCapacity) {
+            this.rejectCount = rejectCount;
+            this.retractCount = retractCount;
+            this.rejectMaxCapacity = rejectMaxCapacity;
+            this.retractMaxCapacity = retractMaxCapacity;
+        }
+    }
+
+    private static class CashUnit {
+        final int cassetteNo;
+        final String expectedCurrency;
+        final int expectedDenomination;
+        final int currentCount;
+        final int rejectCount;
+        final int lowThreshold;
+        final int criticalThreshold;
+        final String status;
+        final String readAt;
+
+        CashUnit(int cassetteNo, String expectedCurrency, int expectedDenomination, int currentCount, int rejectCount, int lowThreshold, int criticalThreshold, String status, String readAt) {
+            this.cassetteNo = cassetteNo;
+            this.expectedCurrency = expectedCurrency;
+            this.expectedDenomination = expectedDenomination;
+            this.currentCount = currentCount;
+            this.rejectCount = rejectCount;
+            this.lowThreshold = lowThreshold;
+            this.criticalThreshold = criticalThreshold;
+            this.status = status;
+            this.readAt = readAt;
+        }
     }
 }
