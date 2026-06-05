@@ -22,6 +22,33 @@ function alertUnitLabel(alert) {
   return `Cassette ${alert.unit_no}`;
 }
 
+function alertTypeLabel(type) {
+  const known = {
+    CASH_LOW: "نقد منخفض",
+    CASH_CRITICAL: "نقد حرج",
+    CASH_EMPTY: "نقد منتهي",
+    CASSETTE_MISSING: "كاسيت غير موجود",
+    CASSETTE_INOP: "كاسيت متوقف",
+    CURRENCY_MISMATCH: "اختلاف العملة",
+    DENOMINATION_MISMATCH: "اختلاف الفئة",
+    REJECT_BIN_HIGH: "Reject مرتفع",
+    REJECT_BIN_FULL: "Reject ممتلئ",
+    RETRACT_OCCURRED: "Retract موجود",
+  };
+  return known[type] || type || "تنبيه";
+}
+
+const SUMMARY_DETAIL_META = {
+  low: { title: "الصرافات منخفضة النقد", empty: "لا توجد صرافات منخفضة النقد حاليا." },
+  critical: { title: "الصرافات الحرجة", empty: "لا توجد صرافات في حالة حرجة حاليا." },
+  empty: { title: "الصرافات التي انتهى نقدها", empty: "لا توجد صرافات فارغة حاليا." },
+};
+
+const SUMMARY_ALERT_TYPES = {
+  critical: new Set(["CASH_CRITICAL"]),
+  empty: new Set(["CASH_EMPTY"]),
+};
+
 function getCashModuleStatus(atm) {
   return String(atm?.module_status_json?.cash_monitoring || (atm?.cash_monitoring_enabled ? "pending" : "disabled"));
 }
@@ -130,12 +157,10 @@ function issueSummaryItems(summary) {
     { key: "low", label: "منخفض", value: summary?.cash_low_atms || 0, tone: "border-amber-200 bg-amber-50 text-amber-800" },
     { key: "critical", label: "حرج", value: summary?.cash_critical_atms || 0, tone: "border-rose-200 bg-rose-50 text-rose-700" },
     { key: "empty", label: "فارغ", value: summary?.cash_empty_atms || 0, tone: "border-rose-200 bg-rose-50 text-rose-700" },
-    { key: "stale", label: "قراءة قديمة", value: summary?.cash_stale_atms || 0, tone: "border-amber-200 bg-amber-50 text-amber-800" },
-    { key: "alerts", label: "تنبيهات", value: summary?.open_alerts || 0, tone: "border-slate-200 bg-slate-50 text-slate-700" },
   ].filter((item) => Number(item.value) > 0);
 }
 
-function QuietSummary({ summary }) {
+function QuietSummary({ summary, activeKey, onSelect }) {
   const items = issueSummaryItems(summary);
   if (items.length === 0) {
     return (
@@ -148,11 +173,69 @@ function QuietSummary({ summary }) {
   return (
     <div className="flex flex-wrap gap-2">
       {items.map((item) => (
-        <span key={item.key} className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium ${item.tone}`}>
+        <button
+          key={item.key}
+          type="button"
+          onClick={() => onSelect(item.key)}
+          aria-pressed={activeKey === item.key}
+          className={`focus-ring inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+            activeKey === item.key ? "ring-2 ring-slate-300 ring-offset-1" : "hover:bg-white"
+          } ${item.tone}`}
+        >
           <span>{item.label}</span>
           <span className="font-semibold">{item.value}</span>
-        </span>
+        </button>
       ))}
+    </div>
+  );
+}
+
+function SummaryDetailsPanel({ activeKey, items, onClose, onSelectAtm }) {
+  if (!activeKey) return null;
+  const meta = SUMMARY_DETAIL_META[activeKey];
+  if (!meta) return null;
+
+  return (
+    <div className="mt-3 rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+        <div>
+          <div className="text-sm font-semibold text-slate-950">{meta.title}</div>
+          <div className="mt-0.5 text-xs text-slate-500">{items.length} حالة معروضة</div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="focus-ring rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+        >
+          إغلاق
+        </button>
+      </div>
+      {items.length === 0 ? (
+        <div className="px-4 py-5 text-sm text-slate-500">{meta.empty}</div>
+      ) : (
+        <div className="max-h-80 divide-y divide-slate-100 overflow-y-auto">
+          {items.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => item.atmId && onSelectAtm(item.atmId)}
+              className="block w-full px-4 py-3 text-right hover:bg-slate-50"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-slate-950">{item.title}</div>
+                  <div className="mt-1 text-xs text-slate-500">{item.subtitle}</div>
+                </div>
+                {item.value && (
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${item.tone || "bg-slate-100 text-slate-700"}`}>
+                    {item.value}
+                  </span>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -172,18 +255,10 @@ function BinSummary({ label, count, capacity, status }) {
   );
 }
 
-function isStaleCashRead(details) {
-  const readAt = latestCashReadAt(details);
-  const staleMinutes = Number(details?.atm?.cash_stale_after_minutes || 10);
-  if (!readAt) return false;
-  const parsed = Date.parse(readAt);
-  if (Number.isNaN(parsed)) return false;
-  return Date.now() - parsed > staleMinutes * 60 * 1000;
-}
-
 export default function CashMonitoring({ atms }) {
   const [summary, setSummary] = useState(null);
   const [alerts, setAlerts] = useState([]);
+  const [activeSummaryKey, setActiveSummaryKey] = useState("");
   const [selectedAtmId, setSelectedAtmId] = useState("");
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -206,6 +281,36 @@ export default function CashMonitoring({ atms }) {
     if (!selectedInternalId) return [];
     return alerts.filter((alert) => Number(alert.atm_id) === Number(selectedInternalId));
   }, [alerts, details]);
+  const atmsByInternalId = useMemo(() => new Map(atms.map((atm) => [Number(atm.id), atm])), [atms]);
+  const summaryDetailItems = useMemo(() => {
+    if (!activeSummaryKey) return [];
+
+    if (activeSummaryKey === "low") {
+      return (summary?.low_cash_atms || []).map((item) => ({
+        id: `low-${item.atm_id}-${item.cassette_no}`,
+        atmId: item.atm_id,
+        title: `${item.name} · Cassette ${item.cassette_no}`,
+        subtitle: `${item.branch || "-"} · ${item.currency} ${item.denomination} · آخر قراءة ${formatApiDate(item.read_at)}`,
+        value: `${item.current_count} / ${item.threshold_count}`,
+        tone: "bg-amber-50 text-amber-800",
+      }));
+    }
+
+    const types = SUMMARY_ALERT_TYPES[activeSummaryKey];
+    return alerts
+      .filter((alert) => !types || types.has(alert.alert_type))
+      .map((alert) => {
+        const atm = atmsByInternalId.get(Number(alert.atm_id));
+        return {
+          id: `alert-${alert.id}`,
+          atmId: atm?.atm_id,
+          title: `${atm?.name || `ATM ${alert.atm_id}`} · ${alertTypeLabel(alert.alert_type)}`,
+          subtitle: `${alertUnitLabel(alert)} · الحالي ${alert.current_count} · الحد ${alert.threshold_count} · ${formatApiDate(alert.opened_at)}`,
+          value: alert.alert_type,
+          tone: statusTone(alert.alert_type),
+        };
+      });
+  }, [activeSummaryKey, alerts, atmsByInternalId, summary]);
   const selectedAtmDiagnostics = details?.atm;
   const cashModuleStatus = getCashModuleStatus(selectedAtmDiagnostics);
   const selectedAtmForAction = selectedAtmDiagnostics || atms.find((atm) => atm.atm_id === selectedAtmId);
@@ -216,7 +321,6 @@ export default function CashMonitoring({ atms }) {
     [verification],
   );
   const lastReadAt = latestCashReadAt(details);
-  const cashReadStale = isStaleCashRead(details);
   const lastCashReadCommand = details?.last_cash_read_command;
   const showFailedCashReadCommand = shouldShowFailedCashReadCommand(lastCashReadCommand, lastReadAt);
   const canReadNow = Boolean(selectedAtmId && selectedAtmForAction?.cash_monitoring_enabled && !readNowLoading);
@@ -321,7 +425,17 @@ export default function CashMonitoring({ atms }) {
         </div>
       )}
 
-      <QuietSummary summary={summary} />
+      <QuietSummary
+        summary={summary}
+        activeKey={activeSummaryKey}
+        onSelect={(key) => setActiveSummaryKey((current) => (current === key ? "" : key))}
+      />
+      <SummaryDetailsPanel
+        activeKey={activeSummaryKey}
+        items={summaryDetailItems}
+        onClose={() => setActiveSummaryKey("")}
+        onSelectAtm={selectAtm}
+      />
 
       <div className="mt-6 grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
         <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
@@ -371,21 +485,11 @@ export default function CashMonitoring({ atms }) {
                   <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${layoutStatus.tone}`}>
                     {layoutStatus.label}
                   </span>
-                  {cashReadStale && (
-                    <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
-                      قراءة قديمة
-                    </span>
-                  )}
                 </div>
               </div>
               {(!details?.units || details.units.length === 0) && (
                 <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
                   {getNoCashReason(details)}
-                </div>
-              )}
-              {cashReadStale && (
-                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
-                  آخر قراءة نقد محفوظة قديمة: {formatApiDate(lastReadAt)}. نفّذ قراءة ناجحة من الـ Agent قبل اعتماد الأعداد الحالية.
                 </div>
               )}
               {showFailedCashReadCommand && (
@@ -450,13 +554,13 @@ export default function CashMonitoring({ atms }) {
                 {availableByCurrency.length === 0 && <div className="text-sm text-slate-500">لا توجد قراءة نقد بعد</div>}
               </div>
               <BinSummary
-                label="Reject"
+                label="Reject Bin"
                 count={details?.reject_retract?.reject_count}
                 capacity={details?.reject_retract?.reject_max_capacity}
                 status={details?.reject_retract?.reject_status}
               />
               <BinSummary
-                label="Retract"
+                label="Retract Bin"
                 count={details?.reject_retract?.retract_count}
                 capacity={details?.reject_retract?.retract_max_capacity}
                 status={details?.reject_retract?.retract_status}
@@ -479,7 +583,7 @@ export default function CashMonitoring({ atms }) {
                     <th className="px-4 py-3 text-right font-medium">Cash</th>
                     <th className="px-4 py-3 text-right font-medium">Current</th>
                     <th className="px-4 py-3 text-right font-medium">Low / Critical</th>
-                    <th className="px-4 py-3 text-right font-medium">Reject</th>
+                    <th className="px-4 py-3 text-right font-medium">Cassette Rejects</th>
                     <th className="px-4 py-3 text-right font-medium">Status</th>
                     <th className="px-4 py-3 text-right font-medium">Last Read</th>
                   </tr>

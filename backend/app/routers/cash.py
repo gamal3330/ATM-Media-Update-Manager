@@ -43,6 +43,7 @@ SUSPICIOUS_REGRESSION_WINDOW_MINUTES = 30
 SUSPICIOUS_REGRESSION_TOTAL_DROP = 1000
 READ_NOW_PENDING_TIMEOUT = timedelta(minutes=5)
 READ_NOW_ACKNOWLEDGED_TIMEOUT = timedelta(minutes=2)
+FUTURE_CASH_READ_GRACE = timedelta(minutes=5)
 LAYOUT_VERIFICATION_ISSUES = {
     "CURRENCY_MISMATCH",
     "DENOMINATION_MISMATCH",
@@ -517,6 +518,26 @@ def normalize_aware(value: datetime) -> datetime:
     return value
 
 
+def resolve_cash_snapshot_read_at(db: Session, atm: ATM, read_at: datetime, now: datetime) -> datetime:
+    incoming_read_at = normalize_aware(read_at)
+    if incoming_read_at <= now + FUTURE_CASH_READ_GRACE:
+        return incoming_read_at
+
+    db.add(
+        AgentLog(
+            atm_id=atm.id,
+            level="warning",
+            message="Adjusted future cash snapshot timestamp",
+            context={
+                "incoming_read_at": incoming_read_at.isoformat(),
+                "server_received_at": now.isoformat(),
+                "clock_skew_seconds": round((incoming_read_at - now).total_seconds()),
+            },
+        )
+    )
+    return now
+
+
 def is_stale_cash_read_command(command: AgentCommand, now: datetime) -> bool:
     if command.status == "pending":
         return now - normalize_aware(command.created_at) > READ_NOW_PENDING_TIMEOUT
@@ -560,6 +581,8 @@ def suspicious_cash_regression(
     db: Session,
     atm: ATM,
     payload: CashSnapshotRequest,
+    read_at: datetime,
+    now: datetime,
 ) -> tuple[bool, dict[str, Any]]:
     existing_units = {
         unit.cassette_no: unit
@@ -568,7 +591,7 @@ def suspicious_cash_regression(
     if not existing_units:
         return False, {}
 
-    payload_read_at = normalize_aware(payload.read_at)
+    payload_read_at = normalize_aware(read_at)
     drops: list[dict[str, Any]] = []
     total_drop = 0
     latest_existing_read_at: datetime | None = None
@@ -577,17 +600,19 @@ def suspicious_cash_regression(
         if existing is None:
             continue
         existing_read_at = normalize_aware(existing.read_at)
-        latest_existing_read_at = (
-            existing_read_at
-            if latest_existing_read_at is None or existing_read_at > latest_existing_read_at
-            else latest_existing_read_at
-        )
-        if payload_read_at <= existing_read_at:
-            return True, {
-                "reason": "older_snapshot",
-                "incoming_read_at": payload.read_at.isoformat(),
-                "current_read_at": existing.read_at.isoformat(),
-            }
+        existing_read_at_is_future = existing_read_at > now + FUTURE_CASH_READ_GRACE
+        if not existing_read_at_is_future:
+            latest_existing_read_at = (
+                existing_read_at
+                if latest_existing_read_at is None or existing_read_at > latest_existing_read_at
+                else latest_existing_read_at
+            )
+            if payload_read_at <= existing_read_at:
+                return True, {
+                    "reason": "older_snapshot",
+                    "incoming_read_at": payload_read_at.isoformat(),
+                    "current_read_at": existing.read_at.isoformat(),
+                }
         drop = int(existing.current_count) - int(unit_payload.current_count)
         if drop <= 0:
             continue
@@ -628,7 +653,12 @@ def submit_cash_snapshot(
     if payload.atm_cash_mode != "DISPENSE_ONLY":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only DISPENSE_ONLY cash mode is supported")
 
-    is_suspicious, suspicious_details = suspicious_cash_regression(db, atm, payload)
+    now = utcnow()
+    snapshot_read_at = resolve_cash_snapshot_read_at(db, atm, payload.read_at, now)
+    snapshot_payload = payload.model_dump(mode="json")
+    snapshot_payload["read_at"] = snapshot_read_at.isoformat()
+
+    is_suspicious, suspicious_details = suspicious_cash_regression(db, atm, payload, snapshot_read_at, now)
     if is_suspicious:
         db.add(
             AgentLog(
@@ -637,7 +667,7 @@ def submit_cash_snapshot(
                 message="Ignored suspicious cash snapshot regression",
                 context={
                     "source": payload.source,
-                    "read_at": payload.read_at.isoformat(),
+                    "read_at": snapshot_read_at.isoformat(),
                     **suspicious_details,
                 },
             )
@@ -647,9 +677,9 @@ def submit_cash_snapshot(
 
     snapshot = AtmCashSnapshot(
         atm_id=atm.id,
-        snapshot_json=payload.model_dump(mode="json"),
+        snapshot_json=snapshot_payload,
         source=payload.source,
-        read_at=payload.read_at,
+        read_at=snapshot_read_at,
     )
     db.add(snapshot)
 
@@ -705,7 +735,7 @@ def submit_cash_snapshot(
             "physical_status": unit_payload.physical_status,
             "layout_match_status": layout_status,
             "source": payload.source,
-            "read_at": payload.read_at,
+            "read_at": snapshot_read_at,
         }
 
         if unit is None:
@@ -770,7 +800,7 @@ def submit_cash_snapshot(
         .first()
     )
     rr_values = payload.reject_retract.model_dump()
-    rr_values["read_at"] = payload.read_at
+    rr_values["read_at"] = snapshot_read_at
     if reject_retract is None:
         reject_retract = AtmRejectRetractStatus(atm_id=atm.id, **rr_values)
         db.add(reject_retract)

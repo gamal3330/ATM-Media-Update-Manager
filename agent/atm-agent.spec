@@ -3,7 +3,7 @@
 
 a = Analysis(
     ['atm_agent.py'],
-    pathex=['.'],
+    pathex=['C:\\Project\\ATM-Media-Update-Manager\\agent'],
     binaries=[],
     datas=[],
     hiddenimports=['api_client', 'backup_manager', 'cash_monitoring_module', 'checksum', 'config_manager', 'logger', 'media_update_module', 'module_runner', 'network_probe', 'path_policy', 'safe_zip', 'service', 'update_manager', 'pythoncom', 'pywintypes', 'servicemanager', 'win32event', 'win32service', 'win32serviceutil', 'win32timezone', 'xfs_cdm_diagnostics', 'xfs_cdm_reader'],

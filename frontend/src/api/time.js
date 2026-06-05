@@ -1,4 +1,25 @@
 export const ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
+export const APP_TIME_ZONE = "Asia/Aden";
+
+const API_DATE_FORMATTER = new Intl.DateTimeFormat("en-GB", {
+  timeZone: APP_TIME_ZONE,
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: true,
+});
+
+function dateParts(date) {
+  return Object.fromEntries(API_DATE_FORMATTER.formatToParts(date).map((part) => [part.type, part.value]));
+}
+
+function numericText(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? String(number) : value;
+}
 
 export function parseApiDate(value) {
   if (!value) return null;
@@ -31,5 +52,13 @@ export function formatLastSeenAge(atm) {
 
 export function formatApiDate(value) {
   const parsed = parseApiDate(value);
-  return parsed ? parsed.toLocaleString() : "-";
+  if (!parsed) return "-";
+
+  const parts = dateParts(parsed);
+  if (!parts.year || !parts.month || !parts.day || !parts.hour || !parts.minute || !parts.second) {
+    return API_DATE_FORMATTER.format(parsed);
+  }
+
+  const period = String(parts.dayPeriod || "").toLowerCase().includes("p") ? "م" : "ص";
+  return `${numericText(parts.year)}/${numericText(parts.month)}/${numericText(parts.day)} ${period} ${numericText(parts.hour)}:${parts.minute}:${parts.second}`;
 }

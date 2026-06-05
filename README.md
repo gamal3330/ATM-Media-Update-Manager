@@ -7,6 +7,7 @@ MVP لإدارة تحديث ملفات الصور على صرافات Windows ع
 - `backend/`: FastAPI + SQLite + SQLAlchemy.
 - `frontend/`: React + Tailwind Dashboard.
 - `agent/`: QIB ATM Manager Agent دائم قابل للبناء كملف `atm-agent.exe` ويعمل كـ Windows Service واحدة.
+- `android-app/`: تطبيق Android WebView للوصول السريع إلى النظام من الجوال.
 
 ## التشغيل المحلي
 
@@ -77,7 +78,34 @@ admin / admin123!
 
 غيّرها قبل أي استخدام فعلي.
 
-### 3. Agent
+### 3. Android App
+
+تم تجهيز تطبيق Android WebView في:
+
+```text
+android-app/
+```
+
+يفتح النظام على:
+
+```text
+http://172.16.23.34:8001
+```
+
+للبناء افتح مجلد `android-app` عبر Android Studio ثم اختر:
+
+```text
+Build > Build Bundle(s) / APK(s) > Build APK(s)
+```
+
+أو عبر الأوامر إذا كان Android SDK وGradle وJDK 17+ مثبتين:
+
+```powershell
+cd android-app
+gradle :app:assembleDebug
+```
+
+### 4. Agent
 
 أنشئ صرافاً من لوحة التحكم واحفظ الـ API Key الذي يظهر مرة واحدة. المسارات مثل `media_path` و`backup_path` و`temp_path` لا تحفظ محلياً على الصراف؛ يتم سحبها من لوحة التحكم عبر `/api/agent/config`.
 

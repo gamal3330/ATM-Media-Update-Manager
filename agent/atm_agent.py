@@ -30,6 +30,8 @@ DEFAULT_CONFIG = DEFAULT_INSTALL_DIR / "config.json"
 SERVICE_NAME = "ATMUnifiedAgent"
 LEGACY_SERVICE_NAMES = ["ATMMediaAgent"]
 SERVICE_DISPLAY_NAME = "QIB ATM Manager Agent Service"
+SCHEDULED_TASK_NAME = "QIB ATM Manager Agent"
+HIDDEN_TASK_RUNNER = "run-agent-hidden.vbs"
 
 ARGS_THAT_MAY_START_WITH_DASH = {"--api-key"}
 KNOWN_OPTION_ARGS = {
@@ -42,6 +44,8 @@ KNOWN_OPTION_ARGS = {
     "--fallback-check-interval-seconds",
     "--fallback-heartbeat-interval-seconds",
     "--fallback-config-sync-interval-seconds",
+    "--run-mode",
+    "--task-user",
     "--aptra-root",
     "--xfs-root",
     "--msxfs-path",
@@ -100,7 +104,7 @@ def write_state(config: LocalConfig, **updates) -> None:
     path.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 
-def validate_server_credentials(config: LocalConfig) -> None:
+def validate_server_credentials(config: LocalConfig) -> dict:
     session = requests.Session()
     session.headers.update({"X-ATM-ID": config.atm_id, "X-API-Key": config.api_key})
     try:
@@ -117,6 +121,8 @@ def validate_server_credentials(config: LocalConfig) -> None:
             f"Server rejected ATM credentials during install. "
             f"HTTP {response.status_code}: {details}"
         )
+
+    return response.json()
 
 
 def run_sc(*args: str) -> subprocess.CompletedProcess[str]:
@@ -183,6 +189,7 @@ def remove_previous_agent(target_exe: Path, source_exe: Path) -> None:
     for service_name in [SERVICE_NAME, *LEGACY_SERVICE_NAMES]:
         stop_existing_service(service_name)
         delete_existing_service(service_name)
+    remove_existing_scheduled_task()
 
     if same_path(source_exe, target_exe):
         print("Existing service was removed. Using current executable from install directory.")
@@ -218,6 +225,132 @@ def start_windows_service_or_explain(config_path: Path) -> None:
         f"  Get-Content \"{agent_log}\" -Tail 50\n"
         f"  .\\atm-agent.exe run --config \"{config_path}\" --once\n"
     )
+
+
+def cash_xfs_profile_from_remote_config(payload: dict) -> str:
+    modules = payload.get("modules") or {}
+    cash = modules.get("cash_monitoring") or {}
+    return str(cash.get("xfs_profile") or "").strip().lower()
+
+
+def choose_run_mode(requested_mode: str, remote_config_payload: dict) -> str:
+    if requested_mode != "auto":
+        return requested_mode
+    return "scheduled-task" if cash_xfs_profile_from_remote_config(remote_config_payload) == "grg" else "service"
+
+
+def current_windows_user() -> str:
+    domain = os.environ.get("USERDOMAIN") or "."
+    username = os.environ.get("USERNAME") or getpass.getuser()
+    if not username:
+        raise SystemExit("--task-user is required because the current Windows user could not be detected.")
+    return f"{domain}\\{username}" if domain != "." else f".\\{username}"
+
+
+def ps_quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def write_hidden_task_runner(target_exe: Path, config_path: Path, install_dir: Path) -> Path:
+    runner_path = install_dir / HIDDEN_TASK_RUNNER
+    runner_path.write_text(
+        'Set shell = CreateObject("WScript.Shell")\n'
+        f'shell.Run """{target_exe}"" run --config ""{config_path}""", 0, False\n',
+        encoding="ascii",
+    )
+    return runner_path
+
+
+def run_powershell(script: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def scheduled_task_status(task_name: str = SCHEDULED_TASK_NAME) -> str:
+    if os.name != "nt":
+        return "not available outside Windows"
+    script = (
+        f"$task = Get-ScheduledTask -TaskName {ps_quote(task_name)} -ErrorAction SilentlyContinue; "
+        "if ($task) { $task.State } else { 'not installed' }"
+    )
+    result = run_powershell(script)
+    if result.returncode != 0:
+        return "unknown"
+    return result.stdout.strip() or "unknown"
+
+
+def remove_existing_scheduled_task(task_name: str = SCHEDULED_TASK_NAME) -> None:
+    if os.name != "nt":
+        return
+    script = (
+        f"$taskName = {ps_quote(task_name)}; "
+        "$task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue; "
+        "if ($task) { "
+        "  Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue; "
+        "  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false; "
+        "}"
+    )
+    result = run_powershell(script)
+    if result.returncode != 0:
+        details = "\n".join(part.strip() for part in [result.stdout, result.stderr] if part.strip())
+        raise SystemExit(f"Could not remove existing scheduled task {task_name}.\n{details}")
+
+
+def install_scheduled_task(target_exe: Path, config_path: Path, install_dir: Path, task_user: str | None) -> None:
+    if os.name != "nt":
+        raise SystemExit("Scheduled Task installation is only available on Windows.")
+
+    user_id = task_user or current_windows_user()
+    stop_existing_service(SERVICE_NAME)
+    if is_service_installed(SERVICE_NAME):
+        run_sc("config", SERVICE_NAME, "start=", "disabled")
+    remove_existing_scheduled_task()
+    runner_path = write_hidden_task_runner(target_exe, config_path, install_dir)
+    runner_argument = f'"{runner_path}"'
+
+    script = "\n".join(
+        [
+            "$ErrorActionPreference = 'Stop'",
+            f"$taskName = {ps_quote(SCHEDULED_TASK_NAME)}",
+            "$task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue",
+            "if ($task) { Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue; Unregister-ScheduledTask -TaskName $taskName -Confirm:$false }",
+            f"$action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument {ps_quote(runner_argument)}",
+            f"$trigger = New-ScheduledTaskTrigger -AtLogOn -User {ps_quote(user_id)}",
+            f"$principal = New-ScheduledTaskPrincipal -UserId {ps_quote(user_id)} -LogonType Interactive -RunLevel Highest",
+            "$settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)",
+            "Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null",
+            "Start-ScheduledTask -TaskName $taskName",
+        ]
+    )
+    result = run_powershell(script)
+    if result.returncode != 0:
+        details = "\n".join(part.strip() for part in [result.stdout, result.stderr] if part.strip())
+        raise SystemExit(
+            f"Could not install scheduled task {SCHEDULED_TASK_NAME} for {user_id}.\n"
+            f"{details}\n\n"
+            "Make sure the user is currently logged on, then run install again."
+        )
+
+    print(f"Installed and started scheduled task {SCHEDULED_TASK_NAME} for {user_id}.")
+    print("Windows Service is disabled so the agent does not run twice.")
+
+
+def install_windows_service(target_exe: Path, config_path: Path) -> None:
+    bin_path = f'"{target_exe}" service --config "{config_path}"'
+    subprocess.run(
+        ["sc.exe", "create", SERVICE_NAME, "binPath=", bin_path, "start=", "auto", "DisplayName=", SERVICE_DISPLAY_NAME],
+        check=True,
+    )
+    subprocess.run(["sc.exe", "description", SERVICE_NAME, "Pull-based unified ATM agent"], check=True)
+    subprocess.run(
+        ["sc.exe", "failure", SERVICE_NAME, "reset=", "86400", "actions=", "restart/60000/restart/60000/restart/60000"],
+        check=True,
+    )
+    start_windows_service_or_explain(config_path)
 
 
 class AtmAgent:
@@ -435,7 +568,11 @@ def install(args: argparse.Namespace) -> None:
         fallback_heartbeat_interval_seconds=args.fallback_heartbeat_interval_seconds,
         fallback_config_sync_interval_seconds=args.fallback_config_sync_interval_seconds,
     )
-    validate_server_credentials(local_config)
+    remote_config_payload = validate_server_credentials(local_config)
+    detected_xfs_profile = cash_xfs_profile_from_remote_config(remote_config_payload) or "-"
+    run_mode = choose_run_mode(args.run_mode, remote_config_payload)
+    print(f"Detected XFS profile: {detected_xfs_profile}")
+    print(f"Selected startup mode: {run_mode}")
 
     source_exe = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve()
     target_exe = install_dir / ("atm-agent.exe" if source_exe.suffix.lower() == ".exe" else source_exe.name)
@@ -461,26 +598,23 @@ def install(args: argparse.Namespace) -> None:
     if not getattr(sys, "frozen", False):
         raise SystemExit("Build atm-agent.exe with build_agent.bat before installing the Windows Service.")
 
-    bin_path = f'"{target_exe}" service --config "{config_path}"'
-    subprocess.run(
-        ["sc.exe", "create", SERVICE_NAME, "binPath=", bin_path, "start=", "auto", "DisplayName=", SERVICE_DISPLAY_NAME],
-        check=True,
-    )
-    subprocess.run(["sc.exe", "description", SERVICE_NAME, "Pull-based unified ATM agent"], check=True)
-    subprocess.run(
-        ["sc.exe", "failure", SERVICE_NAME, "reset=", "86400", "actions=", "restart/60000/restart/60000/restart/60000"],
-        check=True,
-    )
-    start_windows_service_or_explain(config_path)
+    if run_mode == "scheduled-task":
+        install_scheduled_task(target_exe, config_path, install_dir, args.task_user)
+        return
+
+    install_windows_service(target_exe, config_path)
 
 
 def uninstall(_: argparse.Namespace) -> None:
     if os.name != "nt":
-        print("Windows Service uninstall is only available on Windows.")
+        print("Agent uninstall is only available on Windows.")
         return
-    subprocess.run(["sc.exe", "stop", SERVICE_NAME], check=False)
-    subprocess.run(["sc.exe", "delete", SERVICE_NAME], check=True)
-    print(f"Uninstalled {SERVICE_DISPLAY_NAME}.")
+    remove_existing_scheduled_task()
+    for service_name in [SERVICE_NAME, *LEGACY_SERVICE_NAMES]:
+        stop_existing_service(service_name)
+        if is_service_installed(service_name):
+            delete_existing_service(service_name)
+    print("Uninstalled QIB ATM Manager Agent startup registrations.")
 
 
 def service_status(name: str = SERVICE_NAME) -> str:
@@ -507,6 +641,7 @@ def status_command(args: argparse.Namespace) -> None:
     print(f"ATM ID: {config.atm_id}")
     print(f"Server URL: {config.server_url}")
     print(f"Service: {service_status()}")
+    print(f"Scheduled Task: {scheduled_task_status()}")
     for legacy_name in LEGACY_SERVICE_NAMES:
         legacy_status = service_status(legacy_name)
         if legacy_status != "not installed":
@@ -624,6 +759,8 @@ def main() -> None:
     install_parser.add_argument("--fallback-check-interval-seconds", type=int, default=300)
     install_parser.add_argument("--fallback-heartbeat-interval-seconds", type=int, default=60)
     install_parser.add_argument("--fallback-config-sync-interval-seconds", type=int, default=120)
+    install_parser.add_argument("--run-mode", choices=["auto", "service", "scheduled-task"], default="auto")
+    install_parser.add_argument("--task-user")
     install_parser.set_defaults(func=install)
 
     uninstall_parser = sub.add_parser("uninstall")

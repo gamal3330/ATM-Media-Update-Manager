@@ -106,8 +106,15 @@ def test_admin_can_manage_users_and_page_visibility() -> None:
         headers = login(client)
         pages = client.get("/api/users/pages", headers=headers)
         assert pages.status_code == 200
-        assert any(page["id"] == "atms" for page in pages.json())
-        assert any(page["id"] == "dashboard" and page["label"] == "لوحة المراقبة" for page in pages.json())
+        page_map = {page["id"]: page["label"] for page in pages.json()}
+        assert page_map["dashboard"] == "لوحة المراقبة"
+        assert page_map["atms"] == "الصرافات"
+        assert page_map["cash"] == "مراقبة النقد"
+        assert page_map["notifications"] == "مركز التنبيهات"
+        assert page_map["agent-downloads"] == "Agent Downloads"
+        assert page_map["logs"] == "السجلات"
+        assert page_map["settings"] == "الإعدادات"
+        assert page_map["users"] == "إدارة المستخدمين"
 
         created = client.post(
             "/api/users",
@@ -115,18 +122,18 @@ def test_admin_can_manage_users_and_page_visibility() -> None:
                 "username": "operator1",
                 "password": "operator123",
                 "role": "operator",
-                "allowed_pages": ["dashboard", "atms"],
+                "allowed_pages": ["dashboard", "atms", "cash", "notifications", "logs"],
                 "is_active": True,
             },
             headers=headers,
         )
         assert created.status_code == 201
-        assert created.json()["allowed_pages"] == ["dashboard", "atms"]
+        assert created.json()["allowed_pages"] == ["dashboard", "atms", "cash", "notifications", "logs"]
 
         operator_login = client.post("/api/auth/login", json={"username": "operator1", "password": "operator123"})
         assert operator_login.status_code == 200
         operator_payload = operator_login.json()
-        assert operator_payload["user"]["allowed_pages"] == ["dashboard", "atms"]
+        assert operator_payload["user"]["allowed_pages"] == ["dashboard", "atms", "cash", "notifications", "logs"]
         operator_headers = {"Authorization": f"Bearer {operator_payload['access_token']}"}
 
         denied = client.get("/api/users", headers=operator_headers)
@@ -671,6 +678,67 @@ def test_cash_snapshot_ignores_suspicious_regression() -> None:
         logs = client.get("/api/logs", headers=headers)
         assert logs.status_code == 200
         assert any(item["message"] == "Ignored suspicious cash snapshot regression" for item in logs.json())
+
+
+def test_cash_snapshot_adjusts_future_agent_timestamp() -> None:
+    with TestClient(app) as client:
+        headers = login(client)
+        atm_response = client.post(
+            "/api/atms",
+            json={
+                "atm_id": "ATM-CASH-FUTURE",
+                "name": "Future Clock",
+                "vpn_ip": "10.10.0.58",
+                "branch": "HQ",
+                "cash_monitoring_enabled": True,
+            },
+            headers=headers,
+        )
+        assert atm_response.status_code == 201
+        agent_headers = {"X-ATM-ID": "ATM-CASH-FUTURE", "X-API-Key": atm_response.json()["api_key"]}
+
+        future_read_at = datetime.now(timezone.utc) + timedelta(hours=10)
+        before_submit = datetime.now(timezone.utc) - timedelta(seconds=1)
+        snapshot = client.post(
+            "/api/agent/cash-snapshot",
+            json={
+                "atm_id": "ATM-CASH-FUTURE",
+                "source": "xfs_cdm",
+                "atm_cash_mode": "DISPENSE_ONLY",
+                "read_at": future_read_at.isoformat(),
+                "cash_units": [
+                    {
+                        "cassette_no": 1,
+                        "cassette_id": "CST01",
+                        "cassette_name": "Dispense Cassette 1",
+                        "reported_currency": "YER",
+                        "reported_denomination": 1000,
+                        "initial_count": 2000,
+                        "current_count": 1200,
+                        "reject_count": 0,
+                        "retract_count": 0,
+                        "dispensed_count": 800,
+                        "presented_count": 800,
+                        "status": "OK",
+                        "physical_status": "PRESENT",
+                    }
+                ],
+            },
+            headers=agent_headers,
+        )
+        after_submit = datetime.now(timezone.utc) + timedelta(seconds=1)
+        assert snapshot.status_code == 200
+
+        details = client.get("/api/cash/atms/ATM-CASH-FUTURE", headers=headers)
+        assert details.status_code == 200
+        stored_read_at = datetime.fromisoformat(details.json()["units"][0]["read_at"].replace("Z", "+00:00"))
+        if stored_read_at.tzinfo is None:
+            stored_read_at = stored_read_at.replace(tzinfo=timezone.utc)
+        assert before_submit <= stored_read_at <= after_submit
+
+        logs = client.get("/api/logs", headers=headers)
+        assert logs.status_code == 200
+        assert any(item["message"] == "Adjusted future cash snapshot timestamp" for item in logs.json())
 
 
 def test_cash_snapshot_records_unexpected_reported_cash_values_as_mismatch() -> None:

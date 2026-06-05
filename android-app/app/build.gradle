@@ -1,0 +1,22 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.qibatm.manager"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.qibatm.manager"
+        minSdk 23
+        targetSdk 35
+        versionCode 1
+        versionName "1.0.0"
+
+        buildConfigField "String", "SERVER_URL", "\"http://172.16.23.34:8001\""
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+}

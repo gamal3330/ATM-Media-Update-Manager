@@ -44,6 +44,21 @@ function statusTone(status) {
   return "bg-amber-50 text-amber-700";
 }
 
+function deliveryErrorSummary(message) {
+  const text = String(message || "");
+  if (!text) return "";
+  if (text.includes("Application-specific password required")) {
+    return "Gmail يتطلب App Password بدل كلمة مرور الحساب.";
+  }
+  if (text.includes("Username and Password not accepted") || text.includes("Password not accepted")) {
+    return "Gmail رفض اسم المستخدم أو كلمة المرور.";
+  }
+  if (text.includes("InvalidSecondFactor")) {
+    return "الحساب يحتاج App Password لأن تسجيل الدخول الثنائي مفعل.";
+  }
+  return text.length > 110 ? `${text.slice(0, 110)}...` : text;
+}
+
 function SettingsBadge({ ok, label }) {
   const Icon = ok ? CheckCircle2 : XCircle;
   return (
@@ -188,7 +203,14 @@ function DeliveryList({ deliveries }) {
             <div className="mt-1 truncate text-xs text-slate-500" dir="ltr">
               {delivery.recipient_email}
             </div>
-            {delivery.error_message && <div className="mt-1 text-xs text-rose-700">{delivery.error_message}</div>}
+            {delivery.error_message && (
+              <details className="mt-1 text-xs text-rose-700">
+                <summary className="cursor-pointer font-medium">{deliveryErrorSummary(delivery.error_message)}</summary>
+                <div className="mt-1 max-h-28 overflow-y-auto rounded-md bg-rose-50 p-2 leading-5 text-rose-800" dir="ltr">
+                  <span className="break-words">{delivery.error_message}</span>
+                </div>
+              </details>
+            )}
           </div>
           <div className="text-sm text-slate-500 max-md:mt-2">{formatApiDate(delivery.sent_at || delivery.created_at)}</div>
         </div>
@@ -212,6 +234,7 @@ export default function NotificationCenter() {
   const hasStoredPassword = Boolean(settings?.has_smtp_password);
   const configured = Boolean(settings?.is_configured);
   const canSendTest = configured && Boolean(form.recipient_email.trim());
+  const usesGmailSmtp = form.smtp_host.trim().toLowerCase() === "smtp.gmail.com";
 
   const enabledEvents = useMemo(
     () =>
@@ -477,6 +500,11 @@ export default function NotificationCenter() {
                   className="focus-ring w-full rounded-lg border border-slate-300 px-3 py-2"
                   placeholder={hasStoredPassword ? "اتركه فارغا للإبقاء عليه" : ""}
                 />
+                {usesGmailSmtp && (
+                  <div className="mt-1 text-xs leading-5 text-amber-700">
+                    Gmail يحتاج App Password من إعدادات الحساب، وليس كلمة مرور Gmail العادية.
+                  </div>
+                )}
               </label>
             </div>
           </div>

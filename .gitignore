@@ -8,8 +8,11 @@ __pycache__/
 venv/
 agent/.venv32/
 *.db
+*.db-journal
 *.sqlite
+*.sqlite-journal
 *.sqlite3
+*.sqlite3-journal
 *.log
 *.zip
 *.exe
@@ -21,6 +24,12 @@ backend/*.db
 backend/*.log
 frontend/node_modules/
 frontend/dist/
+android-app/.gradle/
+android-app/local.properties
+android-app/build/
+android-app/app/build/
+android-app/app/release/
+android-app/app/debug/
 agent/config.json
 agent/agent.log
 agent/build/

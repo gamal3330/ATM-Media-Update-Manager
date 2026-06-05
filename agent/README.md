@@ -44,7 +44,7 @@ For NCR/GRG XFS providers installed under `Program Files (x86)`, build the 32-bi
 build_agent_x86.bat
 ```
 
-## Install Service
+## Install Agent
 
 Run Command Prompt as Administrator:
 
@@ -52,9 +52,20 @@ Run Command Prompt as Administrator:
 atm-agent.exe install --server-url="https://atm-update-server.local" --atm-id="ATM001" --api-key="CHANGE_ME"
 ```
 
-If a previous agent is already installed, `install` validates the server/API key first, stops and deletes
-the existing Windows Service registration, removes the old executable when the installer is running from
-another folder, copies the new executable, recreates the service, and starts it again.
+`install` validates the server/API key first, copies the executable, and starts the agent. In `--run-mode auto`
+it keeps NCR/APTRA ATMs as a Windows Service and installs GRG ATMs as a hidden interactive Scheduled Task,
+because some GRG XFS CDM providers do not allow `WFSOpen(CDM)` from Windows Service Session 0.
+
+You can force a mode when needed:
+
+```bat
+atm-agent.exe install --server-url="https://atm-update-server.local" --atm-id="ATM001" --api-key="CHANGE_ME" --run-mode service
+atm-agent.exe install --server-url="https://atm-update-server.local" --atm-id="ATM001" --api-key="CHANGE_ME" --run-mode scheduled-task --task-user="ATM-PC\Administrator"
+```
+
+If a previous agent is already installed, `install` validates credentials first, removes existing service/task
+startup registrations, removes the old executable when the installer is running from another folder, copies the
+new executable, and starts the selected startup mode.
 
 The installer writes files to:
 
@@ -62,7 +73,7 @@ The installer writes files to:
 C:\Program Files\QIB ATM Manager Agent
 ```
 
-It creates and starts this Windows Service:
+For service mode it creates and starts this Windows Service:
 
 ```text
 QIB ATM Manager Agent Service
@@ -72,6 +83,12 @@ The service name is:
 
 ```text
 ATMUnifiedAgent
+```
+
+For scheduled-task mode it creates and starts this hidden task:
+
+```text
+QIB ATM Manager Agent
 ```
 
 ## Commands

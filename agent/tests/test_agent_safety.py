@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from backup_manager import create_backup, restore_backup
+from atm_agent import choose_run_mode, write_hidden_task_runner
 from checksum import sha256_file
 from cash_monitoring_module import CashMonitoringModule
 from config_manager import load_local_config, parse_remote_config
@@ -78,6 +79,33 @@ def test_local_config_contains_connection_data_only(tmp_path):
 
     assert config.server_url == "https://server.local"
     assert not hasattr(config, "media_path")
+
+
+def test_install_auto_run_mode_uses_scheduled_task_for_grg():
+    payload = {"modules": {"cash_monitoring": {"xfs_profile": "GRG"}}}
+
+    assert choose_run_mode("auto", payload) == "scheduled-task"
+    assert choose_run_mode("service", payload) == "service"
+
+
+def test_install_auto_run_mode_keeps_service_for_non_grg():
+    payload = {"modules": {"cash_monitoring": {"xfs_profile": "ncr_aptra"}}}
+
+    assert choose_run_mode("auto", payload) == "service"
+
+
+def test_hidden_task_runner_quotes_program_files_paths(tmp_path):
+    exe = tmp_path / "Program Files (x86)" / "ATM Agent" / "atm-agent.exe"
+    config = tmp_path / "Program Files (x86)" / "ATM Agent" / "config.json"
+    install_dir = tmp_path / "install"
+    install_dir.mkdir()
+
+    runner = write_hidden_task_runner(exe, config, install_dir)
+    content = runner.read_text(encoding="ascii")
+
+    assert 'shell.Run """' in content
+    assert '"" run --config ""' in content
+    assert '""", 0, False' in content
 
 
 def test_remote_config_rejects_paths_outside_atm_root():

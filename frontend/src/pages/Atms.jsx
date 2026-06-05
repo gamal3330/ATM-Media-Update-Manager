@@ -110,7 +110,7 @@ function updateCashLayoutCurrency(layout, cassetteNo, currency) {
 }
 
 function buildEmptyForm() {
-  return { atm_id: "", name: "", vpn_ip: "", branch: "", cash_layout: buildCashLayout() };
+  return { atm_id: "", name: "", vpn_ip: "", branch: "", xfs_profile: "ncr_aptra", cash_layout: buildCashLayout() };
 }
 
 function commonAtmNumber(atms, key, fallback) {
@@ -236,8 +236,12 @@ function buildSettingsForm(atm) {
   };
 }
 
+function isGrgProfile(value) {
+  return String(value || "").toLowerCase() === "grg";
+}
+
 function buildInstallCommand(atmId, apiKey) {
-  return `atm-agent.exe install --server-url="${apiBaseUrl}" --atm-id="${atmId}" --api-key="${apiKey}"`;
+  return `atm-agent.exe install --server-url="${apiBaseUrl}" --atm-id="${atmId}" --api-key="${apiKey}" --run-mode auto`;
 }
 
 function getLatencyTone(latencyMs) {
@@ -536,6 +540,33 @@ function AtmEventTimeline({ events, loading, onRefresh }) {
   );
 }
 
+function AgentInstallHint({ atm }) {
+  const grg = isGrgProfile(atm?.xfs_profile);
+  return (
+    <div
+      className={`mt-3 rounded-lg border px-3 py-2 text-sm ${
+        grg ? "border-amber-200 bg-amber-50 text-amber-900" : "border-slate-200 bg-slate-50 text-slate-600"
+      }`}
+    >
+      <div className="font-semibold text-slate-950">تعليمات تثبيت الـ Agent</div>
+      <div className="mt-1">
+        {grg
+          ? "هذا الصراف GRG. عند استخدام نسخة Agent الجديدة مع --run-mode auto سيقوم التثبيت تلقائياً بتشغيله كمهمة مجدولة مخفية بدلاً من Windows Service."
+          : "هذا الصراف ليس GRG. سيستخدم التثبيت التلقائي Windows Service كالمعتاد."}
+      </div>
+      {grg && (
+        <div className="mt-1">
+          شغّل أمر التثبيت من مستخدم Windows الذي يفتح XFS بنجاح، مثل Administrator، أو استخدم خيار
+          <span className="mx-1 font-mono" dir="ltr">
+            --task-user
+          </span>
+          عند الحاجة.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CassetteLayoutEditor({ layout, onChange, title = "تخطيط الكاسيتات", fieldError }) {
   const normalized = normalizeCashLayout(layout);
   return (
@@ -683,6 +714,7 @@ export default function Atms({ atms, onChanged }) {
   const [settingsMessage, setSettingsMessage] = useState("");
   const [generatedKey, setGeneratedKey] = useState("");
   const [generatedKeyAtmId, setGeneratedKeyAtmId] = useState("");
+  const [generatedKeyAtm, setGeneratedKeyAtm] = useState(null);
   const [copyMessage, setCopyMessage] = useState("");
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
@@ -746,6 +778,7 @@ export default function Atms({ atms, onChanged }) {
     setFieldErrors({});
     setGeneratedKey("");
     setGeneratedKeyAtmId("");
+    setGeneratedKeyAtm(null);
     setCopyMessage("");
 
     const localErrors = validateForm(form);
@@ -767,11 +800,16 @@ export default function Atms({ atms, onChanged }) {
         name: form.name.trim(),
         vpn_ip: form.vpn_ip.trim(),
         branch: form.branch.trim(),
+        xfs_profile: form.xfs_profile || "ncr_aptra",
+        xfs_logical_service: xfsProfileDefaults[form.xfs_profile] || "MediaDispenser1",
+        atm_cash_mode: "DISPENSE_ONLY",
+        cash_provider: "xfs_cdm",
         ...intervalDefaults,
         cash_layout: normalizeCashLayout(form.cash_layout),
       });
       setGeneratedKey(result.api_key);
       setGeneratedKeyAtmId(result.atm.atm_id);
+      setGeneratedKeyAtm(result.atm);
       setForm(buildEmptyForm());
       setShowCreateForm(false);
       setSelectedAtmId(result.atm.atm_id);
@@ -944,6 +982,7 @@ export default function Atms({ atms, onChanged }) {
       const result = await api.regenerateAtmApiKey(selectedAtm.atm_id);
       setGeneratedKey(result.api_key);
       setGeneratedKeyAtmId(result.atm.atm_id);
+      setGeneratedKeyAtm(result.atm);
       setSettingsMessage("تم توليد API Key جديد. انسخ أمر التثبيت الآن؛ لن يظهر المفتاح مرة أخرى.");
       onChanged();
     } catch (err) {
@@ -1120,7 +1159,21 @@ export default function Atms({ atms, onChanged }) {
                     {fieldErrors[key] && <span className="mt-1 block text-xs text-rose-700">{fieldErrors[key]}</span>}
                   </label>
                 ))}
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-slate-700">نوع XFS</span>
+                  <select
+                    className="focus-ring w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+                    value={form.xfs_profile}
+                    onChange={(event) => setForm((current) => ({ ...current, xfs_profile: event.target.value }))}
+                  >
+                    <option value="ncr_aptra">NCR</option>
+                    <option value="grg">GRG</option>
+                  </select>
+                </label>
               </div>
+              {isGrgProfile(form.xfs_profile) && (
+                <AgentInstallHint atm={{ xfs_profile: form.xfs_profile }} />
+              )}
               <div className="mt-4">
                 <CassetteLayoutEditor
                   layout={form.cash_layout}
@@ -1149,6 +1202,7 @@ export default function Atms({ atms, onChanged }) {
               <div className="mt-2 overflow-x-auto rounded border border-amber-200 bg-white px-2 py-1 font-mono text-xs" dir="ltr">
                 {installCommand}
               </div>
+              <AgentInstallHint atm={generatedKeyAtm} />
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -1697,6 +1751,7 @@ export default function Atms({ atms, onChanged }) {
                       <div className="mt-2 overflow-x-auto rounded border border-amber-200 bg-white px-2 py-1 font-mono text-xs" dir="ltr">
                         {buildInstallCommand(generatedKeyAtmId, generatedKey)}
                       </div>
+                      <AgentInstallHint atm={generatedKeyAtm || selectedAtm} />
                       <button
                         type="button"
                         onClick={copyInstallCommand}
