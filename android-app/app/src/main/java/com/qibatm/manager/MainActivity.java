@@ -94,63 +94,93 @@ public class MainActivity extends Activity {
 
         LinearLayout root = column();
         root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setPadding(dp(22), dp(28), dp(22), dp(28));
+        root.setPadding(dp(18), dp(18), dp(18), dp(22));
         scrollView.addView(root, matchWrap());
 
-        LinearLayout topBar = row();
-        topBar.setGravity(Gravity.CENTER_VERTICAL);
-        Button apiSettingsButton = secondaryButton("إعدادات API");
-        apiSettingsButton.setOnClickListener(view -> showApiSettingsDialog());
-        topBar.addView(apiSettingsButton, widthHeight(dp(128), dp(44)));
+        LinearLayout hero = column();
+        hero.setPadding(dp(20), dp(20), dp(20), dp(20));
+        hero.setBackground(cardBackground(COLOR_TEAL, COLOR_TEAL, 8));
+        root.addView(hero, matchWrap());
 
-        LinearLayout topText = column();
-        TextView topTitle = text("تطبيق API أصلي", 14, COLOR_TEAL, Typeface.BOLD);
-        topTitle.setGravity(Gravity.RIGHT);
-        topText.addView(topTitle, matchWrap());
-        TextView topSubtitle = text("اضبط عنوان السيرفر قبل تسجيل الدخول", 12, COLOR_MUTED, Typeface.NORMAL);
-        topSubtitle.setGravity(Gravity.RIGHT);
-        topText.addView(topSubtitle, matchWrap());
-        topBar.addView(topText, margin(weightWrap(1), dp(10), 0, 0, 0));
-        root.addView(topBar, margin(matchWrap(), 0, 0, 0, dp(14)));
+        LinearLayout heroTop = row();
+        heroTop.setGravity(Gravity.CENTER_VERTICAL);
+        hero.addView(heroTop, matchWrap());
+
+        TextView mark = text("Q", 22, COLOR_TEAL, Typeface.BOLD);
+        mark.setGravity(Gravity.CENTER);
+        mark.setBackground(cardBackground(Color.WHITE, Color.TRANSPARENT, 8));
+        heroTop.addView(mark, widthHeight(dp(46), dp(46)));
+
+        LinearLayout brand = column();
+        TextView title = text("QIB ATM Manager", 25, Color.WHITE, Typeface.BOLD);
+        title.setGravity(Gravity.RIGHT);
+        brand.addView(title, matchWrap());
+        TextView subtitle = text("تطبيق مراقبة الصرافات عبر API", 14, Color.rgb(204, 251, 241), Typeface.NORMAL);
+        subtitle.setGravity(Gravity.RIGHT);
+        brand.addView(subtitle, matchWrap());
+        heroTop.addView(brand, margin(weightWrap(1), 0, 0, dp(12), 0));
+
+        TextView heroMeta = text("واجهة Android أصلية، خفيفة ومباشرة.", 13, Color.rgb(240, 253, 250), Typeface.NORMAL);
+        heroMeta.setGravity(Gravity.RIGHT);
+        hero.addView(heroMeta, margin(matchWrap(), 0, dp(16), 0, 0));
+
+        LinearLayout apiCard = column();
+        apiCard.setPadding(dp(16), dp(14), dp(16), dp(14));
+        apiCard.setBackground(cardBackground(COLOR_CARD, COLOR_LINE, 8));
+        root.addView(apiCard, margin(matchWrap(), 0, dp(12), 0, dp(12)));
+
+        LinearLayout apiHeader = row();
+        apiHeader.setGravity(Gravity.CENTER_VERTICAL);
+        apiCard.addView(apiHeader, matchWrap());
+
+        LinearLayout apiText = column();
+        TextView apiLabel = text("عنوان API", 14, COLOR_INK, Typeface.BOLD);
+        apiLabel.setGravity(Gravity.RIGHT);
+        apiText.addView(apiLabel, matchWrap());
+        TextView apiValue = text(serverUrl, 13, COLOR_MUTED, Typeface.NORMAL);
+        apiValue.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        apiValue.setTextDirection(View.TEXT_DIRECTION_LTR);
+        apiText.addView(apiValue, matchWrap());
+        apiHeader.addView(apiText, weightWrap(1));
+
+        Button apiSettingsButton = secondaryButton("تغيير");
+        apiSettingsButton.setOnClickListener(view -> showApiSettingsDialog());
+        apiHeader.addView(apiSettingsButton, margin(widthHeight(dp(92), dp(42)), dp(10), 0, 0, 0));
 
         LinearLayout card = column();
-        card.setPadding(dp(22), dp(22), dp(22), dp(22));
+        card.setPadding(dp(20), dp(20), dp(20), dp(20));
         card.setBackground(cardBackground(COLOR_CARD, COLOR_LINE, 8));
         root.addView(card, matchWrap());
 
-        TextView title = text("QIB ATM Manager", 27, COLOR_INK, Typeface.BOLD);
-        title.setGravity(Gravity.RIGHT);
-        card.addView(title, matchWrap());
+        TextView loginTitle = text("تسجيل الدخول", 22, COLOR_INK, Typeface.BOLD);
+        loginTitle.setGravity(Gravity.RIGHT);
+        card.addView(loginTitle, matchWrap());
 
-        TextView subtitle = text("تسجيل الدخول إلى تطبيق المراقبة", 15, COLOR_MUTED, Typeface.NORMAL);
-        subtitle.setGravity(Gravity.RIGHT);
-        card.addView(subtitle, margin(matchWrap(), 0, dp(6), 0, dp(20)));
-
-        TextView server = chip("API: " + serverUrl, COLOR_TEAL, COLOR_TEAL_SOFT);
-        server.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
-        server.setClickable(true);
-        server.setOnClickListener(view -> showApiSettingsDialog());
-        card.addView(server, margin(matchWrap(), 0, 0, 0, dp(18)));
+        TextView loginSubtitle = text("استخدم حساب النظام للوصول إلى لوحة المراقبة.", 14, COLOR_MUTED, Typeface.NORMAL);
+        loginSubtitle.setGravity(Gravity.RIGHT);
+        card.addView(loginSubtitle, margin(matchWrap(), 0, dp(4), 0, dp(18)));
 
         EditText usernameInput = input("اسم المستخدم");
         usernameInput.setText(username == null ? "" : username);
-        card.addView(usernameInput, margin(matchWrap(), 0, 0, 0, dp(12)));
+        card.addView(labeledInput("اسم المستخدم", usernameInput), margin(matchWrap(), 0, 0, 0, dp(12)));
 
         EditText passwordInput = input("كلمة المرور");
         passwordInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        card.addView(passwordInput, margin(matchWrap(), 0, 0, 0, dp(14)));
+        card.addView(labeledInput("كلمة المرور", passwordInput), margin(matchWrap(), 0, 0, 0, dp(14)));
 
         TextView error = text(errorMessage == null ? "" : errorMessage, 14, COLOR_RED, Typeface.NORMAL);
         error.setGravity(Gravity.RIGHT);
+        error.setPadding(dp(12), dp(10), dp(12), dp(10));
+        error.setBackground(cardBackground(COLOR_RED_SOFT, Color.rgb(254, 205, 211), 8));
         error.setVisibility(errorMessage == null ? View.GONE : View.VISIBLE);
         card.addView(error, margin(matchWrap(), 0, 0, 0, dp(12)));
 
-        Button loginButton = primaryButton("دخول");
-        card.addView(loginButton, matchHeight(dp(50)));
+        Button loginButton = primaryButton("تسجيل الدخول");
+        card.addView(loginButton, matchHeight(dp(52)));
 
-        TextView note = text("يتصل التطبيق بالـ API مباشرة ولا يستخدم WebView.", 13, COLOR_MUTED, Typeface.NORMAL);
+        TextView note = text("لا يستخدم التطبيق WebView، كل البيانات تأتي من API مباشرة.", 12, COLOR_MUTED, Typeface.NORMAL);
         note.setGravity(Gravity.CENTER);
-        root.addView(note, margin(matchWrap(), 0, dp(16), 0, 0));
+        root.addView(note, margin(matchWrap(), 0, dp(14), 0, 0));
 
         loginButton.setOnClickListener(view -> {
             String enteredUsername = usernameInput.getText().toString().trim();
@@ -832,6 +862,15 @@ public class MainActivity extends Activity {
         textView.setPadding(dp(12), dp(7), dp(12), dp(7));
         textView.setBackground(cardBackground(fill, Color.TRANSPARENT, 24));
         return textView;
+    }
+
+    private LinearLayout labeledInput(String label, EditText input) {
+        LinearLayout field = column();
+        TextView labelView = text(label, 13, COLOR_MUTED, Typeface.BOLD);
+        labelView.setGravity(Gravity.RIGHT);
+        field.addView(labelView, matchWrap());
+        field.addView(input, margin(matchHeight(dp(52)), 0, dp(5), 0, 0));
+        return field;
     }
 
     private EditText input(String hint) {
