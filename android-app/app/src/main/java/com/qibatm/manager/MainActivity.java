@@ -49,6 +49,8 @@ public class MainActivity extends Activity {
     private static final String PREF_USERNAME = "username";
     private static final String PREF_SERVER_URL = "server_url";
     private static final TimeZone YEMEN_TIME_ZONE = TimeZone.getTimeZone("Asia/Aden");
+    private static final String SESSION_EXPIRED_MESSAGE = "انتهت الجلسة. سجّل الدخول مرة أخرى للمتابعة.";
+    private static final String LOGIN_FAILED_MESSAGE = "اسم المستخدم أو كلمة المرور غير صحيحة.";
 
     private static final int COLOR_BG = Color.rgb(244, 247, 251);
     private static final int COLOR_CARD = Color.WHITE;
@@ -280,6 +282,12 @@ public class MainActivity extends Activity {
                     .apply();
 
                 mainHandler.post(this::loadDashboard);
+            } catch (ApiException exception) {
+                if (isAuthError(exception)) {
+                    mainHandler.post(() -> showLogin(LOGIN_FAILED_MESSAGE));
+                } else {
+                    mainHandler.post(() -> showLogin(friendlyError(exception)));
+                }
             } catch (Exception exception) {
                 mainHandler.post(() -> showLogin(friendlyError(exception)));
             }
@@ -294,12 +302,8 @@ public class MainActivity extends Activity {
                 CashSummary summary = parseCashSummary(request("/api/cash/summary", "GET", null, token));
                 mainHandler.post(() -> showDashboard(atms, summary));
             } catch (ApiException exception) {
-                if (exception.statusCode == 401) {
-                    clearSession();
-                    mainHandler.post(() -> showLogin("انتهت الجلسة أو بيانات الدخول غير صحيحة. سجّل الدخول مرة أخرى."));
-                } else {
-                    mainHandler.post(() -> showErrorScreen("تعذر تحميل البيانات", friendlyError(exception)));
-                }
+                if (handleSessionExpired(exception)) return;
+                mainHandler.post(() -> showErrorScreen("تعذر تحميل البيانات", friendlyError(exception)));
             } catch (Exception exception) {
                 mainHandler.post(() -> showErrorScreen("تعذر تحميل البيانات", friendlyError(exception)));
             }
@@ -596,6 +600,7 @@ public class MainActivity extends Activity {
                 SwitchProbe latest = pollSwitchProbeResult(atm, probe);
                 mainHandler.post(() -> dialogState.update(latest, ""));
             } catch (Exception exception) {
+                if (handleSessionExpired(exception, dialogState)) return;
                 String message = friendlyError(exception);
                 SwitchProbe failed = new SwitchProbe(
                     0,
@@ -726,6 +731,7 @@ public class MainActivity extends Activity {
                 mainHandler.post(() -> state.update(result, ""));
             } catch (Exception exception) {
                 String message = friendlyError(exception);
+                if (handleSessionExpired(exception, state)) return;
                 mainHandler.post(() -> state.update(currentProbe, message));
             }
         });
@@ -770,6 +776,7 @@ public class MainActivity extends Activity {
                 CashDetails details = parseCashDetails(request("/api/cash/atms/" + encodedAtmId, "GET", null, token));
                 mainHandler.post(() -> showCashDetailsDialog(atm, details));
             } catch (Exception exception) {
+                if (handleSessionExpired(exception)) return;
                 mainHandler.post(() -> Toast.makeText(this, friendlyError(exception), Toast.LENGTH_LONG).show());
             }
         });
@@ -984,6 +991,7 @@ public class MainActivity extends Activity {
                 request("/api/cash/atms/" + encodedAtmId + "/read-now", "POST", null, token);
                 mainHandler.post(() -> Toast.makeText(this, "تم قبول طلب القراءة.", Toast.LENGTH_LONG).show());
             } catch (Exception exception) {
+                if (handleSessionExpired(exception)) return;
                 mainHandler.post(() -> Toast.makeText(this, friendlyError(exception), Toast.LENGTH_LONG).show());
             }
         });
@@ -1207,6 +1215,36 @@ public class MainActivity extends Activity {
         prefs.edit().remove(PREF_TOKEN).apply();
     }
 
+    private boolean isAuthError(Exception exception) {
+        if (!(exception instanceof ApiException)) {
+            return false;
+        }
+        ApiException apiException = (ApiException) exception;
+        return apiException.statusCode == 401 || apiException.statusCode == 403;
+    }
+
+    private boolean handleSessionExpired(Exception exception) {
+        return handleSessionExpired(exception, null);
+    }
+
+    private boolean handleSessionExpired(Exception exception, SwitchProbeDialogState dialogState) {
+        if (!isAuthError(exception)) {
+            return false;
+        }
+        mainHandler.post(() -> {
+            if (dialogState != null) {
+                dialogState.dismiss();
+            }
+            showSessionExpiredLogin();
+        });
+        return true;
+    }
+
+    private void showSessionExpiredLogin() {
+        clearSession();
+        showLogin(SESSION_EXPIRED_MESSAGE);
+    }
+
     private String normalizeServerUrl(String value) {
         String cleaned = value == null ? "" : value.trim();
         String lower = cleaned.toLowerCase();
@@ -1231,6 +1269,9 @@ public class MainActivity extends Activity {
     private String friendlyError(Exception exception) {
         if (exception instanceof ApiException) {
             ApiException apiException = (ApiException) exception;
+            if (isAuthError(apiException)) {
+                return SESSION_EXPIRED_MESSAGE;
+            }
             String detail = apiException.detail();
             if (detail.isEmpty()) {
                 detail = "HTTP " + apiException.statusCode;
@@ -1495,6 +1536,12 @@ public class MainActivity extends Activity {
         TextView requestedValue;
         TextView completedValue;
         SwitchProbe currentProbe;
+
+        void dismiss() {
+            if (dialog != null && dialog.isShowing()) {
+                dialog.dismiss();
+            }
+        }
 
         void update(SwitchProbe probe, String fallbackError) {
             if (probe == null) {
