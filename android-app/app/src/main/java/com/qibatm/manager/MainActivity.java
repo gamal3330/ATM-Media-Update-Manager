@@ -316,38 +316,59 @@ public class MainActivity extends Activity {
         scrollView.setTextDirection(View.TEXT_DIRECTION_RTL);
 
         LinearLayout root = column();
-        root.setPadding(dp(16), dp(18), dp(16), dp(24));
+        root.setPadding(dp(14), dp(14), dp(14), dp(22));
         scrollView.addView(root, matchWrap());
+
+        LinearLayout headerCard = column();
+        headerCard.setPadding(dp(16), dp(15), dp(16), dp(15));
+        headerCard.setBackground(cardBackground(COLOR_CARD, COLOR_LINE, 8));
+        root.addView(headerCard, matchWrap());
 
         LinearLayout header = row();
         header.setGravity(Gravity.CENTER_VERTICAL);
-        root.addView(header, matchWrap());
+        headerCard.addView(header, matchWrap());
 
         LinearLayout titleBox = column();
-        TextView title = text("لوحة الصرافات", 26, COLOR_INK, Typeface.BOLD);
+        TextView title = text("لوحة التحكم", 25, COLOR_INK, Typeface.BOLD);
         title.setGravity(Gravity.RIGHT);
         titleBox.addView(title, matchWrap());
-        TextView meta = text("متصل عبر API مباشرة" + (username == null || username.isEmpty() ? "" : " · " + username), 13, COLOR_MUTED, Typeface.NORMAL);
+        TextView meta = text("QIB ATM Manager · API مباشر", 13, COLOR_MUTED, Typeface.NORMAL);
         meta.setGravity(Gravity.RIGHT);
         titleBox.addView(meta, matchWrap());
         header.addView(titleBox, weightWrap(1));
 
+        TextView userPill = chip(emptyToDash(username), COLOR_TEAL, COLOR_TEAL_SOFT);
+        header.addView(userPill, margin(widthHeight(dp(104), dp(38)), dp(10), 0, 0, 0));
+
+        LinearLayout actions = row();
+        actions.setGravity(Gravity.CENTER_VERTICAL);
+        headerCard.addView(actions, margin(matchWrap(), 0, dp(14), 0, 0));
+
         Button refresh = secondaryButton("تحديث");
         refresh.setOnClickListener(view -> loadDashboard());
-        header.addView(refresh, widthHeight(dp(96), dp(44)));
+        actions.addView(refresh, weightHeight(1, dp(44)));
 
         Button logout = ghostButton("خروج");
         logout.setOnClickListener(view -> {
             clearSession();
             showLogin(null);
         });
-        header.addView(logout, margin(widthHeight(dp(82), dp(44)), dp(8), 0, 0, 0));
+        actions.addView(logout, margin(weightHeight(1, dp(44)), dp(10), 0, 0, 0));
+
+        TextView api = text(serverUrl, 12, COLOR_MUTED, Typeface.NORMAL);
+        api.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        api.setTextDirection(View.TEXT_DIRECTION_LTR);
+        headerCard.addView(api, margin(matchWrap(), 0, dp(10), 0, 0));
 
         root.addView(summaryGrid(onlineCount, offlineCount, summary), margin(matchWrap(), 0, dp(16), 0, dp(14)));
 
+        LinearLayout listHeader = row();
+        listHeader.setGravity(Gravity.CENTER_VERTICAL);
         TextView listTitle = text("الصرافات", 20, COLOR_INK, Typeface.BOLD);
         listTitle.setGravity(Gravity.RIGHT);
-        root.addView(listTitle, margin(matchWrap(), 0, 0, 0, dp(8)));
+        listHeader.addView(listTitle, weightWrap(1));
+        listHeader.addView(chip(String.valueOf(atms.size()), COLOR_MUTED, Color.rgb(248, 250, 252)));
+        root.addView(listHeader, margin(matchWrap(), 0, 0, 0, dp(8)));
 
         if (atms.isEmpty()) {
             TextView empty = text("لا توجد صرافات حالياً.", 15, COLOR_MUTED, Typeface.NORMAL);
@@ -366,41 +387,68 @@ public class MainActivity extends Activity {
 
     private LinearLayout summaryGrid(int onlineCount, int offlineCount, CashSummary summary) {
         LinearLayout grid = column();
-        grid.addView(summaryRow(
-            summaryCard("Online", String.valueOf(onlineCount), COLOR_TEAL, COLOR_TEAL_SOFT),
-            summaryCard("Offline", String.valueOf(offlineCount), COLOR_MUTED, Color.rgb(248, 250, 252))
-        ), matchWrap());
-        grid.addView(summaryRow(
-            summaryCard("Cash Low", String.valueOf(summary.cashLowAtms), COLOR_AMBER, COLOR_AMBER_SOFT),
-            summaryCard("Cash Empty", String.valueOf(summary.cashEmptyAtms), COLOR_RED, COLOR_RED_SOFT)
+        LinearLayout overview = column();
+        overview.setPadding(dp(14), dp(14), dp(14), dp(14));
+        overview.setBackground(cardBackground(COLOR_CARD, COLOR_LINE, 8));
+        grid.addView(overview, matchWrap());
+
+        TextView overviewTitle = text("نظرة عامة", 16, COLOR_INK, Typeface.BOLD);
+        overviewTitle.setGravity(Gravity.RIGHT);
+        overview.addView(overviewTitle, matchWrap());
+
+        LinearLayout overviewRow = row();
+        overview.addView(overviewRow, margin(matchWrap(), 0, dp(10), 0, 0));
+        overviewRow.addView(summaryCard("Online", String.valueOf(onlineCount), COLOR_TEAL, COLOR_TEAL_SOFT), weightHeight(1, dp(96)));
+        overviewRow.addView(summaryCard("Offline", String.valueOf(offlineCount), offlineCount > 0 ? COLOR_RED : COLOR_MUTED, offlineCount > 0 ? COLOR_RED_SOFT : Color.rgb(248, 250, 252)), margin(weightHeight(1, dp(96)), dp(10), 0, 0, 0));
+
+        LinearLayout cashPanel = column();
+        cashPanel.setPadding(dp(14), dp(14), dp(14), dp(14));
+        cashPanel.setBackground(cardBackground(COLOR_CARD, COLOR_LINE, 8));
+        grid.addView(cashPanel, margin(matchWrap(), 0, dp(12), 0, 0));
+
+        LinearLayout cashHeader = row();
+        cashHeader.setGravity(Gravity.CENTER_VERTICAL);
+        TextView cashTitle = text("حالة النقد", 16, COLOR_INK, Typeface.BOLD);
+        cashTitle.setGravity(Gravity.RIGHT);
+        cashHeader.addView(cashTitle, weightWrap(1));
+        cashHeader.addView(chip("تنبيهات " + summary.openAlerts, summary.openAlerts > 0 ? COLOR_AMBER : COLOR_TEAL, summary.openAlerts > 0 ? COLOR_AMBER_SOFT : COLOR_TEAL_SOFT));
+        cashPanel.addView(cashHeader, matchWrap());
+
+        cashPanel.addView(summaryRow(
+            summaryCard("Low", String.valueOf(summary.cashLowAtms), summary.cashLowAtms > 0 ? COLOR_AMBER : COLOR_TEAL, summary.cashLowAtms > 0 ? COLOR_AMBER_SOFT : COLOR_TEAL_SOFT),
+            summaryCard("Empty", String.valueOf(summary.cashEmptyAtms), summary.cashEmptyAtms > 0 ? COLOR_RED : COLOR_TEAL, summary.cashEmptyAtms > 0 ? COLOR_RED_SOFT : COLOR_TEAL_SOFT)
         ), margin(matchWrap(), 0, dp(10), 0, 0));
-        TextView alerts = text(
-            "حرج: " + summary.cashCriticalAtms + " · تنبيهات مفتوحة: " + summary.openAlerts,
-            13,
-            COLOR_MUTED,
-            Typeface.BOLD
-        );
-        alerts.setGravity(Gravity.RIGHT);
-        grid.addView(alerts, margin(matchWrap(), 0, dp(8), 0, 0));
+
+        LinearLayout criticalRow = row();
+        criticalRow.setGravity(Gravity.CENTER_VERTICAL);
+        criticalRow.setPadding(dp(12), dp(10), dp(12), dp(10));
+        criticalRow.setBackground(cardBackground(Color.rgb(248, 250, 252), Color.TRANSPARENT, 8));
+        TextView criticalLabel = text("Cash Critical", 13, COLOR_MUTED, Typeface.BOLD);
+        criticalLabel.setGravity(Gravity.RIGHT);
+        criticalRow.addView(criticalLabel, weightWrap(1));
+        TextView criticalValue = text(String.valueOf(summary.cashCriticalAtms), 18, summary.cashCriticalAtms > 0 ? COLOR_RED : COLOR_TEAL, Typeface.BOLD);
+        criticalValue.setGravity(Gravity.LEFT);
+        criticalRow.addView(criticalValue, widthHeight(dp(56), dp(30)));
+        cashPanel.addView(criticalRow, margin(matchWrap(), 0, dp(10), 0, 0));
         return grid;
     }
 
     private LinearLayout summaryRow(View left, View right) {
         LinearLayout row = row();
-        row.addView(right, weightHeight(1, dp(112)));
-        row.addView(left, margin(weightHeight(1, dp(112)), dp(10), 0, 0, 0));
+        row.addView(right, weightHeight(1, dp(92)));
+        row.addView(left, margin(weightHeight(1, dp(92)), dp(10), 0, 0, 0));
         return row;
     }
 
     private LinearLayout summaryCard(String label, String value, int color, int fill) {
         LinearLayout card = column();
         card.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
-        card.setPadding(dp(16), dp(12), dp(16), dp(12));
+        card.setPadding(dp(12), dp(10), dp(12), dp(10));
         card.setBackground(cardBackground(fill, colorWithAlpha(color, 90), 8));
 
-        TextView labelView = text(label, 14, COLOR_MUTED, Typeface.BOLD);
+        TextView labelView = text(label, 12, COLOR_MUTED, Typeface.BOLD);
         labelView.setGravity(Gravity.RIGHT);
-        TextView valueView = text(value, 34, color, Typeface.BOLD);
+        TextView valueView = text(value, 30, color, Typeface.BOLD);
         valueView.setGravity(Gravity.RIGHT);
 
         card.addView(labelView, matchWrap());
@@ -410,8 +458,10 @@ public class MainActivity extends Activity {
 
     private View atmCard(AtmItem atm) {
         LinearLayout card = column();
-        card.setPadding(dp(16), dp(14), dp(16), dp(14));
-        card.setBackground(cardBackground(COLOR_CARD, atm.isOnline ? colorWithAlpha(COLOR_TEAL, 95) : COLOR_LINE, 8));
+        int statusColor = atm.isOnline ? COLOR_TEAL : COLOR_RED;
+        int statusFill = atm.isOnline ? COLOR_TEAL_SOFT : COLOR_RED_SOFT;
+        card.setPadding(dp(14), dp(13), dp(14), dp(13));
+        card.setBackground(cardBackground(COLOR_CARD, colorWithAlpha(statusColor, atm.isOnline ? 80 : 120), 8));
         card.setClickable(true);
         card.setOnClickListener(view -> loadAtmDetails(atm));
 
@@ -420,37 +470,50 @@ public class MainActivity extends Activity {
         card.addView(top, matchWrap());
 
         LinearLayout titleBox = column();
-        TextView name = text(atm.name, 21, COLOR_INK, Typeface.BOLD);
+        TextView name = text(atm.name, 19, COLOR_INK, Typeface.BOLD);
         name.setGravity(Gravity.RIGHT);
         titleBox.addView(name, matchWrap());
-        TextView branch = text(atm.branch + " · " + atm.vpnIp + " · " + atm.atmId, 13, COLOR_MUTED, Typeface.NORMAL);
+        TextView branch = text(atm.branch + " · " + atm.vpnIp, 12, COLOR_MUTED, Typeface.NORMAL);
         branch.setGravity(Gravity.RIGHT);
         titleBox.addView(branch, matchWrap());
         top.addView(titleBox, weightWrap(1));
 
-        top.addView(chip(atm.isOnline ? "متصل" : "غير متصل", atm.isOnline ? COLOR_TEAL : COLOR_RED, atm.isOnline ? COLOR_TEAL_SOFT : COLOR_RED_SOFT));
+        top.addView(chip(atm.isOnline ? "متصل" : "غير متصل", statusColor, statusFill));
+
+        LinearLayout idRow = row();
+        idRow.setGravity(Gravity.CENTER_VERTICAL);
+        card.addView(idRow, margin(matchWrap(), 0, dp(12), 0, 0));
+        idRow.addView(chip(atm.atmId, COLOR_MUTED, Color.rgb(248, 250, 252)));
+        TextView service = text(emptyToDash(atm.status), 12, COLOR_MUTED, Typeface.BOLD);
+        service.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        idRow.addView(service, margin(weightWrap(1), dp(8), 0, 0, 0));
 
         LinearLayout facts = row();
         facts.setGravity(Gravity.CENTER_VERTICAL);
-        card.addView(facts, margin(matchWrap(), 0, dp(14), 0, 0));
+        card.addView(facts, margin(matchWrap(), 0, dp(10), 0, 0));
 
         facts.addView(miniFact("Latency", atm.latencyMs > 0 ? atm.latencyMs + " ms" : "-"), weightWrap(1));
         facts.addView(miniFact("Agent", emptyToDash(atm.agentVersion)), margin(weightWrap(1), dp(8), 0, 0, 0));
-        facts.addView(miniFact("Cash", emptyToDash(atm.cashStatus)), margin(weightWrap(1), dp(8), 0, 0, 0));
 
-        TextView hint = text("اضغط لعرض تفاصيل النقد وطلب قراءة جديدة", 12, COLOR_MUTED, Typeface.NORMAL);
-        hint.setGravity(Gravity.RIGHT);
-        card.addView(hint, margin(matchWrap(), 0, dp(10), 0, 0));
+        LinearLayout statusRow = row();
+        statusRow.setGravity(Gravity.CENTER_VERTICAL);
+        card.addView(statusRow, margin(matchWrap(), 0, dp(8), 0, 0));
+        statusRow.addView(miniFact("Cash", emptyToDash(atm.cashStatus)), weightWrap(1));
+        TextView hint = text("تفاصيل النقد", 12, COLOR_TEAL, Typeface.BOLD);
+        hint.setGravity(Gravity.CENTER);
+        hint.setPadding(dp(10), dp(8), dp(10), dp(8));
+        hint.setBackground(cardBackground(COLOR_TEAL_SOFT, Color.TRANSPARENT, 8));
+        statusRow.addView(hint, margin(widthHeight(dp(112), dp(40)), dp(8), 0, 0, 0));
         return card;
     }
 
     private LinearLayout miniFact(String label, String value) {
         LinearLayout box = column();
-        box.setPadding(dp(10), dp(9), dp(10), dp(9));
+        box.setPadding(dp(10), dp(8), dp(10), dp(8));
         box.setBackground(cardBackground(Color.rgb(248, 250, 252), Color.TRANSPARENT, 8));
         TextView labelView = text(label, 11, COLOR_MUTED, Typeface.BOLD);
         labelView.setGravity(Gravity.RIGHT);
-        TextView valueView = text(value, 14, COLOR_INK, Typeface.BOLD);
+        TextView valueView = text(value, 13, COLOR_INK, Typeface.BOLD);
         valueView.setGravity(Gravity.RIGHT);
         box.addView(labelView, matchWrap());
         box.addView(valueView, matchWrap());
