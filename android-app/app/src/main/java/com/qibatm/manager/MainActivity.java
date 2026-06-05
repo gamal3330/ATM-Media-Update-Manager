@@ -118,12 +118,6 @@ public class MainActivity extends Activity {
         brand.addView(title, matchWrap());
         heroTop.addView(brand, margin(weightWrap(1), 0, 0, dp(12), 0));
 
-        LinearLayout heroBadges = row();
-        heroBadges.setGravity(Gravity.CENTER_VERTICAL);
-        hero.addView(heroBadges, margin(matchWrap(), 0, dp(16), 0, 0));
-        heroBadges.addView(loginBadge("Native API"));
-        heroBadges.addView(loginBadge("Secure Session"), margin(widthHeight(dp(132), dp(34)), dp(8), 0, 0, 0));
-
         LinearLayout apiCard = column();
         apiCard.setPadding(dp(16), dp(14), dp(16), dp(14));
         apiCard.setBackground(cardBackground(COLOR_CARD, COLOR_LINE, 8));
