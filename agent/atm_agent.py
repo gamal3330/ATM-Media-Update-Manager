@@ -286,6 +286,30 @@ def powershell_executable() -> str:
     return "powershell.exe"
 
 
+def windows_tool_executable(name: str) -> str:
+    if os.name != "nt":
+        return name
+
+    windows_dir = Path(os.environ.get("WINDIR", r"C:\Windows"))
+    candidates = [
+        windows_dir / "Sysnative" / name,
+        windows_dir / "System32" / name,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return name
+
+
+def run_schtasks(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [windows_tool_executable("schtasks.exe"), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
 def scheduled_task_status(task_name: str = SCHEDULED_TASK_NAME) -> str:
     if os.name != "nt":
         return "not available outside Windows"
@@ -302,6 +326,14 @@ def scheduled_task_status(task_name: str = SCHEDULED_TASK_NAME) -> str:
 def remove_existing_scheduled_task(task_name: str = SCHEDULED_TASK_NAME) -> None:
     if os.name != "nt":
         return
+
+    task_path = rf"\{task_name}"
+    query = run_schtasks("/Query", "/TN", task_path)
+    if query.returncode != 0:
+        details = "\n".join(part.strip() for part in [query.stdout, query.stderr] if part.strip())
+        if scheduled_task_not_found(details):
+            return
+
     script = (
         f"$taskName = {ps_quote(task_name)}; "
         "$task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue; "
@@ -312,8 +344,27 @@ def remove_existing_scheduled_task(task_name: str = SCHEDULED_TASK_NAME) -> None
     )
     result = run_powershell(script)
     if result.returncode != 0:
-        details = "\n".join(part.strip() for part in [result.stdout, result.stderr] if part.strip())
+        run_schtasks("/End", "/TN", task_path)
+        delete = run_schtasks("/Delete", "/TN", task_path, "/F")
+        details = "\n".join(
+            part.strip()
+            for part in [result.stdout, result.stderr, delete.stdout, delete.stderr]
+            if part.strip()
+        )
+        if delete.returncode == 0 or scheduled_task_not_found(details):
+            return
         raise SystemExit(f"Could not remove existing scheduled task {task_name}.\n{details}")
+
+
+def scheduled_task_not_found(details: str) -> bool:
+    text = (details or "").lower()
+    return (
+        "cannot find the file" in text
+        or "cannot find the path" in text
+        or "system cannot find" in text
+        or "does not exist" in text
+        or "no scheduled tasks" in text
+    )
 
 
 def install_scheduled_task(target_exe: Path, config_path: Path, install_dir: Path, task_user: str | None) -> None:

@@ -9,7 +9,7 @@ import pytest
 
 import atm_agent
 from backup_manager import create_backup, restore_backup
-from atm_agent import choose_run_mode, powershell_executable, write_hidden_task_runner
+from atm_agent import choose_run_mode, powershell_executable, scheduled_task_not_found, write_hidden_task_runner
 from checksum import sha256_file
 from cash_monitoring_module import CashMonitoringModule
 from config_manager import load_local_config, parse_remote_config
@@ -122,6 +122,10 @@ def test_powershell_executable_prefers_sysnative_for_32_bit_agent(tmp_path, monk
     monkeypatch.setenv("WINDIR", str(windir))
 
     assert powershell_executable() == str(sysnative)
+
+
+def test_scheduled_task_not_found_accepts_schtasks_missing_file_message():
+    assert scheduled_task_not_found("ERROR: The system cannot find the file specified.")
 
 
 def test_remote_config_rejects_paths_outside_atm_root():
