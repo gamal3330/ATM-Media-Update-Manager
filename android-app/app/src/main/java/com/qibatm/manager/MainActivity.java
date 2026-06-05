@@ -34,8 +34,12 @@ import java.net.HttpURLConnection;
 import java.net.URLEncoder;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
+import java.util.TimeZone;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -44,6 +48,7 @@ public class MainActivity extends Activity {
     private static final String PREF_TOKEN = "access_token";
     private static final String PREF_USERNAME = "username";
     private static final String PREF_SERVER_URL = "server_url";
+    private static final TimeZone YEMEN_TIME_ZONE = TimeZone.getTimeZone("Asia/Aden");
 
     private static final int COLOR_BG = Color.rgb(244, 247, 251);
     private static final int COLOR_CARD = Color.WHITE;
@@ -1250,12 +1255,74 @@ public class MainActivity extends Activity {
         if (value == null || value.trim().isEmpty() || value.equals("null")) {
             return "-";
         }
+
+        Date parsed = parseApiDate(value);
+        if (parsed != null) {
+            SimpleDateFormat output = new SimpleDateFormat("yyyy/M/d h:mm:ss a", Locale.US);
+            output.setTimeZone(YEMEN_TIME_ZONE);
+            return output.format(parsed).replace("AM", "ص").replace("PM", "م");
+        }
+
         String cleaned = value.replace("T", " ");
         int dot = cleaned.indexOf('.');
         if (dot > 0) {
             cleaned = cleaned.substring(0, dot);
         }
         return cleaned;
+    }
+
+    private Date parseApiDate(String value) {
+        String normalized = normalizeApiDateForParsing(value);
+        String[] patterns = {
+            "yyyy-MM-dd'T'HH:mm:ss.SSSZ",
+            "yyyy-MM-dd'T'HH:mm:ssZ",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS",
+            "yyyy-MM-dd'T'HH:mm:ss"
+        };
+        for (String pattern : patterns) {
+            try {
+                SimpleDateFormat parser = new SimpleDateFormat(pattern, Locale.US);
+                parser.setLenient(false);
+                parser.setTimeZone(YEMEN_TIME_ZONE);
+                return parser.parse(normalized);
+            } catch (Exception ignored) {
+                // Try the next supported API timestamp shape.
+            }
+        }
+        return null;
+    }
+
+    private String normalizeApiDateForParsing(String value) {
+        String normalized = value == null ? "" : value.trim();
+        int dot = normalized.indexOf('.');
+        if (dot > 0) {
+            int zoneStart = -1;
+            for (int i = dot + 1; i < normalized.length(); i++) {
+                char current = normalized.charAt(i);
+                if (current == 'Z' || current == '+' || current == '-') {
+                    zoneStart = i;
+                    break;
+                }
+            }
+
+            String prefix = normalized.substring(0, dot);
+            String fraction = normalized.substring(dot + 1, zoneStart > 0 ? zoneStart : normalized.length());
+            String suffix = zoneStart > 0 ? normalized.substring(zoneStart) : "";
+            String millis = (fraction + "000").substring(0, 3);
+            normalized = prefix + "." + millis + suffix;
+        }
+
+        if (normalized.endsWith("Z")) {
+            normalized = normalized.substring(0, normalized.length() - 1) + "+0000";
+        } else if (normalized.length() >= 6) {
+            int offsetStart = normalized.length() - 6;
+            char sign = normalized.charAt(offsetStart);
+            if ((sign == '+' || sign == '-') && normalized.charAt(normalized.length() - 3) == ':') {
+                normalized = normalized.substring(0, normalized.length() - 3) + normalized.substring(normalized.length() - 2);
+            }
+        }
+
+        return normalized;
     }
 
     private LinearLayout column() {
