@@ -143,6 +143,25 @@ function parseWhatsAppNumbers(value) {
     .filter((item, index, array) => array.indexOf(item) === index);
 }
 
+function whatsappStatusFromError(error) {
+  if (error?.status === 404) {
+    return {
+      ok: false,
+      ready: false,
+      configured: false,
+      status: "not_available",
+      message: "مسار حالة واتساب غير متاح على السيرفر. حدّث السيرفر إلى آخر نسخة.",
+    };
+  }
+  return {
+    ok: false,
+    ready: false,
+    configured: false,
+    status: "unreachable",
+    message: error?.message || "تعذر قراءة حالة واتساب.",
+  };
+}
+
 function buildSettingsPayload(form) {
   const payload = {
     enabled: form.enabled,
@@ -539,7 +558,7 @@ export default function NotificationCenter() {
         api.getNotificationSettings(),
         api.listNotificationDeliveries(),
         api.listNotificationRecipients(),
-        api.getWhatsappStatus().catch((err) => ({ ok: false, status: "unreachable", message: err.message })),
+        api.getWhatsappStatus().catch(whatsappStatusFromError),
       ]);
       setSettings(settingsData);
       setForm(buildForm(settingsData));
@@ -633,7 +652,9 @@ export default function NotificationCenter() {
         setError(qr.message || "لم يصدر QR من خدمة WhatsApp بعد. تأكد أن الخدمة تعمل.");
       }
     } catch (err) {
-      setError(err.message || "تعذر جلب QR الخاص بـ WhatsApp.");
+      const status = whatsappStatusFromError(err);
+      setWhatsappStatus(status);
+      setError(status.message || "تعذر جلب QR الخاص بـ WhatsApp.");
     } finally {
       setLoadingQr(false);
     }

@@ -134,6 +134,7 @@ function translatePlainMessage(message, status) {
   if (known[message]) return known[message];
   if (status === 401) return "غير مصرح. سجّل الدخول مرة أخرى.";
   if (status === 403) return "ليست لديك صلاحية لتنفيذ هذه العملية.";
+  if (status === 404 && message?.toLowerCase?.().includes("whatsapp")) return "مسار WhatsApp غير متاح على السيرفر. حدّث السيرفر إلى آخر نسخة.";
   if (status === 404) return "العنصر المطلوب غير موجود.";
   if (status === 409) return "توجد بيانات مكررة أو تعارض في العملية.";
   if (status >= 500) return "حدث خطأ في الخادم. حاول مرة أخرى أو راجع السجلات.";
@@ -230,6 +231,9 @@ async function request(path, options = {}) {
       payload = null;
     }
     const parsed = parseErrorPayload(payload, response.status);
+    if (response.status === 404 && path.includes("/whatsapp/")) {
+      throw new ApiError("مسار WhatsApp غير متاح على السيرفر. حدّث السيرفر إلى آخر نسخة.", response.status, payload, {}, []);
+    }
     throw new ApiError(parsed.message, response.status, payload, parsed.fieldErrors, parsed.details);
   }
 
