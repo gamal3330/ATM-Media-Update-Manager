@@ -154,11 +154,7 @@ class XfsCdmProvider:
         unit: XfsCashUnitRead,
         layout: CashLayoutItem,
     ) -> tuple[str, int]:
-        currency = str(getattr(unit, "currency", "") or "").strip().upper()
-        denomination = int(getattr(unit, "denomination", 0) or 0)
-        if not currency:
-            return layout.currency, layout.denomination
-        return currency, denomination or layout.denomination
+        return layout.currency, layout.denomination
 
     def get_dispense_cash_snapshot(self, atm_id: str, config: CashMonitoringConfig) -> list[DispenseCashUnit]:
         result = self._read()

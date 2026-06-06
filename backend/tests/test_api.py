@@ -575,12 +575,15 @@ def test_cash_snapshot_updates_units_and_alerts() -> None:
         assert cassette_three["expected_denomination"] == 100
         assert cassette_three["low_threshold"] == 100
         assert cassette_three["critical_threshold"] == 30
-        assert cassette_three["reported_currency"] == "YER"
-        assert cassette_three["layout_match_status"] == "CURRENCY_MISMATCH"
+        assert cassette_three["reported_currency"] == "USD"
+        assert cassette_three["reported_denomination"] == 100
+        assert cassette_three["layout_match_status"] == "MATCH"
         updated_verification = updated_details.json()["verification"]
         issue_codes = {issue["code"] for issue in updated_verification["issues"]}
         assert updated_verification["status"] == "mismatch"
-        assert {"CURRENCY_MISMATCH", "DENOMINATION_MISMATCH", "MISSING_READING"}.issubset(issue_codes)
+        assert "MISSING_READING" in issue_codes
+        assert "CURRENCY_MISMATCH" not in issue_codes
+        assert "DENOMINATION_MISMATCH" not in issue_codes
 
         summary = client.get("/api/cash/summary", headers=headers)
         assert summary.status_code == 200
@@ -743,7 +746,7 @@ def test_cash_snapshot_adjusts_future_agent_timestamp() -> None:
         assert any(item["message"] == "Adjusted future cash snapshot timestamp" for item in logs.json())
 
 
-def test_cash_snapshot_records_unexpected_reported_cash_values_as_mismatch() -> None:
+def test_cash_snapshot_uses_configured_layout_values_over_atm_reported_money() -> None:
     with TestClient(app) as client:
         headers = login(client)
         atm_response = client.post(
@@ -792,10 +795,14 @@ def test_cash_snapshot_records_unexpected_reported_cash_values_as_mismatch() -> 
         details = client.get("/api/cash/atms/ATM-CASH-MISMATCH", headers=headers)
         assert details.status_code == 200
         unit = details.json()["units"][0]
-        assert unit["reported_currency"] == "EUR"
-        assert unit["reported_denomination"] == 50
+        assert unit["reported_currency"] == "YER"
+        assert unit["reported_denomination"] == 1000
+        assert unit["expected_currency"] == "YER"
+        assert unit["expected_denomination"] == 1000
+        assert unit["layout_match_status"] == "MATCH"
         issue_codes = {issue["code"] for issue in details.json()["verification"]["issues"]}
-        assert {"CURRENCY_MISMATCH", "DENOMINATION_MISMATCH"}.issubset(issue_codes)
+        assert "CURRENCY_MISMATCH" not in issue_codes
+        assert "DENOMINATION_MISMATCH" not in issue_codes
 
 
 def test_cash_read_now_expires_stale_pending_command() -> None:

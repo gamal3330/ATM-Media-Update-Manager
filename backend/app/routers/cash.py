@@ -68,10 +68,14 @@ def apply_current_layout_to_units(atm: ATM, units: list[AtmCashUnit]) -> list[At
             continue
         unit.expected_currency = layout["currency"]
         unit.expected_denomination = int(layout["denomination"])
+        unit.reported_currency = layout["currency"]
+        unit.reported_denomination = int(layout["denomination"])
+        unit.currency = layout["currency"]
+        unit.denomination = int(layout["denomination"])
         unit.low_threshold = int(layout["low_threshold"])
         unit.critical_threshold = int(layout["critical_threshold"])
         unit.max_capacity = int(layout["max_capacity"])
-        unit.layout_match_status = layout_match_status(unit, layout)[0]
+        unit.layout_match_status = "MATCH"
     return units
 
 
@@ -655,8 +659,15 @@ def submit_cash_snapshot(
 
     now = utcnow()
     snapshot_read_at = resolve_cash_snapshot_read_at(db, atm, payload.read_at, now)
+    layout_map = layout_by_cassette(atm)
     snapshot_payload = payload.model_dump(mode="json")
     snapshot_payload["read_at"] = snapshot_read_at.isoformat()
+    for unit_snapshot in snapshot_payload.get("cash_units") or []:
+        layout = layout_map.get(int(unit_snapshot.get("cassette_no") or 0))
+        if layout is None:
+            continue
+        unit_snapshot["reported_currency"] = layout["currency"]
+        unit_snapshot["reported_denomination"] = int(layout["denomination"])
 
     is_suspicious, suspicious_details = suspicious_cash_regression(db, atm, payload, snapshot_read_at, now)
     if is_suspicious:
@@ -687,7 +698,6 @@ def submit_cash_snapshot(
     statuses["cash_monitoring"] = "running"
     atm.module_status_json = statuses
 
-    layout_map = layout_by_cassette(atm)
     for unit_payload in payload.cash_units:
         layout = layout_map.get(unit_payload.cassette_no)
         if layout is None:
@@ -699,11 +709,18 @@ def submit_cash_snapshot(
                 "low_threshold": atm.cash_low_threshold_default,
                 "critical_threshold": atm.cash_critical_threshold_default,
             }
+            reported_currency = unit_payload.reported_currency
+            reported_denomination = unit_payload.reported_denomination
+            layout_status, mismatch_types = layout_match_status(unit_payload, layout)
+        else:
+            reported_currency = layout["currency"]
+            reported_denomination = int(layout["denomination"])
+            layout_status = "MATCH"
+            mismatch_types = set()
 
         low_threshold = int(layout["low_threshold"])
         critical_threshold = int(layout["critical_threshold"])
         max_capacity = int(layout["max_capacity"])
-        layout_status, mismatch_types = layout_match_status(unit_payload, layout)
 
         unit = db.query(AtmCashUnit).filter(
             AtmCashUnit.atm_id == atm.id,
@@ -716,10 +733,10 @@ def submit_cash_snapshot(
             "cassette_name": unit_payload.cassette_name or f"Dispense Cassette {unit_payload.cassette_no}",
             "expected_currency": layout["currency"],
             "expected_denomination": int(layout["denomination"]),
-            "reported_currency": unit_payload.reported_currency,
-            "reported_denomination": unit_payload.reported_denomination,
-            "currency": unit_payload.reported_currency,
-            "denomination": unit_payload.reported_denomination,
+            "reported_currency": reported_currency,
+            "reported_denomination": reported_denomination,
+            "currency": reported_currency,
+            "denomination": reported_denomination,
             "initial_count": unit_payload.initial_count,
             "current_count": unit_payload.current_count,
             "reject_count": unit_payload.reject_count,

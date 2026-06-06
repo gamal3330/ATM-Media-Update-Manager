@@ -358,7 +358,7 @@ def test_cash_monitoring_xfs_provider_sends_dispense_only_snapshot(monkeypatch):
     assert snapshot["reject_retract"]["reject_count"] == 2
 
 
-def test_cash_monitoring_xfs_provider_reports_xfs_currency_and_denomination(monkeypatch):
+def test_cash_monitoring_xfs_provider_uses_configured_currency_and_denomination(monkeypatch):
     def fake_read_cash_units(logical_service, **kwargs):
         return SimpleNamespace(
             cash_units=[
@@ -391,8 +391,8 @@ def test_cash_monitoring_xfs_provider_reports_xfs_currency_and_denomination(monk
     module.tick(999999.0)
 
     snapshot = api.snapshots[0]
-    assert snapshot["cash_units"][0]["reported_currency"] == "USD"
-    assert snapshot["cash_units"][0]["reported_denomination"] == 100
+    assert snapshot["cash_units"][0]["reported_currency"] == "YER"
+    assert snapshot["cash_units"][0]["reported_denomination"] == 1000
 
 
 def test_cash_monitoring_xfs_provider_normalizes_grg_cash_units(monkeypatch):
