@@ -711,6 +711,7 @@ class AuditLogRead(BaseModel):
 
 class NotificationSettingsUpdate(BaseModel):
     enabled: bool = False
+    email_enabled: bool = False
     recipient_email: str | None = Field(default=None, max_length=255)
     sender_email: str | None = Field(default=None, max_length=255)
     smtp_host: str | None = Field(default=None, max_length=255)
@@ -762,6 +763,8 @@ class NotificationSettingsUpdate(BaseModel):
     def validate_enabled_configuration(self):
         smtp_ready = bool(self.sender_email and self.smtp_host)
         whatsapp_ready = bool(self.whatsapp_enabled and self.whatsapp_gateway_url)
+        if self.email_enabled and not smtp_ready:
+            raise ValueError("Configure SMTP before enabling email notifications")
         if self.enabled and not (smtp_ready or whatsapp_ready):
             raise ValueError("Configure SMTP or WhatsApp before enabling notifications")
         return self
@@ -772,6 +775,7 @@ class NotificationSettingsRead(BaseModel):
 
     id: int
     enabled: bool
+    email_enabled: bool
     recipient_email: str | None
     sender_email: str | None
     smtp_host: str | None
@@ -793,6 +797,7 @@ class NotificationSettingsRead(BaseModel):
     has_smtp_password: bool = False
     has_whatsapp_gateway_token: bool = False
     is_configured: bool = False
+    is_email_configured: bool = False
     is_whatsapp_configured: bool = False
     updated_by: str | None
     created_at: datetime

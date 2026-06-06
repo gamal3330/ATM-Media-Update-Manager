@@ -483,7 +483,7 @@ def sync_whatsapp_gateway_status(
     should_alert = (
         settings.enabled
         and settings.notify_whatsapp_disconnected
-        and settings.is_configured
+        and settings.is_email_configured
         and bool(settings.recipient_email)
         and previous_status == "ready"
         and current_status in WHATSAPP_PROBLEM_STATUSES
@@ -649,7 +649,7 @@ def notify_cash_alert_opened(db: Session, atm: ATM, alert: AtmCashAlert) -> Noti
     deliveries = []
 
     recipient_email = notification_recipient_for_atm(db, settings, atm)
-    if settings.is_configured and recipient_email and ("email", recipient_email) not in existing_channels:
+    if settings.is_email_configured and recipient_email and ("email", recipient_email) not in existing_channels:
         deliveries.append(
             create_email_delivery(
                 db,
@@ -702,7 +702,7 @@ def notify_switch_probe_failed(
     whatsapp_subject, whatsapp_body = build_switch_probe_failed_whatsapp(atm, host, port, error_message, failed_at)
     deliveries = []
     recipient_email = notification_recipient_for_atm(db, settings, atm)
-    if settings.is_configured and recipient_email:
+    if settings.is_email_configured and recipient_email:
         deliveries.append(
             create_email_delivery(
                 db,

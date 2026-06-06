@@ -56,6 +56,8 @@ def update_notification_settings(
     settings = get_notification_settings(db)
     changes = payload.model_dump(
         exclude={
+            "enabled",
+            "email_enabled",
             "smtp_password",
             "clear_smtp_password",
             "whatsapp_gateway_token",
@@ -69,6 +71,13 @@ def update_notification_settings(
     default_whatsapp_recipients = payload.whatsapp_default_recipients or (
         [payload.whatsapp_default_recipient] if payload.whatsapp_default_recipient else []
     )
+    smtp_ready = bool(payload.sender_email and payload.smtp_host)
+    email_enabled = payload.email_enabled
+    if "email_enabled" not in payload.model_fields_set:
+        email_enabled = bool(payload.enabled and smtp_ready)
+    settings.email_enabled = email_enabled
+    settings.whatsapp_enabled = payload.whatsapp_enabled
+    settings.enabled = bool(email_enabled or payload.whatsapp_enabled)
     settings.whatsapp_default_recipients_json = default_whatsapp_recipients
     settings.whatsapp_default_recipient = default_whatsapp_recipients[0] if default_whatsapp_recipients else None
 

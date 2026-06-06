@@ -336,6 +336,7 @@ class NotificationSettings(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    email_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     recipient_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     sender_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     smtp_host: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -371,6 +372,10 @@ class NotificationSettings(Base):
     @property
     def is_configured(self) -> bool:
         return bool(self.sender_email and self.smtp_host and self.smtp_port)
+
+    @property
+    def is_email_configured(self) -> bool:
+        return bool(self.email_enabled and self.is_configured)
 
     @property
     def is_whatsapp_configured(self) -> bool:

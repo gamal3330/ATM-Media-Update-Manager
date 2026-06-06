@@ -25,6 +25,7 @@ import { formatApiDate } from "../api/time";
 
 const defaultForm = {
   enabled: false,
+  email_enabled: false,
   recipient_email: "",
   sender_email: "",
   smtp_host: "",
@@ -72,6 +73,7 @@ function buildForm(settings) {
   if (!settings) return defaultForm;
   return {
     enabled: Boolean(settings.enabled),
+    email_enabled: settings.email_enabled ?? Boolean(settings.enabled && settings.is_configured),
     recipient_email: settings.recipient_email || "",
     sender_email: settings.sender_email || "",
     smtp_host: settings.smtp_host || "",
@@ -185,7 +187,8 @@ function whatsappStatusFromError(error) {
 
 function buildSettingsPayload(form) {
   const payload = {
-    enabled: form.enabled,
+    enabled: Boolean(form.email_enabled || form.whatsapp_enabled),
+    email_enabled: form.email_enabled,
     recipient_email: form.recipient_email.trim() || null,
     sender_email: form.sender_email.trim() || null,
     smtp_host: form.smtp_host.trim() || null,
@@ -604,6 +607,7 @@ export default function NotificationCenter() {
   const sentDeliveries = deliveries.filter((delivery) => delivery.status === "sent").length;
   const enabledRecipients = recipientRows.filter((row) => row.enabled).length;
   const whatsappReady = Boolean(whatsappStatus?.ready);
+  const enabledChannels = [form.email_enabled ? "البريد" : null, form.whatsapp_enabled ? "واتساب" : null].filter(Boolean);
 
   const enabledEvents = useMemo(
     () =>
@@ -685,6 +689,12 @@ export default function NotificationCenter() {
   async function saveSettings(event) {
     event.preventDefault();
     await persistSettings(form, "تم حفظ مركز التنبيهات.");
+  }
+
+  async function saveEmailSettings() {
+    const nextForm = { ...form, email_enabled: true };
+    setForm(nextForm);
+    await persistSettings(nextForm, "تم تفعيل وحفظ البريد.");
   }
 
   async function saveWhatsAppSettings() {
@@ -795,10 +805,10 @@ export default function NotificationCenter() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard
           icon={ShieldCheck}
-          label="الإرسال"
-          value={settings?.enabled ? "مفعل" : "متوقف"}
+          label="القنوات"
+          value={enabledChannels.length ? enabledChannels.join(" / ") : "متوقفة"}
           meta={enabledEvents.length ? enabledEvents.join(" · ") : "لا توجد أحداث محددة"}
-          tone={settings?.enabled ? "emerald" : "slate"}
+          tone={enabledChannels.length ? "emerald" : "slate"}
         />
         <StatCard
           icon={Server}
@@ -845,16 +855,6 @@ export default function NotificationCenter() {
             footer={
               <div className="flex flex-wrap items-center justify-end gap-3">
                 <button
-                  type="button"
-                  onClick={sendTestEmail}
-                  disabled={testing || !canSendTest}
-                  className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-teal-300 px-4 py-2 text-sm font-semibold text-teal-800 hover:bg-teal-50 disabled:opacity-60"
-                  title="إرسال اختبار"
-                >
-                  <Send size={16} />
-                  <span>{testing ? "جاري الإرسال..." : "إرسال اختبار"}</span>
-                </button>
-                <button
                   disabled={saving}
                   className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
                   title="حفظ"
@@ -867,7 +867,6 @@ export default function NotificationCenter() {
           >
             <div className="space-y-4">
               <div className="grid gap-2 sm:grid-cols-2">
-                <ToggleField checked={form.enabled} onChange={(value) => updateField("enabled", value)} label="تفعيل الإرسال" />
                 <ToggleField
                   checked={form.notify_cash_low}
                   onChange={(value) => updateField("notify_cash_low", value)}
@@ -915,8 +914,40 @@ export default function NotificationCenter() {
             </div>
           </SectionCard>
 
-          <SectionCard title="البريد SMTP" icon={Server}>
+          <SectionCard
+            title="البريد SMTP"
+            icon={Server}
+            footer={
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={sendTestEmail}
+                  disabled={testing || !canSendTest}
+                  className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-teal-300 px-4 py-2 text-sm font-semibold text-teal-800 hover:bg-teal-50 disabled:opacity-60"
+                  title="إرسال اختبار بالبريد"
+                >
+                  <Send size={16} />
+                  <span>{testing ? "جاري الإرسال..." : "إرسال اختبار"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={saveEmailSettings}
+                  disabled={saving}
+                  className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+                  title="حفظ إعدادات البريد"
+                >
+                  <Save size={16} />
+                  <span>{saving ? "جاري الحفظ..." : "تفعيل وحفظ البريد"}</span>
+                </button>
+              </div>
+            }
+          >
             <div className="grid gap-3">
+              <ToggleField
+                checked={form.email_enabled}
+                onChange={(value) => updateField("email_enabled", value)}
+                label="تفعيل إرسال البريد"
+              />
               <FormField label="SMTP Host">
                 <input
                   dir="ltr"
@@ -1022,7 +1053,7 @@ export default function NotificationCenter() {
               <ToggleField
                 checked={form.whatsapp_enabled}
                 onChange={(value) => updateField("whatsapp_enabled", value)}
-                label="تفعيل WhatsApp"
+                label="تفعيل إرسال واتساب"
               />
 
               <FormField label="Gateway URL">

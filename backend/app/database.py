@@ -206,6 +206,7 @@ def migrate_existing_schema() -> None:
                 else "BOOLEAN NOT NULL DEFAULT 0"
             )
             notification_columns = {
+                "email_enabled": default_false,
                 "whatsapp_enabled": default_false,
                 "whatsapp_gateway_url": "VARCHAR(500)",
                 "whatsapp_gateway_token": "TEXT",
@@ -221,6 +222,8 @@ def migrate_existing_schema() -> None:
             for name, definition in notification_columns.items():
                 if name not in existing_columns:
                     connection.execute(text(f"ALTER TABLE notification_settings ADD COLUMN {name} {definition}"))
+            if "email_enabled" not in existing_columns and "enabled" in existing_columns:
+                connection.execute(text("UPDATE notification_settings SET email_enabled = enabled"))
             if "whatsapp_default_recipient" in existing_columns and "whatsapp_default_recipients_json" not in existing_columns:
                 json_array_expression = (
                     "json_build_array(whatsapp_default_recipient)"

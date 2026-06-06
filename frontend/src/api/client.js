@@ -73,6 +73,7 @@ const fieldLabels = {
   smtp_port: "SMTP Port",
   smtp_security: "SMTP Security",
   smtp_username: "SMTP Username",
+  email_enabled: "تفعيل إرسال البريد",
   whatsapp_gateway_url: "WhatsApp Gateway URL",
   whatsapp_default_recipient: "WhatsApp Recipient",
   whatsapp_default_recipients: "أرقام WhatsApp الافتراضية",
@@ -123,6 +124,7 @@ function translatePlainMessage(message, status) {
     "atm-agent.exe is not available. Build it on Windows and place it at agent/dist/atm-agent.exe":
       "ملف atm-agent.exe غير متوفر على السيرفر. ابنِ الملف على Windows ثم ضعه في agent/dist/atm-agent.exe.",
     "Notification email settings are incomplete": "إعدادات البريد غير مكتملة.",
+    "Configure SMTP before enabling email notifications": "أكمل إعدادات SMTP قبل تفعيل إرسال البريد.",
     "Notification default recipient email is missing": "أدخل بريدًا افتراضيًا لإرسال رسالة الاختبار.",
     "WhatsApp gateway settings are incomplete": "إعدادات WhatsApp غير مكتملة.",
     "Notification default WhatsApp recipient is missing": "أدخل رقم WhatsApp افتراضيًا لإرسال رسالة الاختبار.",
@@ -147,6 +149,11 @@ function formatValidationItem(item) {
   const label = fieldLabels[fieldName] || fieldName || "الحقل";
   const type = item.type || "";
   const ctx = item.ctx || {};
+  const message = item.msg || "";
+
+  if (message.includes("Configure SMTP before enabling email notifications")) {
+    return "أكمل إعدادات SMTP قبل تفعيل إرسال البريد.";
+  }
 
   if (type === "missing") return `${label}: هذا الحقل مطلوب.`;
   if (type === "string_too_short") return `${label}: يجب أن يحتوي على ${ctx.min_length || 2} أحرف على الأقل.`;
@@ -155,7 +162,7 @@ function formatValidationItem(item) {
   if (type.includes("int")) return `${label}: يجب إدخال رقم صحيح.`;
   if (type.includes("literal")) return `${label}: القيمة غير مدعومة.`;
 
-  return `${label}: ${item.msg || "قيمة غير صالحة."}`;
+  return `${label}: ${message || "قيمة غير صالحة."}`;
 }
 
 function parseErrorPayload(payload, status) {
