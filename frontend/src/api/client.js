@@ -310,7 +310,7 @@ export const api = {
   getWhatsappStatus: () => request("/api/notifications/whatsapp/status"),
   getWhatsappQr: () => request("/api/notifications/whatsapp/qr"),
   sendWhatsAppTestNotification: () => request("/api/notifications/whatsapp/test", { method: "POST" }),
-  listNotificationDeliveries: () => request("/api/notifications/deliveries"),
+  listNotificationDeliveries: (limit = 200) => request(`/api/notifications/deliveries?limit=${encodeURIComponent(limit)}`),
   listPackages: () => request("/api/packages"),
   getPackage: (id) => request(`/api/packages/${id}`),
   uploadPackage: (formData) => request("/api/packages/upload", { method: "POST", body: formData }),

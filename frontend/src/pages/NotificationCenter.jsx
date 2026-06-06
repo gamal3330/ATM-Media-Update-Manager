@@ -3,6 +3,8 @@ import {
   AtSign,
   Bell,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Mail,
   MessageCircle,
@@ -54,6 +56,17 @@ const deliveryFilters = [
   { id: "sent", label: "ناجحة", type: "status" },
   { id: "failed", label: "فاشلة", type: "status" },
 ];
+
+const DELIVERY_PAGE_SIZE = 10;
+
+function buildPageItems(currentPage, totalPages) {
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1);
+  if (currentPage <= 4) return [1, 2, 3, 4, 5, "end", totalPages];
+  if (currentPage >= totalPages - 3) {
+    return [1, "start", totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+  }
+  return [1, "start", currentPage - 1, currentPage, currentPage + 1, "end", totalPages];
+}
 
 function buildForm(settings) {
   if (!settings) return defaultForm;
@@ -467,6 +480,62 @@ function DeliveryList({ deliveries }) {
   );
 }
 
+function DeliveryPagination({ page, totalPages, totalItems, pageSize, onPageChange }) {
+  if (totalItems <= pageSize) return null;
+  const start = (page - 1) * pageSize + 1;
+  const end = Math.min(page * pageSize, totalItems);
+  const pageItems = buildPageItems(page, totalPages);
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+      <div className="text-xs font-medium text-slate-500">
+        عرض {start}-{end} من {totalItems}
+      </div>
+      <div className="flex flex-wrap items-center gap-1" dir="ltr">
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.max(1, page - 1))}
+          disabled={page <= 1}
+          className="focus-ring inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+          title="السابق"
+        >
+          <ChevronLeft size={16} />
+        </button>
+        {pageItems.map((item) =>
+          typeof item === "number" ? (
+            <button
+              key={item}
+              type="button"
+              onClick={() => onPageChange(item)}
+              className={`focus-ring h-9 min-w-9 rounded-lg px-3 text-sm font-semibold ${
+                item === page
+                  ? "bg-slate-900 text-white"
+                  : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+              title={`صفحة ${item}`}
+            >
+              {item}
+            </button>
+          ) : (
+            <span key={item} className="inline-flex h-9 min-w-9 items-center justify-center px-2 text-sm font-semibold text-slate-400">
+              ...
+            </span>
+          ),
+        )}
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.min(totalPages, page + 1))}
+          disabled={page >= totalPages}
+          className="focus-ring inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+          title="التالي"
+        >
+          <ChevronRight size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function WhatsAppStatusPanel({ status, qr, ready }) {
   return (
     <div className="rounded-lg bg-slate-50 p-3">
@@ -515,6 +584,7 @@ export default function NotificationCenter() {
   const [whatsappQr, setWhatsappQr] = useState(null);
   const [recipientSearch, setRecipientSearch] = useState("");
   const [deliveryFilter, setDeliveryFilter] = useState("all");
+  const [deliveryPage, setDeliveryPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingRecipients, setSavingRecipients] = useState(false);
@@ -552,6 +622,16 @@ export default function NotificationCenter() {
     if (filter?.type === "channel") return deliveries.filter((delivery) => delivery.channel === deliveryFilter);
     return deliveries.filter((delivery) => delivery.status === deliveryFilter);
   }, [deliveries, deliveryFilter]);
+  const totalDeliveryPages = Math.max(1, Math.ceil(visibleDeliveries.length / DELIVERY_PAGE_SIZE));
+  const currentDeliveryPage = Math.min(deliveryPage, totalDeliveryPages);
+  const pagedDeliveries = useMemo(() => {
+    const start = (currentDeliveryPage - 1) * DELIVERY_PAGE_SIZE;
+    return visibleDeliveries.slice(start, start + DELIVERY_PAGE_SIZE);
+  }, [currentDeliveryPage, visibleDeliveries]);
+
+  useEffect(() => {
+    setDeliveryPage(1);
+  }, [deliveryFilter, deliveries.length]);
 
   function updateField(key, value) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -1015,7 +1095,14 @@ export default function NotificationCenter() {
               </div>
             }
           >
-            <DeliveryList deliveries={visibleDeliveries} />
+            <DeliveryList deliveries={pagedDeliveries} />
+            <DeliveryPagination
+              page={currentDeliveryPage}
+              totalPages={totalDeliveryPages}
+              totalItems={visibleDeliveries.length}
+              pageSize={DELIVERY_PAGE_SIZE}
+              onPageChange={setDeliveryPage}
+            />
           </SectionCard>
         </div>
       </div>
