@@ -75,6 +75,8 @@ const fieldLabels = {
   smtp_username: "SMTP Username",
   whatsapp_gateway_url: "WhatsApp Gateway URL",
   whatsapp_default_recipient: "WhatsApp Recipient",
+  whatsapp_numbers: "WhatsApp Numbers",
+  notify_whatsapp_disconnected: "WhatsApp Disconnect Alert",
   username: "اسم المستخدم",
   password: "كلمة المرور",
   file: "ملف ZIP",

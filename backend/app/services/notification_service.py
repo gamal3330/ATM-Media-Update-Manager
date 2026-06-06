@@ -1,4 +1,6 @@
 import json
+import asyncio
+import logging
 import smtplib
 import ssl
 import urllib.error
@@ -11,6 +13,8 @@ from sqlalchemy.orm import Session
 
 from ..models import ATM, AtmCashAlert, NotificationDelivery, NotificationRecipient, NotificationSettings
 
+logger = logging.getLogger(__name__)
+
 ALERT_LABELS = {
     "CASH_LOW": "انخفاض النقد",
     "CASH_CRITICAL": "انخفاض النقد بشكل حرج",
@@ -18,6 +22,7 @@ ALERT_LABELS = {
 }
 BRAND_NAME = "QIB ATM Manager"
 YEMEN_TIMEZONE = timezone(timedelta(hours=3))
+WHATSAPP_PROBLEM_STATUSES = {"disconnected", "auth_failure", "unreachable", "error", "qr"}
 
 
 def utcnow() -> datetime:
@@ -50,6 +55,37 @@ def email_datetime(value: datetime | None) -> str:
     period = "ص" if local_value.hour < 12 else "م"
     hour = local_value.hour % 12 or 12
     return f"{local_value.year}/{local_value.month}/{local_value.day} {period} {hour}:{local_value.minute:02d}:{local_value.second:02d} - توقيت اليمن"
+
+
+def normalize_whatsapp_recipients(values: list[str | None]) -> list[str]:
+    recipients: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if not text:
+            continue
+        cleaned = text.replace(" ", "").replace("-", "")
+        if cleaned not in recipients:
+            recipients.append(cleaned)
+    return recipients
+
+
+def whatsapp_template(
+    *,
+    title: str,
+    subtitle: str,
+    rows: list[tuple[str, object]],
+    note: str,
+) -> str:
+    lines = [
+        f"*{BRAND_NAME}*",
+        f"*{title}*",
+        subtitle,
+        "",
+    ]
+    lines.extend(f"*{label}:* {value}" for label, value in rows)
+    if note:
+        lines.extend(["", note])
+    return "\n".join(str(line) for line in lines)
 
 
 def cash_alert_tone(alert_type: str) -> dict[str, str]:
@@ -167,6 +203,25 @@ def build_cash_alert_email(atm: ATM, alert: AtmCashAlert) -> tuple[str, str, str
     return subject, body, html_body
 
 
+def build_cash_alert_whatsapp(atm: ATM, alert: AtmCashAlert) -> tuple[str, str]:
+    label = ALERT_LABELS.get(alert.alert_type, alert.alert_type)
+    subject = f"{BRAND_NAME} - {label} - {atm.name} ({atm.atm_id})"
+    body = whatsapp_template(
+        title=label,
+        subtitle=f"{atm.name} - {atm.atm_id}",
+        rows=[
+            ("الصراف", f"{atm.name} ({atm.atm_id})"),
+            ("الفرع", atm.branch),
+            ("الكاسيت", alert.unit_no),
+            ("العدد الحالي", alert.current_count),
+            ("حد التنبيه", alert.threshold_count),
+            ("وقت الفتح", email_datetime(alert.opened_at)),
+        ],
+        note=alert.message,
+    )
+    return subject, body
+
+
 def build_switch_probe_failed_email(
     atm: ATM,
     host: str,
@@ -207,6 +262,65 @@ def build_switch_probe_failed_email(
     return subject, body, html_body
 
 
+def build_switch_probe_failed_whatsapp(
+    atm: ATM,
+    host: str,
+    port: int,
+    error_message: str,
+    failed_at: datetime,
+) -> tuple[str, str]:
+    title = "فشل اتصال السويتش"
+    subject = f"{BRAND_NAME} - {title} - {atm.name} ({atm.atm_id})"
+    target = f"{host}:{port}"
+    body = whatsapp_template(
+        title=title,
+        subtitle=f"{atm.name} - {atm.atm_id}",
+        rows=[
+            ("الصراف", f"{atm.name} ({atm.atm_id})"),
+            ("الفرع", atm.branch),
+            ("هدف السويتش", target),
+            ("وقت الفشل", email_datetime(failed_at)),
+        ],
+        note=error_message,
+    )
+    return subject, body
+
+
+def build_whatsapp_gateway_disconnected_email(
+    settings: NotificationSettings,
+    status_value: str,
+    error_message: str | None,
+    checked_at: datetime,
+) -> tuple[str, str, str]:
+    title = "فصل جلسة WhatsApp"
+    subject = f"{BRAND_NAME} - {title}"
+    body = "\n".join(
+        [
+            BRAND_NAME,
+            "",
+            f"نوع التنبيه: {title}",
+            f"الحالة: {status_value}",
+            f"Gateway: {settings.whatsapp_gateway_url or '-'}",
+            f"وقت الفحص: {email_datetime(checked_at)}",
+            "",
+            error_message or "جلسة WhatsApp لم تعد جاهزة للإرسال.",
+        ]
+    )
+    html_body = branded_email_html(
+        title=title,
+        subtitle=settings.whatsapp_gateway_url or "WhatsApp Gateway",
+        badge="تحتاج مراجعة",
+        tone={"label": "تحتاج مراجعة", "color": "#be123c", "bg": "#fff1f2", "border": "#fecdd3"},
+        rows=[
+            ("الحالة", status_value),
+            ("Gateway", settings.whatsapp_gateway_url or "-"),
+            ("وقت الفحص", email_datetime(checked_at)),
+        ],
+        note=error_message or "جلسة WhatsApp لم تعد جاهزة للإرسال. افتح مركز التنبيهات وتحقق من QR أو الخدمة.",
+    )
+    return subject, body, html_body
+
+
 def notification_recipient_for_atm(db: Session, settings: NotificationSettings, atm: ATM) -> str | None:
     recipient = (
         db.query(NotificationRecipient)
@@ -220,7 +334,7 @@ def notification_recipient_for_atm(db: Session, settings: NotificationSettings, 
     return settings.recipient_email
 
 
-def whatsapp_recipient_for_atm(db: Session, settings: NotificationSettings, atm: ATM) -> str | None:
+def whatsapp_recipients_for_atm(db: Session, settings: NotificationSettings, atm: ATM) -> list[str]:
     recipient = (
         db.query(NotificationRecipient)
         .filter(NotificationRecipient.atm_id == atm.id)
@@ -228,9 +342,16 @@ def whatsapp_recipient_for_atm(db: Session, settings: NotificationSettings, atm:
     )
     if recipient is not None:
         if not recipient.enabled:
-            return None
-        return recipient.whatsapp_number or settings.whatsapp_default_recipient
-    return settings.whatsapp_default_recipient
+            return []
+        configured = normalize_whatsapp_recipients(
+            [
+                *(recipient.whatsapp_numbers_json or []),
+                recipient.whatsapp_number,
+            ]
+        )
+        if configured:
+            return configured
+    return normalize_whatsapp_recipients([settings.whatsapp_default_recipient])
 
 
 def send_email(
@@ -347,6 +468,73 @@ def get_whatsapp_gateway_qr(settings: NotificationSettings) -> dict:
     return result
 
 
+def sync_whatsapp_gateway_status(
+    db: Session,
+    settings: NotificationSettings,
+    *,
+    status_result: dict | None = None,
+) -> dict:
+    result = status_result or get_whatsapp_gateway_status(settings)
+    now = utcnow()
+    previous_status = settings.last_whatsapp_gateway_status
+    current_status = str(result.get("status") or ("ready" if result.get("ready") else "unknown"))
+    current_error = result.get("message") or result.get("last_error")
+
+    should_alert = (
+        settings.enabled
+        and settings.notify_whatsapp_disconnected
+        and settings.is_configured
+        and bool(settings.recipient_email)
+        and previous_status == "ready"
+        and current_status in WHATSAPP_PROBLEM_STATUSES
+    )
+
+    settings.last_whatsapp_gateway_status = current_status
+    settings.last_whatsapp_gateway_error = str(current_error)[:1000] if current_error else None
+    settings.last_whatsapp_gateway_status_at = now
+
+    if should_alert:
+        subject, body, html_body = build_whatsapp_gateway_disconnected_email(
+            settings,
+            current_status,
+            settings.last_whatsapp_gateway_error,
+            now,
+        )
+        create_email_delivery(
+            db,
+            settings,
+            event_type="WHATSAPP_DISCONNECTED",
+            subject=subject,
+            body=body,
+            html_body=html_body,
+            recipient_email=settings.recipient_email,
+        )
+        settings.last_whatsapp_disconnect_alert_at = now
+
+    return result
+
+
+def monitor_whatsapp_gateway_once(session_factory) -> None:
+    db = session_factory()
+    try:
+        settings = get_notification_settings(db)
+        if settings.whatsapp_enabled:
+            sync_whatsapp_gateway_status(db, settings)
+            db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("WhatsApp gateway monitor failed")
+    finally:
+        db.close()
+
+
+async def monitor_whatsapp_gateway(session_factory, interval_seconds: int = 60, initial_delay_seconds: int = 30) -> None:
+    await asyncio.sleep(initial_delay_seconds)
+    while True:
+        await asyncio.to_thread(monitor_whatsapp_gateway_once, session_factory)
+        await asyncio.sleep(interval_seconds)
+
+
 def send_whatsapp(settings: NotificationSettings, recipient: str, message: str) -> None:
     if not settings.whatsapp_enabled or not settings.whatsapp_gateway_url:
         raise ValueError("WhatsApp gateway settings are incomplete")
@@ -408,6 +596,7 @@ def create_whatsapp_delivery(
     event_type: str,
     subject: str,
     body: str,
+    message: str | None = None,
     recipient: str | None = None,
     alert: AtmCashAlert | None = None,
     atm: ATM | None = None,
@@ -429,7 +618,7 @@ def create_whatsapp_delivery(
     db.flush()
 
     try:
-        send_whatsapp(settings, recipient_value, f"{subject}\n\n{body}")
+        send_whatsapp(settings, recipient_value, message or body)
     except Exception as exc:
         delivery.status = "failed"
         delivery.error_message = str(exc)[:1000]
@@ -448,9 +637,10 @@ def notify_cash_alert_opened(db: Session, atm: ATM, alert: AtmCashAlert) -> Noti
         return None
 
     subject, body, html_body = build_cash_alert_email(atm, alert)
+    whatsapp_subject, whatsapp_body = build_cash_alert_whatsapp(atm, alert)
     existing_channels = (
         {
-            delivery.channel
+            (delivery.channel, delivery.recipient_email)
             for delivery in db.query(NotificationDelivery).filter(NotificationDelivery.alert_id == alert.id).all()
         }
         if alert.id
@@ -459,7 +649,7 @@ def notify_cash_alert_opened(db: Session, atm: ATM, alert: AtmCashAlert) -> Noti
     deliveries = []
 
     recipient_email = notification_recipient_for_atm(db, settings, atm)
-    if settings.is_configured and recipient_email and "email" not in existing_channels:
+    if settings.is_configured and recipient_email and ("email", recipient_email) not in existing_channels:
         deliveries.append(
             create_email_delivery(
                 db,
@@ -474,20 +664,22 @@ def notify_cash_alert_opened(db: Session, atm: ATM, alert: AtmCashAlert) -> Noti
             )
         )
 
-    whatsapp_recipient = whatsapp_recipient_for_atm(db, settings, atm)
-    if settings.is_whatsapp_configured and whatsapp_recipient and "whatsapp" not in existing_channels:
-        deliveries.append(
-            create_whatsapp_delivery(
-                db,
-                settings,
-                event_type=alert.alert_type,
-                subject=subject,
-                body=body,
-                recipient=whatsapp_recipient,
-                alert=alert,
-                atm=atm,
+    if settings.is_whatsapp_configured:
+        for whatsapp_recipient in whatsapp_recipients_for_atm(db, settings, atm):
+            if ("whatsapp", whatsapp_recipient) in existing_channels:
+                continue
+            deliveries.append(
+                create_whatsapp_delivery(
+                    db,
+                    settings,
+                    event_type=alert.alert_type,
+                    subject=whatsapp_subject,
+                    body=whatsapp_body,
+                    recipient=whatsapp_recipient,
+                    alert=alert,
+                    atm=atm,
+                )
             )
-        )
 
     return deliveries[0] if deliveries else None
 
@@ -507,6 +699,7 @@ def notify_switch_probe_failed(
         return None
 
     subject, body, html_body = build_switch_probe_failed_email(atm, host, port, error_message, failed_at)
+    whatsapp_subject, whatsapp_body = build_switch_probe_failed_whatsapp(atm, host, port, error_message, failed_at)
     deliveries = []
     recipient_email = notification_recipient_for_atm(db, settings, atm)
     if settings.is_configured and recipient_email:
@@ -523,19 +716,19 @@ def notify_switch_probe_failed(
             )
         )
 
-    whatsapp_recipient = whatsapp_recipient_for_atm(db, settings, atm)
-    if settings.is_whatsapp_configured and whatsapp_recipient:
-        deliveries.append(
-            create_whatsapp_delivery(
-                db,
-                settings,
-                event_type="SWITCH_DISCONNECTED",
-                subject=subject,
-                body=body,
-                recipient=whatsapp_recipient,
-                atm=atm,
+    if settings.is_whatsapp_configured:
+        for whatsapp_recipient in whatsapp_recipients_for_atm(db, settings, atm):
+            deliveries.append(
+                create_whatsapp_delivery(
+                    db,
+                    settings,
+                    event_type="SWITCH_DISCONNECTED",
+                    subject=whatsapp_subject,
+                    body=whatsapp_body,
+                    recipient=whatsapp_recipient,
+                    atm=atm,
+                )
             )
-        )
 
     return deliveries[0] if deliveries else None
 
@@ -571,13 +764,15 @@ def send_test_notification(db: Session, settings: NotificationSettings) -> Notif
 def send_test_whatsapp_notification(db: Session, settings: NotificationSettings) -> NotificationDelivery:
     subject = f"{BRAND_NAME} - WhatsApp test notification"
     now = utcnow()
-    body = "\n".join(
-        [
-            BRAND_NAME,
-            "",
-            "هذه رسالة اختبار من مركز التنبيهات عبر WhatsApp.",
-            f"وقت الاختبار: {email_datetime(now)}",
-        ]
+    body = whatsapp_template(
+        title="رسالة اختبار WhatsApp",
+        subtitle="مركز التنبيهات يعمل",
+        rows=[
+            ("الحالة", "جاهز"),
+            ("وقت الاختبار", email_datetime(now)),
+            ("المستلم", settings.whatsapp_default_recipient or "-"),
+        ],
+        note="هذه رسالة اختبار من مركز التنبيهات عبر WhatsApp.",
     )
     if not settings.whatsapp_default_recipient:
         raise ValueError("Notification default WhatsApp recipient is missing")

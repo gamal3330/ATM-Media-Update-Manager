@@ -16,9 +16,9 @@ from ..services.audit_service import write_audit
 from ..services.notification_service import (
     get_notification_settings,
     get_whatsapp_gateway_qr,
-    get_whatsapp_gateway_status,
     send_test_notification,
     send_test_whatsapp_notification,
+    sync_whatsapp_gateway_status,
 )
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
@@ -98,9 +98,15 @@ def recipient_read(
 ) -> NotificationRecipientRead:
     enabled = recipient.enabled if recipient else True
     custom_email = recipient.recipient_email if recipient else None
-    custom_whatsapp = recipient.whatsapp_number if recipient else None
+    custom_whatsapp_numbers = list(recipient.whatsapp_numbers_json or []) if recipient else []
+    if not custom_whatsapp_numbers and recipient and recipient.whatsapp_number:
+        custom_whatsapp_numbers = [recipient.whatsapp_number]
+    custom_whatsapp = custom_whatsapp_numbers[0] if custom_whatsapp_numbers else recipient.whatsapp_number if recipient else None
     effective_email = (custom_email or default_email) if enabled else None
-    effective_whatsapp = (custom_whatsapp or default_whatsapp) if enabled else None
+    effective_whatsapp_numbers = custom_whatsapp_numbers or ([custom_whatsapp] if custom_whatsapp else [])
+    if enabled and not effective_whatsapp_numbers and default_whatsapp:
+        effective_whatsapp_numbers = [default_whatsapp]
+    effective_whatsapp = effective_whatsapp_numbers[0] if effective_whatsapp_numbers else None
     return NotificationRecipientRead(
         atm_id=atm.atm_id,
         name=atm.name,
@@ -108,7 +114,9 @@ def recipient_read(
         recipient_email=custom_email,
         effective_recipient_email=effective_email,
         whatsapp_number=custom_whatsapp,
+        whatsapp_numbers=custom_whatsapp_numbers,
         effective_whatsapp_number=effective_whatsapp,
+        effective_whatsapp_numbers=effective_whatsapp_numbers if enabled else [],
         enabled=enabled,
         uses_default=enabled and not custom_email,
         updated_at=recipient.updated_at if recipient else None,
@@ -148,7 +156,8 @@ def update_notification_recipients(
     for item in payload.recipients:
         atm = atms_by_atm_id[item.atm_id]
         recipient = existing.get(atm.id)
-        needs_row = bool(item.recipient_email) or bool(item.whatsapp_number) or not item.enabled
+        whatsapp_numbers = item.whatsapp_numbers or ([item.whatsapp_number] if item.whatsapp_number else [])
+        needs_row = bool(item.recipient_email) or bool(whatsapp_numbers) or not item.enabled
         if recipient is None and not needs_row:
             continue
         if recipient is None:
@@ -157,14 +166,15 @@ def update_notification_recipients(
             existing[atm.id] = recipient
 
         recipient.recipient_email = item.recipient_email
-        recipient.whatsapp_number = item.whatsapp_number
+        recipient.whatsapp_numbers_json = whatsapp_numbers
+        recipient.whatsapp_number = whatsapp_numbers[0] if whatsapp_numbers else None
         recipient.enabled = item.enabled
         recipient.updated_by = current_user.username
         changed.append(
             {
                 "atm_id": atm.atm_id,
                 "recipient_email": item.recipient_email,
-                "whatsapp_number": item.whatsapp_number,
+                "whatsapp_numbers": whatsapp_numbers,
                 "enabled": item.enabled,
             }
         )
@@ -219,7 +229,9 @@ def whatsapp_status(
     current_user: User = Depends(require_notification_manager),
 ) -> dict:
     settings = get_notification_settings(db)
-    return get_whatsapp_gateway_status(settings)
+    result = sync_whatsapp_gateway_status(db, settings)
+    db.commit()
+    return result
 
 
 @router.get("/whatsapp/qr")

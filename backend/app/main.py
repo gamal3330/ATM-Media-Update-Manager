@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -10,6 +11,7 @@ from .auth import ensure_admin_user
 from .config import settings
 from .database import SessionLocal, init_db
 from .routers import agent, atms, auth, cash, downloads, logs, notifications, packages, users
+from .services.notification_service import monitor_whatsapp_gateway
 
 
 @asynccontextmanager
@@ -21,7 +23,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         ensure_admin_user(db)
     finally:
         db.close()
-    yield
+    whatsapp_monitor_task = asyncio.create_task(monitor_whatsapp_gateway(SessionLocal))
+    try:
+        yield
+    finally:
+        whatsapp_monitor_task.cancel()
+        try:
+            await whatsapp_monitor_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)

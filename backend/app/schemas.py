@@ -44,6 +44,15 @@ def validate_whatsapp_number(value: str | None) -> str | None:
     return cleaned
 
 
+def normalize_whatsapp_numbers(values: list[str] | None) -> list[str]:
+    cleaned_numbers: list[str] = []
+    for value in values or []:
+        cleaned = validate_whatsapp_number(value)
+        if cleaned and cleaned not in cleaned_numbers:
+            cleaned_numbers.append(cleaned)
+    return cleaned_numbers
+
+
 def validate_http_url(value: str | None) -> str | None:
     if value is None:
         return value
@@ -718,6 +727,7 @@ class NotificationSettingsUpdate(BaseModel):
     notify_cash_low: bool = True
     notify_cash_empty: bool = True
     notify_switch_disconnected: bool = True
+    notify_whatsapp_disconnected: bool = True
 
     @field_validator("recipient_email", "sender_email")
     @classmethod
@@ -768,6 +778,11 @@ class NotificationSettingsRead(BaseModel):
     notify_cash_low: bool
     notify_cash_empty: bool
     notify_switch_disconnected: bool
+    notify_whatsapp_disconnected: bool
+    last_whatsapp_gateway_status: str | None = None
+    last_whatsapp_gateway_error: str | None = None
+    last_whatsapp_gateway_status_at: datetime | None = None
+    last_whatsapp_disconnect_alert_at: datetime | None = None
     has_smtp_password: bool = False
     has_whatsapp_gateway_token: bool = False
     is_configured: bool = False
@@ -797,6 +812,7 @@ class NotificationRecipientItemUpdate(BaseModel):
     atm_id: str = Field(min_length=1, max_length=80)
     recipient_email: str | None = Field(default=None, max_length=255)
     whatsapp_number: str | None = Field(default=None, max_length=40)
+    whatsapp_numbers: list[str] = Field(default_factory=list, max_length=8)
     enabled: bool = True
 
     @field_validator("recipient_email")
@@ -808,6 +824,11 @@ class NotificationRecipientItemUpdate(BaseModel):
     @classmethod
     def validate_recipient_whatsapp(cls, value: str | None) -> str | None:
         return validate_whatsapp_number(value)
+
+    @field_validator("whatsapp_numbers")
+    @classmethod
+    def validate_recipient_whatsapp_numbers(cls, value: list[str]) -> list[str]:
+        return normalize_whatsapp_numbers(value)
 
 
 class NotificationRecipientsUpdate(BaseModel):
@@ -821,7 +842,9 @@ class NotificationRecipientRead(BaseModel):
     recipient_email: str | None = None
     effective_recipient_email: str | None = None
     whatsapp_number: str | None = None
+    whatsapp_numbers: list[str] = Field(default_factory=list)
     effective_whatsapp_number: str | None = None
+    effective_whatsapp_numbers: list[str] = Field(default_factory=list)
     enabled: bool = True
     uses_default: bool = True
     updated_at: datetime | None = None

@@ -29,6 +29,15 @@ Then open QIB ATM Manager, go to Notification Center, configure:
 
 Scan the QR code from the Notification Center. The session is stored under `.wwebjs_auth`.
 
+The gateway automatically schedules reconnect attempts if WhatsApp Web disconnects. The current status includes
+`reconnect_attempts`, `last_disconnected_at`, and `next_reconnect_at`.
+
+Per-ATM WhatsApp recipients can contain more than one number. In QIB ATM Manager, separate numbers with commas, for example:
+
+```text
+9677XXXXXXX, 9677YYYYYYY
+```
+
 ## Endpoints
 
 - `GET /health`

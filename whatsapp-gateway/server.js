@@ -15,6 +15,12 @@ let latestQr = null;
 let latestQrImage = null;
 let lastError = null;
 let lastReadyAt = null;
+let lastDisconnectedAt = null;
+let reconnectAttempts = 0;
+let nextReconnectAt = null;
+let reconnectTimer = null;
+let initializing = false;
+let client = null;
 
 function statusPayload() {
   return {
@@ -24,6 +30,9 @@ function statusPayload() {
     qr_available: Boolean(latestQr),
     last_error: lastError,
     last_ready_at: lastReadyAt,
+    last_disconnected_at: lastDisconnectedAt,
+    reconnect_attempts: reconnectAttempts,
+    next_reconnect_at: nextReconnectAt,
   };
 }
 
@@ -49,68 +58,109 @@ function normalizeChatId(value) {
   return `${digits}@c.us`;
 }
 
-const client = new Client({
-  authStrategy: new LocalAuth({
-    clientId: CLIENT_ID,
-    dataPath: AUTH_PATH,
-  }),
-  puppeteer: {
-    headless: HEADLESS,
-    executablePath: process.env.WHATSAPP_CHROME_PATH || undefined,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
-  },
-});
+function createClient() {
+  const nextClient = new Client({
+    authStrategy: new LocalAuth({
+      clientId: CLIENT_ID,
+      dataPath: AUTH_PATH,
+    }),
+    puppeteer: {
+      headless: HEADLESS,
+      executablePath: process.env.WHATSAPP_CHROME_PATH || undefined,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    },
+  });
 
-client.on("qr", async (qr) => {
-  status = "qr";
-  ready = false;
-  latestQr = qr;
-  lastError = null;
-  try {
-    latestQrImage = await QRCode.toDataURL(qr, { width: 320, margin: 2 });
-  } catch (error) {
+  nextClient.on("qr", async (qr) => {
+    status = "qr";
+    ready = false;
+    latestQr = qr;
+    lastError = null;
+    try {
+      latestQrImage = await QRCode.toDataURL(qr, { width: 320, margin: 2 });
+    } catch (error) {
+      latestQrImage = null;
+      lastError = error.message;
+    }
+    console.log("WhatsApp QR is ready. Open QIB ATM Manager Notification Center to scan it.");
+  });
+
+  nextClient.on("authenticated", () => {
+    status = "authenticated";
+    lastError = null;
+    console.log("WhatsApp session authenticated.");
+  });
+
+  nextClient.on("ready", () => {
+    status = "ready";
+    ready = true;
+    latestQr = null;
     latestQrImage = null;
+    lastError = null;
+    lastReadyAt = new Date().toISOString();
+    reconnectAttempts = 0;
+    nextReconnectAt = null;
+    console.log("WhatsApp gateway is ready.");
+  });
+
+  nextClient.on("auth_failure", (message) => {
+    status = "auth_failure";
+    ready = false;
+    lastError = message || "WhatsApp authentication failed";
+    console.error(lastError);
+    scheduleReconnect("auth_failure");
+  });
+
+  nextClient.on("disconnected", (reason) => {
+    status = "disconnected";
+    ready = false;
+    lastDisconnectedAt = new Date().toISOString();
+    lastError = reason || "WhatsApp disconnected";
+    console.error(`WhatsApp disconnected: ${lastError}`);
+    scheduleReconnect("disconnected");
+  });
+
+  return nextClient;
+}
+
+function scheduleReconnect(reason) {
+  if (reconnectTimer) return;
+  reconnectAttempts += 1;
+  const delayMs = Math.min(60000, 5000 * reconnectAttempts);
+  nextReconnectAt = new Date(Date.now() + delayMs).toISOString();
+  console.log(`Scheduling WhatsApp reconnect after ${delayMs} ms (${reason}).`);
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null;
+    await initializeClient();
+  }, delayMs);
+}
+
+async function initializeClient() {
+  if (initializing) return;
+  initializing = true;
+  status = ready ? status : "starting";
+  try {
+    if (client) {
+      try {
+        await client.destroy();
+      } catch (_error) {
+        // The browser may already be closed; recreating the client is enough.
+      }
+    }
+    client = createClient();
+    await client.initialize();
+  } catch (error) {
+    status = "error";
+    ready = false;
     lastError = error.message;
+    console.error("Failed to initialize WhatsApp gateway:", error);
+    scheduleReconnect("initialize_failed");
+  } finally {
+    initializing = false;
   }
-  console.log("WhatsApp QR is ready. Open QIB ATM Manager Notification Center to scan it.");
-});
+}
 
-client.on("authenticated", () => {
-  status = "authenticated";
-  lastError = null;
-  console.log("WhatsApp session authenticated.");
-});
-
-client.on("ready", () => {
-  status = "ready";
-  ready = true;
-  latestQr = null;
-  latestQrImage = null;
-  lastError = null;
-  lastReadyAt = new Date().toISOString();
-  console.log("WhatsApp gateway is ready.");
-});
-
-client.on("auth_failure", (message) => {
-  status = "auth_failure";
-  ready = false;
-  lastError = message || "WhatsApp authentication failed";
-  console.error(lastError);
-});
-
-client.on("disconnected", (reason) => {
-  status = "disconnected";
-  ready = false;
-  lastError = reason || "WhatsApp disconnected";
-  console.error(`WhatsApp disconnected: ${lastError}`);
-});
-
-client.initialize().catch((error) => {
-  status = "error";
-  ready = false;
-  lastError = error.message;
-  console.error("Failed to initialize WhatsApp gateway:", error);
-});
+initializeClient();
 
 const app = express();
 app.use(express.json({ limit: "256kb" }));
@@ -160,7 +210,8 @@ app.listen(PORT, HOST, () => {
 
 async function shutdown() {
   try {
-    await client.destroy();
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    if (client) await client.destroy();
   } finally {
     process.exit(0);
   }

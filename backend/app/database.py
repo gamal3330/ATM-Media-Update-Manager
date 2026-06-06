@@ -191,6 +191,8 @@ def migrate_existing_schema() -> None:
                 )
             )
 
+        datetime_type = "TIMESTAMP WITH TIME ZONE" if connection.dialect.name == "postgresql" else "DATETIME"
+
         if "notification_settings" in table_names:
             existing_columns = {column["name"] for column in inspector.get_columns("notification_settings")}
             default_true = (
@@ -209,6 +211,11 @@ def migrate_existing_schema() -> None:
                 "whatsapp_gateway_token": "TEXT",
                 "whatsapp_default_recipient": "VARCHAR(40)",
                 "notify_switch_disconnected": default_true,
+                "notify_whatsapp_disconnected": default_true,
+                "last_whatsapp_gateway_status": "VARCHAR(40)",
+                "last_whatsapp_gateway_error": "TEXT",
+                "last_whatsapp_gateway_status_at": datetime_type,
+                "last_whatsapp_disconnect_alert_at": datetime_type,
             }
             for name, definition in notification_columns.items():
                 if name not in existing_columns:
@@ -218,10 +225,26 @@ def migrate_existing_schema() -> None:
             existing_columns = {column["name"] for column in inspector.get_columns("notification_recipients")}
             recipient_columns = {
                 "whatsapp_number": "VARCHAR(40)",
+                "whatsapp_numbers_json": "JSON NOT NULL DEFAULT '[]'",
             }
             for name, definition in recipient_columns.items():
                 if name not in existing_columns:
                     connection.execute(text(f"ALTER TABLE notification_recipients ADD COLUMN {name} {definition}"))
+            if "whatsapp_number" in existing_columns and "whatsapp_numbers_json" not in existing_columns:
+                json_array_expression = (
+                    "json_build_array(whatsapp_number)"
+                    if connection.dialect.name == "postgresql"
+                    else "json_array(whatsapp_number)"
+                )
+                connection.execute(
+                    text(
+                        f"""
+                        UPDATE notification_recipients
+                        SET whatsapp_numbers_json = {json_array_expression}
+                        WHERE whatsapp_number IS NOT NULL AND whatsapp_number != ''
+                        """
+                    )
+                )
 
         if "update_targets" not in table_names:
             return

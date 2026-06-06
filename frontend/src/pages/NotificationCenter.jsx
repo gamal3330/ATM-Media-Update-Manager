@@ -34,6 +34,7 @@ const defaultForm = {
   notify_cash_low: true,
   notify_cash_empty: true,
   notify_switch_disconnected: true,
+  notify_whatsapp_disconnected: true,
 };
 
 const smtpSecurityOptions = [
@@ -43,9 +44,11 @@ const smtpSecurityOptions = [
 ];
 
 const deliveryFilters = [
-  { id: "all", label: "الكل" },
-  { id: "sent", label: "ناجحة" },
-  { id: "failed", label: "فاشلة" },
+  { id: "all", label: "الكل", type: "all" },
+  { id: "whatsapp", label: "واتساب", type: "channel" },
+  { id: "email", label: "البريد", type: "channel" },
+  { id: "sent", label: "ناجحة", type: "status" },
+  { id: "failed", label: "فاشلة", type: "status" },
 ];
 
 function buildForm(settings) {
@@ -66,6 +69,7 @@ function buildForm(settings) {
     notify_cash_low: Boolean(settings.notify_cash_low),
     notify_cash_empty: Boolean(settings.notify_cash_empty),
     notify_switch_disconnected: settings.notify_switch_disconnected !== false,
+    notify_whatsapp_disconnected: settings.notify_whatsapp_disconnected !== false,
   };
 }
 
@@ -103,8 +107,19 @@ function normalizeRecipientRows(rows) {
     recipient_email: row.recipient_email || "",
     effective_recipient_email: row.effective_recipient_email || "",
     whatsapp_number: row.whatsapp_number || "",
+    whatsapp_numbers: row.whatsapp_numbers?.length ? row.whatsapp_numbers : row.whatsapp_number ? [row.whatsapp_number] : [],
+    whatsapp_numbers_text: (row.whatsapp_numbers?.length ? row.whatsapp_numbers : row.whatsapp_number ? [row.whatsapp_number] : []).join(", "),
     effective_whatsapp_number: row.effective_whatsapp_number || "",
+    effective_whatsapp_numbers: row.effective_whatsapp_numbers || [],
   }));
+}
+
+function parseWhatsAppNumbers(value) {
+  return String(value || "")
+    .split(/[,\n;]+/)
+    .map((item) => item.trim().replace(/\s+/g, "").replace(/-/g, ""))
+    .filter(Boolean)
+    .filter((item, index, array) => array.indexOf(item) === index);
 }
 
 function StatCard({ icon: Icon, label, value, meta, tone = "slate" }) {
@@ -172,7 +187,7 @@ function ToggleField({ checked, onChange, label }) {
   );
 }
 
-function RecipientRules({ rows, defaultEmail, saving, search, onSearch, onChange, onSave }) {
+function RecipientRules({ rows, defaultEmail, defaultWhatsapp, saving, search, onSearch, onChange, onSave }) {
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return rows;
@@ -184,7 +199,9 @@ function RecipientRules({ rows, defaultEmail, saving, search, onSearch, onChange
         row.recipient_email,
         row.effective_recipient_email,
         row.whatsapp_number,
+        row.whatsapp_numbers_text,
         row.effective_whatsapp_number,
+        ...(row.effective_whatsapp_numbers || []),
       ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(query)),
@@ -233,7 +250,10 @@ function RecipientRules({ rows, defaultEmail, saving, search, onSearch, onChange
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
           <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold">{enabledCount}/{rows.length} مفعلة</span>
           <span className="max-w-64 truncate rounded-full bg-slate-100 px-2.5 py-1" dir="ltr">
-            {defaultEmail || "no default email"}
+            {defaultEmail || "لا يوجد بريد افتراضي"}
+          </span>
+          <span className="max-w-64 truncate rounded-full bg-slate-100 px-2.5 py-1" dir="ltr">
+            {defaultWhatsapp || "لا يوجد رقم واتساب افتراضي"}
           </span>
         </div>
       </div>
@@ -243,7 +263,7 @@ function RecipientRules({ rows, defaultEmail, saving, search, onSearch, onChange
           <span>الصراف</span>
           <span>بريد خاص</span>
           <span>البريد الفعلي</span>
-          <span>WhatsApp</span>
+          <span>أرقام WhatsApp</span>
           <span>الحالة</span>
         </div>
         <div className="divide-y divide-slate-100">
@@ -277,12 +297,12 @@ function RecipientRules({ rows, defaultEmail, saving, search, onSearch, onChange
                 </div>
                 <input
                   dir="ltr"
-                  value={row.whatsapp_number}
-                  onChange={(event) => onChange(row.atm_id, { whatsapp_number: event.target.value })}
+                  value={row.whatsapp_numbers_text}
+                  onChange={(event) => onChange(row.atm_id, { whatsapp_numbers_text: event.target.value })}
                   className="focus-ring w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  placeholder="9677XXXXXXX"
+                  placeholder="9677XXXXXXX, 9677YYYYYYY"
                   disabled={!row.enabled}
-                  title={row.effective_whatsapp_number || "WhatsApp number"}
+                  title={(row.effective_whatsapp_numbers || []).join(", ") || "أرقام واتساب"}
                 />
                 <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
                   <span className="font-medium text-slate-700">{row.enabled ? "مفعل" : "متوقف"}</span>
@@ -387,12 +407,15 @@ export default function NotificationCenter() {
         form.notify_cash_low ? "انخفاض النقد" : null,
         form.notify_cash_empty ? "انتهاء النقد" : null,
         form.notify_switch_disconnected ? "فصل الصراف عن السويتش" : null,
+        form.notify_whatsapp_disconnected ? "فصل جلسة WhatsApp" : null,
       ].filter(Boolean),
-    [form.notify_cash_empty, form.notify_cash_low, form.notify_switch_disconnected],
+    [form.notify_cash_empty, form.notify_cash_low, form.notify_switch_disconnected, form.notify_whatsapp_disconnected],
   );
 
   const visibleDeliveries = useMemo(() => {
     if (deliveryFilter === "all") return deliveries;
+    const filter = deliveryFilters.find((item) => item.id === deliveryFilter);
+    if (filter?.type === "channel") return deliveries.filter((delivery) => delivery.channel === deliveryFilter);
     return deliveries.filter((delivery) => delivery.status === deliveryFilter);
   }, [deliveries, deliveryFilter]);
 
@@ -448,6 +471,7 @@ export default function NotificationCenter() {
         notify_cash_low: form.notify_cash_low,
         notify_cash_empty: form.notify_cash_empty,
         notify_switch_disconnected: form.notify_switch_disconnected,
+        notify_whatsapp_disconnected: form.notify_whatsapp_disconnected,
       };
       if (form.smtp_password.trim()) {
         payload.smtp_password = form.smtp_password.trim();
@@ -477,7 +501,7 @@ export default function NotificationCenter() {
           atm_id: row.atm_id,
           enabled: row.enabled,
           recipient_email: row.recipient_email.trim() || null,
-          whatsapp_number: row.whatsapp_number.trim() || null,
+          whatsapp_numbers: parseWhatsAppNumbers(row.whatsapp_numbers_text || row.whatsapp_number),
         })),
       );
       setRecipientRows(normalizeRecipientRows(updated));
@@ -663,6 +687,11 @@ export default function NotificationCenter() {
                   onChange={(value) => updateField("notify_switch_disconnected", value)}
                   label="تنبيه فصل الصراف عن السويتش"
                 />
+                <ToggleField
+                  checked={form.notify_whatsapp_disconnected}
+                  onChange={(value) => updateField("notify_whatsapp_disconnected", value)}
+                  label="تنبيه فصل جلسة WhatsApp"
+                />
               </div>
 
               <div className="grid gap-3">
@@ -847,6 +876,7 @@ export default function NotificationCenter() {
           <RecipientRules
             rows={recipientRows}
             defaultEmail={form.recipient_email.trim()}
+            defaultWhatsapp={form.whatsapp_default_recipient.trim()}
             saving={savingRecipients}
             search={recipientSearch}
             onSearch={setRecipientSearch}
