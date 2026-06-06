@@ -3,6 +3,8 @@ import {
   AtSign,
   Bell,
   Clock3,
+  MessageCircle,
+  QrCode,
   RefreshCw,
   Save,
   Search,
@@ -25,6 +27,10 @@ const defaultForm = {
   smtp_security: "starttls",
   smtp_username: "",
   smtp_password: "",
+  whatsapp_enabled: false,
+  whatsapp_gateway_url: "http://127.0.0.1:3020",
+  whatsapp_gateway_token: "",
+  whatsapp_default_recipient: "",
   notify_cash_low: true,
   notify_cash_empty: true,
   notify_switch_disconnected: true,
@@ -53,6 +59,10 @@ function buildForm(settings) {
     smtp_security: settings.smtp_security || "starttls",
     smtp_username: settings.smtp_username || "",
     smtp_password: "",
+    whatsapp_enabled: Boolean(settings.whatsapp_enabled),
+    whatsapp_gateway_url: settings.whatsapp_gateway_url || "http://127.0.0.1:3020",
+    whatsapp_gateway_token: "",
+    whatsapp_default_recipient: settings.whatsapp_default_recipient || "",
     notify_cash_low: Boolean(settings.notify_cash_low),
     notify_cash_empty: Boolean(settings.notify_cash_empty),
     notify_switch_disconnected: settings.notify_switch_disconnected !== false,
@@ -63,6 +73,12 @@ function statusTone(status) {
   if (status === "sent") return "bg-emerald-50 text-emerald-700 ring-emerald-100";
   if (status === "failed") return "bg-rose-50 text-rose-700 ring-rose-100";
   return "bg-amber-50 text-amber-700 ring-amber-100";
+}
+
+function channelLabel(channel) {
+  if (channel === "whatsapp") return "WhatsApp";
+  if (channel === "email") return "Email";
+  return channel || "-";
 }
 
 function deliveryErrorSummary(message) {
@@ -86,6 +102,8 @@ function normalizeRecipientRows(rows) {
     enabled: row.enabled !== false,
     recipient_email: row.recipient_email || "",
     effective_recipient_email: row.effective_recipient_email || "",
+    whatsapp_number: row.whatsapp_number || "",
+    effective_whatsapp_number: row.effective_whatsapp_number || "",
   }));
 }
 
@@ -159,7 +177,15 @@ function RecipientRules({ rows, defaultEmail, saving, search, onSearch, onChange
     const query = search.trim().toLowerCase();
     if (!query) return rows;
     return rows.filter((row) =>
-      [row.atm_id, row.name, row.branch, row.recipient_email, row.effective_recipient_email]
+      [
+        row.atm_id,
+        row.name,
+        row.branch,
+        row.recipient_email,
+        row.effective_recipient_email,
+        row.whatsapp_number,
+        row.effective_whatsapp_number,
+      ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(query)),
     );
@@ -213,10 +239,11 @@ function RecipientRules({ rows, defaultEmail, saving, search, onSearch, onChange
       </div>
 
       <div className="overflow-hidden rounded-lg border border-slate-200">
-        <div className="grid grid-cols-[minmax(170px,1fr)_minmax(230px,1.3fr)_minmax(180px,1fr)_110px] gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600 max-lg:hidden">
+        <div className="grid grid-cols-[minmax(150px,1fr)_minmax(210px,1.2fr)_minmax(170px,1fr)_minmax(170px,1fr)_110px] gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600 max-lg:hidden">
           <span>الصراف</span>
           <span>بريد خاص</span>
           <span>البريد الفعلي</span>
+          <span>WhatsApp</span>
           <span>الحالة</span>
         </div>
         <div className="divide-y divide-slate-100">
@@ -225,7 +252,7 @@ function RecipientRules({ rows, defaultEmail, saving, search, onSearch, onChange
             return (
               <div
                 key={row.atm_id}
-                className="grid items-center gap-3 px-3 py-3 lg:grid-cols-[minmax(170px,1fr)_minmax(230px,1.3fr)_minmax(180px,1fr)_110px]"
+                className="grid items-center gap-3 px-3 py-3 lg:grid-cols-[minmax(150px,1fr)_minmax(210px,1.2fr)_minmax(170px,1fr)_minmax(170px,1fr)_110px]"
               >
                 <div className="min-w-0">
                   <div className="truncate font-semibold text-slate-950">{row.name}</div>
@@ -248,6 +275,15 @@ function RecipientRules({ rows, defaultEmail, saving, search, onSearch, onChange
                     {row.enabled ? effective || "no email" : "notifications disabled"}
                   </div>
                 </div>
+                <input
+                  dir="ltr"
+                  value={row.whatsapp_number}
+                  onChange={(event) => onChange(row.atm_id, { whatsapp_number: event.target.value })}
+                  className="focus-ring w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  placeholder="9677XXXXXXX"
+                  disabled={!row.enabled}
+                  title={row.effective_whatsapp_number || "WhatsApp number"}
+                />
                 <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
                   <span className="font-medium text-slate-700">{row.enabled ? "مفعل" : "متوقف"}</span>
                   <input
@@ -286,9 +322,14 @@ function DeliveryList({ deliveries }) {
       {deliveries.map((delivery) => (
         <div key={delivery.id} className="grid gap-3 px-3 py-3 lg:grid-cols-[108px_minmax(0,1fr)_150px]">
           <div>
-            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusTone(delivery.status)}`}>
-              {delivery.status}
-            </span>
+            <div className="flex flex-wrap gap-1">
+              <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusTone(delivery.status)}`}>
+                {delivery.status}
+              </span>
+              <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                {channelLabel(delivery.channel)}
+              </span>
+            </div>
           </div>
           <div className="min-w-0">
             <div className="truncate font-semibold text-slate-950">{delivery.subject}</div>
@@ -316,22 +357,29 @@ export default function NotificationCenter() {
   const [form, setForm] = useState(defaultForm);
   const [recipientRows, setRecipientRows] = useState([]);
   const [deliveries, setDeliveries] = useState([]);
+  const [whatsappStatus, setWhatsappStatus] = useState(null);
+  const [whatsappQr, setWhatsappQr] = useState(null);
   const [recipientSearch, setRecipientSearch] = useState("");
   const [deliveryFilter, setDeliveryFilter] = useState("all");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingRecipients, setSavingRecipients] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [testingWhatsapp, setTestingWhatsapp] = useState(false);
+  const [loadingQr, setLoadingQr] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   const hasStoredPassword = Boolean(settings?.has_smtp_password);
   const configured = Boolean(settings?.is_configured);
+  const whatsappConfigured = Boolean(settings?.is_whatsapp_configured);
   const canSendTest = configured && Boolean(form.recipient_email.trim());
+  const canSendWhatsAppTest = whatsappConfigured && Boolean(form.whatsapp_default_recipient.trim());
   const usesGmailSmtp = form.smtp_host.trim().toLowerCase() === "smtp.gmail.com";
   const failedDeliveries = deliveries.filter((delivery) => delivery.status === "failed").length;
   const sentDeliveries = deliveries.filter((delivery) => delivery.status === "sent").length;
   const enabledRecipients = recipientRows.filter((row) => row.enabled).length;
+  const whatsappReady = Boolean(whatsappStatus?.ready);
 
   const enabledEvents = useMemo(
     () =>
@@ -362,15 +410,17 @@ export default function NotificationCenter() {
     setLoading(true);
     setError("");
     try {
-      const [settingsData, deliveryData, recipientData] = await Promise.all([
+      const [settingsData, deliveryData, recipientData, whatsappData] = await Promise.all([
         api.getNotificationSettings(),
         api.listNotificationDeliveries(),
         api.listNotificationRecipients(),
+        api.getWhatsappStatus().catch((err) => ({ ok: false, status: "unreachable", message: err.message })),
       ]);
       setSettings(settingsData);
       setForm(buildForm(settingsData));
       setDeliveries(deliveryData);
       setRecipientRows(normalizeRecipientRows(recipientData));
+      setWhatsappStatus(whatsappData);
     } catch (err) {
       setError(err.message || "تعذر تحميل مركز التنبيهات.");
     } finally {
@@ -392,12 +442,18 @@ export default function NotificationCenter() {
         smtp_port: Number(form.smtp_port),
         smtp_security: form.smtp_security,
         smtp_username: form.smtp_username.trim() || null,
+        whatsapp_enabled: form.whatsapp_enabled,
+        whatsapp_gateway_url: form.whatsapp_gateway_url.trim() || null,
+        whatsapp_default_recipient: form.whatsapp_default_recipient.trim() || null,
         notify_cash_low: form.notify_cash_low,
         notify_cash_empty: form.notify_cash_empty,
         notify_switch_disconnected: form.notify_switch_disconnected,
       };
       if (form.smtp_password.trim()) {
         payload.smtp_password = form.smtp_password.trim();
+      }
+      if (form.whatsapp_gateway_token.trim()) {
+        payload.whatsapp_gateway_token = form.whatsapp_gateway_token.trim();
       }
       const updated = await api.updateNotificationSettings(payload);
       setSettings(updated);
@@ -421,6 +477,7 @@ export default function NotificationCenter() {
           atm_id: row.atm_id,
           enabled: row.enabled,
           recipient_email: row.recipient_email.trim() || null,
+          whatsapp_number: row.whatsapp_number.trim() || null,
         })),
       );
       setRecipientRows(normalizeRecipientRows(updated));
@@ -445,6 +502,42 @@ export default function NotificationCenter() {
       setError(err.message || "تعذر إرسال رسالة الاختبار.");
     } finally {
       setTesting(false);
+    }
+  }
+
+  async function refreshWhatsappQr() {
+    setLoadingQr(true);
+    setMessage("");
+    setError("");
+    try {
+      const qr = await api.getWhatsappQr();
+      setWhatsappQr(qr);
+      setWhatsappStatus(qr);
+      if (!qr.qr_image && qr.ready) {
+        setMessage("WhatsApp متصل ولا يحتاج QR جديد.");
+      } else if (!qr.qr_image) {
+        setError(qr.message || "لم يصدر QR من خدمة WhatsApp بعد. تأكد أن الخدمة تعمل.");
+      }
+    } catch (err) {
+      setError(err.message || "تعذر جلب QR الخاص بـ WhatsApp.");
+    } finally {
+      setLoadingQr(false);
+    }
+  }
+
+  async function sendTestWhatsApp() {
+    setTestingWhatsapp(true);
+    setMessage("");
+    setError("");
+    try {
+      const delivery = await api.sendWhatsAppTestNotification();
+      setDeliveries((current) => [delivery, ...current].slice(0, 50));
+      setMessage(delivery.status === "sent" ? "تم إرسال رسالة اختبار WhatsApp." : "فشل إرسال رسالة اختبار WhatsApp.");
+      if (delivery.status === "failed") setError(delivery.error_message || "فشل إرسال رسالة اختبار WhatsApp.");
+    } catch (err) {
+      setError(err.message || "تعذر إرسال رسالة اختبار WhatsApp.");
+    } finally {
+      setTestingWhatsapp(false);
     }
   }
 
@@ -474,7 +567,7 @@ export default function NotificationCenter() {
         </button>
       </header>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard
           icon={ShieldCheck}
           label="الإرسال"
@@ -488,6 +581,13 @@ export default function NotificationCenter() {
           value={configured ? "جاهز" : "غير مكتمل"}
           meta={form.smtp_host || "لم يتم تحديد السيرفر"}
           tone={configured ? "emerald" : "amber"}
+        />
+        <StatCard
+          icon={MessageCircle}
+          label="WhatsApp"
+          value={whatsappReady ? "متصل" : form.whatsapp_enabled ? "يحتاج QR" : "متوقف"}
+          meta={whatsappStatus?.status || form.whatsapp_gateway_url || "غير مهيأ"}
+          tone={whatsappReady ? "emerald" : form.whatsapp_enabled ? "amber" : "slate"}
         />
         <StatCard
           icon={Users}
@@ -651,6 +751,94 @@ export default function NotificationCenter() {
                   placeholder={hasStoredPassword ? "اتركه فارغاً للإبقاء عليه" : ""}
                 />
               </FormField>
+            </div>
+          </SectionCard>
+          <SectionCard
+            title="WhatsApp"
+            icon={MessageCircle}
+            footer={
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={refreshWhatsappQr}
+                  disabled={loadingQr || !settings?.whatsapp_gateway_url}
+                  className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                  title="عرض QR"
+                >
+                  <QrCode size={16} />
+                  <span>{loadingQr ? "جاري الجلب..." : "عرض QR"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={sendTestWhatsApp}
+                  disabled={testingWhatsapp || !canSendWhatsAppTest}
+                  className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-teal-300 px-4 py-2 text-sm font-semibold text-teal-800 hover:bg-teal-50 disabled:opacity-60"
+                  title="إرسال اختبار WhatsApp"
+                >
+                  <Send size={16} />
+                  <span>{testingWhatsapp ? "جاري الإرسال..." : "إرسال WhatsApp اختبار"}</span>
+                </button>
+              </div>
+            }
+          >
+            <div className="space-y-4">
+              <ToggleField
+                checked={form.whatsapp_enabled}
+                onChange={(value) => updateField("whatsapp_enabled", value)}
+                label="تفعيل WhatsApp"
+              />
+
+              <FormField label="Gateway URL" hint="خدمة Node المستقلة، غالباً http://127.0.0.1:3020 على نفس السيرفر.">
+                <input
+                  dir="ltr"
+                  value={form.whatsapp_gateway_url}
+                  onChange={(event) => updateField("whatsapp_gateway_url", event.target.value)}
+                  className="focus-ring w-full rounded-lg border border-slate-300 px-3 py-2"
+                  placeholder="http://127.0.0.1:3020"
+                />
+              </FormField>
+
+              <FormField label="Gateway Token" hint="اتركه فارغاً إذا لم تستخدم token في خدمة WhatsApp.">
+                <input
+                  type="password"
+                  dir="ltr"
+                  value={form.whatsapp_gateway_token}
+                  onChange={(event) => updateField("whatsapp_gateway_token", event.target.value)}
+                  className="focus-ring w-full rounded-lg border border-slate-300 px-3 py-2"
+                  placeholder={settings?.has_whatsapp_gateway_token ? "اتركه فارغاً للإبقاء عليه" : "اختياري"}
+                />
+              </FormField>
+
+              <FormField label="رقم WhatsApp الافتراضي" hint="اكتب الرقم مع مفتاح الدولة، مثل 9677XXXXXXX.">
+                <input
+                  dir="ltr"
+                  value={form.whatsapp_default_recipient}
+                  onChange={(event) => updateField("whatsapp_default_recipient", event.target.value)}
+                  className="focus-ring w-full rounded-lg border border-slate-300 px-3 py-2"
+                  placeholder="9677XXXXXXX"
+                />
+              </FormField>
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-950">حالة WhatsApp</div>
+                    <div className="mt-1 text-xs text-slate-500">{whatsappStatus?.message || whatsappStatus?.status || "-"}</div>
+                  </div>
+                  <span
+                    className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                      whatsappReady ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+                    }`}
+                  >
+                    {whatsappReady ? "متصل" : whatsappStatus?.status || "غير متصل"}
+                  </span>
+                </div>
+                {whatsappQr?.qr_image && (
+                  <div className="mt-3 flex justify-center rounded-lg bg-white p-3">
+                    <img src={whatsappQr.qr_image} alt="WhatsApp QR" className="h-56 w-56" />
+                  </div>
+                )}
+              </div>
             </div>
           </SectionCard>
         </form>

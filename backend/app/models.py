@@ -343,6 +343,10 @@ class NotificationSettings(Base):
     smtp_security: Mapped[str] = mapped_column(String(20), default="starttls", nullable=False)
     smtp_username: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     smtp_password: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    whatsapp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    whatsapp_gateway_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    whatsapp_gateway_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    whatsapp_default_recipient: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     notify_cash_low: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     notify_cash_empty: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     notify_switch_disconnected: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -355,8 +359,16 @@ class NotificationSettings(Base):
         return bool(self.smtp_password)
 
     @property
+    def has_whatsapp_gateway_token(self) -> bool:
+        return bool(self.whatsapp_gateway_token)
+
+    @property
     def is_configured(self) -> bool:
         return bool(self.sender_email and self.smtp_host and self.smtp_port)
+
+    @property
+    def is_whatsapp_configured(self) -> bool:
+        return bool(self.whatsapp_enabled and self.whatsapp_gateway_url)
 
 
 class NotificationRecipient(Base):
@@ -366,6 +378,7 @@ class NotificationRecipient(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     atm_id: Mapped[int] = mapped_column(ForeignKey("atms.id"), nullable=False)
     recipient_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    whatsapp_number: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     updated_by: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)

@@ -32,6 +32,29 @@ def validate_email_like(value: str | None) -> str | None:
     return cleaned
 
 
+def validate_whatsapp_number(value: str | None) -> str | None:
+    if value is None:
+        return value
+    cleaned = value.strip().replace(" ", "").replace("-", "")
+    if not cleaned:
+        return None
+    digits = cleaned[1:] if cleaned.startswith("+") else cleaned
+    if not digits.isdigit() or len(digits) < 8 or len(digits) > 15:
+        raise ValueError("Enter a valid WhatsApp number with country code")
+    return cleaned
+
+
+def validate_http_url(value: str | None) -> str | None:
+    if value is None:
+        return value
+    cleaned = value.strip().rstrip("/")
+    if not cleaned:
+        return None
+    if not (cleaned.startswith("http://") or cleaned.startswith("https://")):
+        raise ValueError("URL must start with http:// or https://")
+    return cleaned
+
+
 def validate_atm_managed_path(value: str | None) -> str | None:
     if value is None:
         return value
@@ -687,6 +710,11 @@ class NotificationSettingsUpdate(BaseModel):
     smtp_username: str | None = Field(default=None, max_length=255)
     smtp_password: str | None = Field(default=None, max_length=500)
     clear_smtp_password: bool = False
+    whatsapp_enabled: bool = False
+    whatsapp_gateway_url: str | None = Field(default=None, max_length=500)
+    whatsapp_gateway_token: str | None = Field(default=None, max_length=500)
+    clear_whatsapp_gateway_token: bool = False
+    whatsapp_default_recipient: str | None = Field(default=None, max_length=40)
     notify_cash_low: bool = True
     notify_cash_empty: bool = True
     notify_switch_disconnected: bool = True
@@ -696,7 +724,17 @@ class NotificationSettingsUpdate(BaseModel):
     def validate_email_fields(cls, value: str | None) -> str | None:
         return validate_email_like(value)
 
-    @field_validator("smtp_host", "smtp_username", "smtp_password")
+    @field_validator("whatsapp_default_recipient")
+    @classmethod
+    def validate_whatsapp_recipient(cls, value: str | None) -> str | None:
+        return validate_whatsapp_number(value)
+
+    @field_validator("whatsapp_gateway_url")
+    @classmethod
+    def validate_gateway_url(cls, value: str | None) -> str | None:
+        return validate_http_url(value)
+
+    @field_validator("smtp_host", "smtp_username", "smtp_password", "whatsapp_gateway_token")
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:
         if value is None:
@@ -706,8 +744,10 @@ class NotificationSettingsUpdate(BaseModel):
 
     @model_validator(mode="after")
     def validate_enabled_configuration(self):
-        if self.enabled and not (self.sender_email and self.smtp_host):
-            raise ValueError("Sender email and SMTP host are required when notifications are enabled")
+        smtp_ready = bool(self.sender_email and self.smtp_host)
+        whatsapp_ready = bool(self.whatsapp_enabled and self.whatsapp_gateway_url)
+        if self.enabled and not (smtp_ready or whatsapp_ready):
+            raise ValueError("Configure SMTP or WhatsApp before enabling notifications")
         return self
 
 
@@ -722,11 +762,16 @@ class NotificationSettingsRead(BaseModel):
     smtp_port: int
     smtp_security: str
     smtp_username: str | None
+    whatsapp_enabled: bool
+    whatsapp_gateway_url: str | None
+    whatsapp_default_recipient: str | None
     notify_cash_low: bool
     notify_cash_empty: bool
     notify_switch_disconnected: bool
     has_smtp_password: bool = False
+    has_whatsapp_gateway_token: bool = False
     is_configured: bool = False
+    is_whatsapp_configured: bool = False
     updated_by: str | None
     created_at: datetime
     updated_at: datetime
@@ -751,12 +796,18 @@ class NotificationDeliveryRead(BaseModel):
 class NotificationRecipientItemUpdate(BaseModel):
     atm_id: str = Field(min_length=1, max_length=80)
     recipient_email: str | None = Field(default=None, max_length=255)
+    whatsapp_number: str | None = Field(default=None, max_length=40)
     enabled: bool = True
 
     @field_validator("recipient_email")
     @classmethod
     def validate_recipient_email(cls, value: str | None) -> str | None:
         return validate_email_like(value)
+
+    @field_validator("whatsapp_number")
+    @classmethod
+    def validate_recipient_whatsapp(cls, value: str | None) -> str | None:
+        return validate_whatsapp_number(value)
 
 
 class NotificationRecipientsUpdate(BaseModel):
@@ -769,6 +820,8 @@ class NotificationRecipientRead(BaseModel):
     branch: str
     recipient_email: str | None = None
     effective_recipient_email: str | None = None
+    whatsapp_number: str | None = None
+    effective_whatsapp_number: str | None = None
     enabled: bool = True
     uses_default: bool = True
     updated_at: datetime | None = None

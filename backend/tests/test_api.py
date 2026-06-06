@@ -531,6 +531,73 @@ def test_switch_probe_disconnect_notification_can_be_disabled(monkeypatch) -> No
         assert sent_messages == []
 
 
+def test_switch_probe_disconnect_can_send_whatsapp_without_smtp(monkeypatch) -> None:
+    sent_messages = []
+
+    def fake_send_whatsapp(settings, recipient, message):
+        sent_messages.append({"recipient": recipient, "message": message})
+
+    monkeypatch.setattr("app.services.notification_service.send_whatsapp", fake_send_whatsapp)
+
+    with TestClient(app) as client:
+        headers = login(client)
+        settings = client.put(
+            "/api/notifications/settings",
+            json={
+                "enabled": True,
+                "whatsapp_enabled": True,
+                "whatsapp_gateway_url": "http://127.0.0.1:3020",
+                "whatsapp_default_recipient": "967777777777",
+                "notify_switch_disconnected": True,
+            },
+            headers=headers,
+        )
+        assert settings.status_code == 200
+        assert settings.json()["is_whatsapp_configured"] is True
+
+        atm_response = client.post(
+            "/api/atms",
+            json={
+                "atm_id": "ATM-SWITCH-WA",
+                "name": "WhatsApp Switch ATM",
+                "vpn_ip": "10.10.0.52",
+                "branch": "HQ",
+                "switch_probe_host": "172.16.25.75",
+                "switch_probe_port": 10200,
+                "switch_probe_interval_seconds": 30,
+            },
+            headers=headers,
+        )
+        assert atm_response.status_code == 201
+        agent_headers = {"X-ATM-ID": "ATM-SWITCH-WA", "X-API-Key": atm_response.json()["api_key"]}
+
+        failed = client.post(
+            "/api/agent/switch-probe-snapshot",
+            json={
+                "status": "failed",
+                "latency_ms": 5000,
+                "error_message": "timed out",
+                "host": "172.16.25.75",
+                "port": 10200,
+            },
+            headers=agent_headers,
+        )
+        assert failed.status_code == 200
+
+        deliveries = client.get("/api/notifications/deliveries", headers=headers)
+        assert deliveries.status_code == 200
+        whatsapp_deliveries = [
+            item
+            for item in deliveries.json()
+            if item["event_type"] == "SWITCH_DISCONNECTED"
+            and item["channel"] == "whatsapp"
+            and "WhatsApp Switch ATM" in item["subject"]
+        ]
+        assert len(whatsapp_deliveries) == 1
+        assert whatsapp_deliveries[0]["recipient_email"] == "967777777777"
+        assert sent_messages and sent_messages[0]["recipient"] == "967777777777"
+
+
 def test_switch_probe_new_target_supersedes_existing_pending_probe() -> None:
     with TestClient(app) as client:
         headers = login(client)

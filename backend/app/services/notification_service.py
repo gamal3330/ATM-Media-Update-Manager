@@ -1,5 +1,8 @@
+import json
 import smtplib
 import ssl
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from html import escape
@@ -217,6 +220,19 @@ def notification_recipient_for_atm(db: Session, settings: NotificationSettings, 
     return settings.recipient_email
 
 
+def whatsapp_recipient_for_atm(db: Session, settings: NotificationSettings, atm: ATM) -> str | None:
+    recipient = (
+        db.query(NotificationRecipient)
+        .filter(NotificationRecipient.atm_id == atm.id)
+        .first()
+    )
+    if recipient is not None:
+        if not recipient.enabled:
+            return None
+        return recipient.whatsapp_number or settings.whatsapp_default_recipient
+    return settings.whatsapp_default_recipient
+
+
 def send_email(
     settings: NotificationSettings,
     subject: str,
@@ -255,6 +271,95 @@ def send_email(
         if settings.smtp_username:
             client.login(settings.smtp_username, settings.smtp_password or "")
         client.send_message(message)
+
+
+def whatsapp_gateway_request(
+    settings: NotificationSettings,
+    path: str,
+    *,
+    method: str = "GET",
+    payload: dict | None = None,
+) -> dict:
+    if not settings.whatsapp_gateway_url:
+        raise ValueError("WhatsApp gateway URL is missing")
+
+    url = f"{settings.whatsapp_gateway_url.rstrip('/')}{path}"
+    body = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = urllib.request.Request(
+        url,
+        data=body,
+        method=method,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
+    if settings.whatsapp_gateway_token:
+        request.add_header("Authorization", f"Bearer {settings.whatsapp_gateway_token}")
+
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            data = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        error_body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"WhatsApp gateway returned {exc.code}: {error_body}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"WhatsApp gateway is unreachable: {exc.reason}") from exc
+
+    return json.loads(data or "{}")
+
+
+def get_whatsapp_gateway_status(settings: NotificationSettings) -> dict:
+    if not settings.whatsapp_enabled:
+        return {
+            "configured": bool(settings.whatsapp_gateway_url),
+            "ok": False,
+            "ready": False,
+            "status": "disabled",
+            "message": "WhatsApp notifications are disabled",
+        }
+    if not settings.whatsapp_gateway_url:
+        return {
+            "configured": False,
+            "ok": False,
+            "status": "not_configured",
+            "message": "WhatsApp gateway URL is missing",
+        }
+    try:
+        result = whatsapp_gateway_request(settings, "/status")
+    except Exception as exc:
+        return {
+            "configured": True,
+            "ok": False,
+            "status": "unreachable",
+            "message": str(exc),
+        }
+    result["configured"] = True
+    result["ok"] = bool(result.get("ready"))
+    return result
+
+
+def get_whatsapp_gateway_qr(settings: NotificationSettings) -> dict:
+    if not settings.whatsapp_gateway_url:
+        return {"configured": False, "qr": None, "status": "not_configured"}
+    try:
+        result = whatsapp_gateway_request(settings, "/qr")
+    except Exception as exc:
+        return {"configured": True, "qr": None, "status": "unreachable", "message": str(exc)}
+    result["configured"] = True
+    return result
+
+
+def send_whatsapp(settings: NotificationSettings, recipient: str, message: str) -> None:
+    if not settings.whatsapp_enabled or not settings.whatsapp_gateway_url:
+        raise ValueError("WhatsApp gateway settings are incomplete")
+    if not recipient:
+        raise ValueError("WhatsApp recipient is missing")
+    result = whatsapp_gateway_request(
+        settings,
+        "/send",
+        method="POST",
+        payload={"to": recipient, "message": message},
+    )
+    if not result.get("ok"):
+        raise RuntimeError(result.get("error") or "WhatsApp gateway failed to send the message")
 
 
 def create_email_delivery(
@@ -296,38 +401,95 @@ def create_email_delivery(
     return delivery
 
 
-def notify_cash_alert_opened(db: Session, atm: ATM, alert: AtmCashAlert) -> NotificationDelivery | None:
-    existing_delivery = (
-        db.query(NotificationDelivery)
-        .filter(NotificationDelivery.alert_id == alert.id)
-        .first()
-        if alert.id
-        else None
-    )
-    if existing_delivery is not None:
-        return None
+def create_whatsapp_delivery(
+    db: Session,
+    settings: NotificationSettings,
+    *,
+    event_type: str,
+    subject: str,
+    body: str,
+    recipient: str | None = None,
+    alert: AtmCashAlert | None = None,
+    atm: ATM | None = None,
+) -> NotificationDelivery:
+    recipient_value = recipient or settings.whatsapp_default_recipient
+    if not recipient_value:
+        raise ValueError("WhatsApp recipient is missing")
 
+    delivery = NotificationDelivery(
+        alert_id=alert.id if alert else None,
+        atm_id=atm.id if atm else None,
+        event_type=event_type,
+        channel="whatsapp",
+        recipient_email=recipient_value,
+        subject=subject,
+        status="pending",
+    )
+    db.add(delivery)
+    db.flush()
+
+    try:
+        send_whatsapp(settings, recipient_value, f"{subject}\n\n{body}")
+    except Exception as exc:
+        delivery.status = "failed"
+        delivery.error_message = str(exc)[:1000]
+        return delivery
+
+    delivery.status = "sent"
+    delivery.sent_at = utcnow()
+    return delivery
+
+
+def notify_cash_alert_opened(db: Session, atm: ATM, alert: AtmCashAlert) -> NotificationDelivery | None:
     settings = get_notification_settings(db)
-    if not settings.enabled or not settings.is_configured:
+    if not settings.enabled:
         return None
     if not alert_notification_enabled(settings, alert.alert_type):
         return None
-    recipient_email = notification_recipient_for_atm(db, settings, atm)
-    if not recipient_email:
-        return None
 
     subject, body, html_body = build_cash_alert_email(atm, alert)
-    return create_email_delivery(
-        db,
-        settings,
-        event_type=alert.alert_type,
-        subject=subject,
-        body=body,
-        html_body=html_body,
-        recipient_email=recipient_email,
-        alert=alert,
-        atm=atm,
+    existing_channels = (
+        {
+            delivery.channel
+            for delivery in db.query(NotificationDelivery).filter(NotificationDelivery.alert_id == alert.id).all()
+        }
+        if alert.id
+        else set()
     )
+    deliveries = []
+
+    recipient_email = notification_recipient_for_atm(db, settings, atm)
+    if settings.is_configured and recipient_email and "email" not in existing_channels:
+        deliveries.append(
+            create_email_delivery(
+                db,
+                settings,
+                event_type=alert.alert_type,
+                subject=subject,
+                body=body,
+                html_body=html_body,
+                recipient_email=recipient_email,
+                alert=alert,
+                atm=atm,
+            )
+        )
+
+    whatsapp_recipient = whatsapp_recipient_for_atm(db, settings, atm)
+    if settings.is_whatsapp_configured and whatsapp_recipient and "whatsapp" not in existing_channels:
+        deliveries.append(
+            create_whatsapp_delivery(
+                db,
+                settings,
+                event_type=alert.alert_type,
+                subject=subject,
+                body=body,
+                recipient=whatsapp_recipient,
+                alert=alert,
+                atm=atm,
+            )
+        )
+
+    return deliveries[0] if deliveries else None
 
 
 def notify_switch_probe_failed(
@@ -339,25 +501,43 @@ def notify_switch_probe_failed(
     failed_at: datetime,
 ) -> NotificationDelivery | None:
     settings = get_notification_settings(db)
-    if not settings.enabled or not settings.is_configured:
+    if not settings.enabled:
         return None
     if not settings.notify_switch_disconnected:
         return None
-    recipient_email = notification_recipient_for_atm(db, settings, atm)
-    if not recipient_email:
-        return None
 
     subject, body, html_body = build_switch_probe_failed_email(atm, host, port, error_message, failed_at)
-    return create_email_delivery(
-        db,
-        settings,
-        event_type="SWITCH_DISCONNECTED",
-        subject=subject,
-        body=body,
-        html_body=html_body,
-        recipient_email=recipient_email,
-        atm=atm,
-    )
+    deliveries = []
+    recipient_email = notification_recipient_for_atm(db, settings, atm)
+    if settings.is_configured and recipient_email:
+        deliveries.append(
+            create_email_delivery(
+                db,
+                settings,
+                event_type="SWITCH_DISCONNECTED",
+                subject=subject,
+                body=body,
+                html_body=html_body,
+                recipient_email=recipient_email,
+                atm=atm,
+            )
+        )
+
+    whatsapp_recipient = whatsapp_recipient_for_atm(db, settings, atm)
+    if settings.is_whatsapp_configured and whatsapp_recipient:
+        deliveries.append(
+            create_whatsapp_delivery(
+                db,
+                settings,
+                event_type="SWITCH_DISCONNECTED",
+                subject=subject,
+                body=body,
+                recipient=whatsapp_recipient,
+                atm=atm,
+            )
+        )
+
+    return deliveries[0] if deliveries else None
 
 
 def send_test_notification(db: Session, settings: NotificationSettings) -> NotificationDelivery:
@@ -386,3 +566,26 @@ def send_test_notification(db: Session, settings: NotificationSettings) -> Notif
     if not settings.recipient_email:
         raise ValueError("Notification default recipient email is missing")
     return create_email_delivery(db, settings, event_type="TEST", subject=subject, body=body, html_body=html_body)
+
+
+def send_test_whatsapp_notification(db: Session, settings: NotificationSettings) -> NotificationDelivery:
+    subject = f"{BRAND_NAME} - WhatsApp test notification"
+    now = utcnow()
+    body = "\n".join(
+        [
+            BRAND_NAME,
+            "",
+            "هذه رسالة اختبار من مركز التنبيهات عبر WhatsApp.",
+            f"وقت الاختبار: {email_datetime(now)}",
+        ]
+    )
+    if not settings.whatsapp_default_recipient:
+        raise ValueError("Notification default WhatsApp recipient is missing")
+    return create_whatsapp_delivery(
+        db,
+        settings,
+        event_type="TEST",
+        subject=subject,
+        body=body,
+        recipient=settings.whatsapp_default_recipient,
+    )

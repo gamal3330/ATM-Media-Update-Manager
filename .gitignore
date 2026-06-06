@@ -24,6 +24,9 @@ backend/*.db
 backend/*.log
 frontend/node_modules/
 frontend/dist/
+whatsapp-gateway/node_modules/
+whatsapp-gateway/.wwebjs_auth/
+whatsapp-gateway/.wwebjs_cache/
 android-app/.gradle/
 android-app/local.properties
 android-app/build/

@@ -198,12 +198,30 @@ def migrate_existing_schema() -> None:
                 if connection.dialect.name == "postgresql"
                 else "BOOLEAN NOT NULL DEFAULT 1"
             )
+            default_false = (
+                "BOOLEAN NOT NULL DEFAULT FALSE"
+                if connection.dialect.name == "postgresql"
+                else "BOOLEAN NOT NULL DEFAULT 0"
+            )
             notification_columns = {
+                "whatsapp_enabled": default_false,
+                "whatsapp_gateway_url": "VARCHAR(500)",
+                "whatsapp_gateway_token": "TEXT",
+                "whatsapp_default_recipient": "VARCHAR(40)",
                 "notify_switch_disconnected": default_true,
             }
             for name, definition in notification_columns.items():
                 if name not in existing_columns:
                     connection.execute(text(f"ALTER TABLE notification_settings ADD COLUMN {name} {definition}"))
+
+        if "notification_recipients" in table_names:
+            existing_columns = {column["name"] for column in inspector.get_columns("notification_recipients")}
+            recipient_columns = {
+                "whatsapp_number": "VARCHAR(40)",
+            }
+            for name, definition in recipient_columns.items():
+                if name not in existing_columns:
+                    connection.execute(text(f"ALTER TABLE notification_recipients ADD COLUMN {name} {definition}"))
 
         if "update_targets" not in table_names:
             return

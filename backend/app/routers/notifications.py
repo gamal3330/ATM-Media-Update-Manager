@@ -13,7 +13,13 @@ from ..schemas import (
     NotificationSettingsUpdate,
 )
 from ..services.audit_service import write_audit
-from ..services.notification_service import get_notification_settings, send_test_notification
+from ..services.notification_service import (
+    get_notification_settings,
+    get_whatsapp_gateway_qr,
+    get_whatsapp_gateway_status,
+    send_test_notification,
+    send_test_whatsapp_notification,
+)
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
@@ -39,7 +45,14 @@ def update_notification_settings(
     current_user: User = Depends(require_notification_manager),
 ) -> NotificationSettings:
     settings = get_notification_settings(db)
-    changes = payload.model_dump(exclude={"smtp_password", "clear_smtp_password"})
+    changes = payload.model_dump(
+        exclude={
+            "smtp_password",
+            "clear_smtp_password",
+            "whatsapp_gateway_token",
+            "clear_whatsapp_gateway_token",
+        }
+    )
     for key, value in changes.items():
         setattr(settings, key, value)
 
@@ -47,6 +60,11 @@ def update_notification_settings(
         settings.smtp_password = None
     elif payload.smtp_password:
         settings.smtp_password = payload.smtp_password
+
+    if payload.clear_whatsapp_gateway_token:
+        settings.whatsapp_gateway_token = None
+    elif payload.whatsapp_gateway_token:
+        settings.whatsapp_gateway_token = payload.whatsapp_gateway_token
 
     settings.updated_by = current_user.username
     write_audit(
@@ -59,7 +77,12 @@ def update_notification_settings(
         details={
             key: value
             for key, value in changes.items()
-            if key not in {"smtp_password", "clear_smtp_password"}
+            if key not in {
+                "smtp_password",
+                "clear_smtp_password",
+                "whatsapp_gateway_token",
+                "clear_whatsapp_gateway_token",
+            }
         },
     )
     db.commit()
@@ -71,16 +94,21 @@ def recipient_read(
     atm: ATM,
     recipient: NotificationRecipient | None,
     default_email: str | None,
+    default_whatsapp: str | None,
 ) -> NotificationRecipientRead:
     enabled = recipient.enabled if recipient else True
     custom_email = recipient.recipient_email if recipient else None
+    custom_whatsapp = recipient.whatsapp_number if recipient else None
     effective_email = (custom_email or default_email) if enabled else None
+    effective_whatsapp = (custom_whatsapp or default_whatsapp) if enabled else None
     return NotificationRecipientRead(
         atm_id=atm.atm_id,
         name=atm.name,
         branch=atm.branch,
         recipient_email=custom_email,
         effective_recipient_email=effective_email,
+        whatsapp_number=custom_whatsapp,
+        effective_whatsapp_number=effective_whatsapp,
         enabled=enabled,
         uses_default=enabled and not custom_email,
         updated_at=recipient.updated_at if recipient else None,
@@ -95,7 +123,10 @@ def list_notification_recipients(
     settings = get_notification_settings(db)
     recipients = {item.atm_id: item for item in db.query(NotificationRecipient).all()}
     atms = db.query(ATM).order_by(ATM.branch.asc(), ATM.atm_id.asc()).all()
-    return [recipient_read(atm, recipients.get(atm.id), settings.recipient_email) for atm in atms]
+    return [
+        recipient_read(atm, recipients.get(atm.id), settings.recipient_email, settings.whatsapp_default_recipient)
+        for atm in atms
+    ]
 
 
 @router.put("/recipients", response_model=list[NotificationRecipientRead])
@@ -117,7 +148,7 @@ def update_notification_recipients(
     for item in payload.recipients:
         atm = atms_by_atm_id[item.atm_id]
         recipient = existing.get(atm.id)
-        needs_row = bool(item.recipient_email) or not item.enabled
+        needs_row = bool(item.recipient_email) or bool(item.whatsapp_number) or not item.enabled
         if recipient is None and not needs_row:
             continue
         if recipient is None:
@@ -126,9 +157,17 @@ def update_notification_recipients(
             existing[atm.id] = recipient
 
         recipient.recipient_email = item.recipient_email
+        recipient.whatsapp_number = item.whatsapp_number
         recipient.enabled = item.enabled
         recipient.updated_by = current_user.username
-        changed.append({"atm_id": atm.atm_id, "recipient_email": item.recipient_email, "enabled": item.enabled})
+        changed.append(
+            {
+                "atm_id": atm.atm_id,
+                "recipient_email": item.recipient_email,
+                "whatsapp_number": item.whatsapp_number,
+                "enabled": item.enabled,
+            }
+        )
 
     if changed:
         write_audit(
@@ -168,6 +207,55 @@ def test_notification_email(
         entity_type="notification_delivery",
         entity_id=str(delivery.id),
         details={"status": delivery.status, "recipient_email": delivery.recipient_email},
+    )
+    db.commit()
+    db.refresh(delivery)
+    return delivery
+
+
+@router.get("/whatsapp/status")
+def whatsapp_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_notification_manager),
+) -> dict:
+    settings = get_notification_settings(db)
+    return get_whatsapp_gateway_status(settings)
+
+
+@router.get("/whatsapp/qr")
+def whatsapp_qr(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_notification_manager),
+) -> dict:
+    settings = get_notification_settings(db)
+    return get_whatsapp_gateway_qr(settings)
+
+
+@router.post("/whatsapp/test", response_model=NotificationDeliveryRead)
+def test_whatsapp_notification(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_notification_manager),
+) -> NotificationDelivery:
+    settings = get_notification_settings(db)
+    if not settings.is_whatsapp_configured:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="WhatsApp gateway settings are incomplete",
+        )
+    if not settings.whatsapp_default_recipient:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Notification default WhatsApp recipient is missing",
+        )
+    delivery = send_test_whatsapp_notification(db, settings)
+    write_audit(
+        db,
+        actor_type="user",
+        actor_id=current_user.username,
+        action="notification_whatsapp_test_requested",
+        entity_type="notification_delivery",
+        entity_id=str(delivery.id),
+        details={"status": delivery.status, "recipient": delivery.recipient_email},
     )
     db.commit()
     db.refresh(delivery)

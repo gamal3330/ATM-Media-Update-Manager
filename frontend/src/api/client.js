@@ -73,6 +73,8 @@ const fieldLabels = {
   smtp_port: "SMTP Port",
   smtp_security: "SMTP Security",
   smtp_username: "SMTP Username",
+  whatsapp_gateway_url: "WhatsApp Gateway URL",
+  whatsapp_default_recipient: "WhatsApp Recipient",
   username: "اسم المستخدم",
   password: "كلمة المرور",
   file: "ملف ZIP",
@@ -119,6 +121,8 @@ function translatePlainMessage(message, status) {
       "ملف atm-agent.exe غير متوفر على السيرفر. ابنِ الملف على Windows ثم ضعه في agent/dist/atm-agent.exe.",
     "Notification email settings are incomplete": "إعدادات البريد غير مكتملة.",
     "Notification default recipient email is missing": "أدخل بريدًا افتراضيًا لإرسال رسالة الاختبار.",
+    "WhatsApp gateway settings are incomplete": "إعدادات WhatsApp غير مكتملة.",
+    "Notification default WhatsApp recipient is missing": "أدخل رقم WhatsApp افتراضيًا لإرسال رسالة الاختبار.",
   };
 
   if (message?.startsWith("Executable or script file is not allowed in ZIP:")) {
@@ -296,6 +300,9 @@ export const api = {
   updateNotificationRecipients: (recipients) =>
     request("/api/notifications/recipients", { method: "PUT", body: JSON.stringify({ recipients }) }),
   sendTestNotification: () => request("/api/notifications/test", { method: "POST" }),
+  getWhatsappStatus: () => request("/api/notifications/whatsapp/status"),
+  getWhatsappQr: () => request("/api/notifications/whatsapp/qr"),
+  sendWhatsAppTestNotification: () => request("/api/notifications/whatsapp/test", { method: "POST" }),
   listNotificationDeliveries: () => request("/api/notifications/deliveries"),
   listPackages: () => request("/api/packages"),
   getPackage: (id) => request(`/api/packages/${id}`),
