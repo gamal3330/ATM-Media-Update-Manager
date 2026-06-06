@@ -125,11 +125,10 @@ function getNoCashReason(details) {
 
 function readNowStatusMessage(command) {
   const status = String(command?.status || "pending").toLowerCase();
-  const commandLabel = command?.id ? `#${command.id}` : "";
-  if (status === "acknowledged") return `استلم الـ Agent طلب القراءة ${commandLabel} وهو قيد التنفيذ.`;
-  if (status === "completed") return `اكتملت قراءة النقد ${commandLabel}. سيتم تحديث القيم الآن.`;
-  if (status === "failed") return `فشلت قراءة النقد ${commandLabel}: ${command?.last_error || "راجع سجلات الـ Agent."}`;
-  return `طلب قراءة النقد ${commandLabel} قيد الانتظار. إذا بقي معلقاً فحدّث نسخة الـ Agent وتأكد أن الخدمة تعمل.`;
+  if (status === "acknowledged") return "استلم الـ Agent طلب قراءة النقد ويقوم بتنفيذه الآن.";
+  if (status === "completed") return "اكتملت قراءة النقد. سيتم تحديث القيم خلال لحظات.";
+  if (status === "failed") return `فشلت قراءة النقد: ${command?.last_error || "راجع سجلات الـ Agent."}`;
+  return "تم إرسال طلب قراءة النقد إلى الـ Agent. ستظهر النتيجة بعد أن يستلم الصراف الطلب في دورة المزامنة القادمة.";
 }
 
 function latestCashReadAt(details) {
