@@ -689,6 +689,7 @@ class NotificationSettingsUpdate(BaseModel):
     clear_smtp_password: bool = False
     notify_cash_low: bool = True
     notify_cash_empty: bool = True
+    notify_switch_disconnected: bool = True
 
     @field_validator("recipient_email", "sender_email")
     @classmethod
@@ -723,6 +724,7 @@ class NotificationSettingsRead(BaseModel):
     smtp_username: str | None
     notify_cash_low: bool
     notify_cash_empty: bool
+    notify_switch_disconnected: bool
     has_smtp_password: bool = False
     is_configured: bool = False
     updated_by: str | None

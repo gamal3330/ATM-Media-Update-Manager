@@ -345,6 +345,7 @@ class NotificationSettings(Base):
     smtp_password: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     notify_cash_low: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     notify_cash_empty: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notify_switch_disconnected: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     updated_by: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)

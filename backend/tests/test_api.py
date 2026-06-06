@@ -458,6 +458,79 @@ def test_periodic_switch_probe_result_updates_atm_and_sends_transition_notificat
         assert sent_messages and sent_messages[0]["recipient_email"] == "ops@example.com"
 
 
+def test_switch_probe_disconnect_notification_can_be_disabled(monkeypatch) -> None:
+    sent_messages = []
+
+    def fake_send_email(settings, subject, body, recipient_email=None, html_body=None):
+        sent_messages.append(
+            {
+                "subject": subject,
+                "body": body,
+                "recipient_email": recipient_email,
+                "html_body": html_body,
+            }
+        )
+
+    monkeypatch.setattr("app.services.notification_service.send_email", fake_send_email)
+
+    with TestClient(app) as client:
+        headers = login(client)
+        settings = client.put(
+            "/api/notifications/settings",
+            json={
+                "enabled": True,
+                "recipient_email": "ops@example.com",
+                "sender_email": "atm@example.com",
+                "smtp_host": "smtp.example.com",
+                "smtp_port": 587,
+                "smtp_security": "starttls",
+                "notify_switch_disconnected": False,
+            },
+            headers=headers,
+        )
+        assert settings.status_code == 200
+        assert settings.json()["notify_switch_disconnected"] is False
+
+        atm_response = client.post(
+            "/api/atms",
+            json={
+                "atm_id": "ATM-SWITCH-NO-MAIL",
+                "name": "No Mail Switch ATM",
+                "vpn_ip": "10.10.0.51",
+                "branch": "HQ",
+                "switch_probe_host": "172.16.25.75",
+                "switch_probe_port": 10200,
+                "switch_probe_interval_seconds": 30,
+            },
+            headers=headers,
+        )
+        assert atm_response.status_code == 201
+        agent_headers = {"X-ATM-ID": "ATM-SWITCH-NO-MAIL", "X-API-Key": atm_response.json()["api_key"]}
+
+        failed = client.post(
+            "/api/agent/switch-probe-snapshot",
+            json={
+                "status": "failed",
+                "latency_ms": 5000,
+                "error_message": "timed out",
+                "host": "172.16.25.75",
+                "port": 10200,
+            },
+            headers=agent_headers,
+        )
+        assert failed.status_code == 200
+
+        deliveries = client.get("/api/notifications/deliveries", headers=headers)
+        assert deliveries.status_code == 200
+        switch_deliveries = [
+            item
+            for item in deliveries.json()
+            if item["event_type"] == "SWITCH_DISCONNECTED" and "No Mail Switch ATM" in item["subject"]
+        ]
+        assert switch_deliveries == []
+        assert sent_messages == []
+
+
 def test_switch_probe_new_target_supersedes_existing_pending_probe() -> None:
     with TestClient(app) as client:
         headers = login(client)

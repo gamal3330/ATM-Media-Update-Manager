@@ -341,6 +341,8 @@ def notify_switch_probe_failed(
     settings = get_notification_settings(db)
     if not settings.enabled or not settings.is_configured:
         return None
+    if not settings.notify_switch_disconnected:
+        return None
     recipient_email = notification_recipient_for_atm(db, settings, atm)
     if not recipient_email:
         return None

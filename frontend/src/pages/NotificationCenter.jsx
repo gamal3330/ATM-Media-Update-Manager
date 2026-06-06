@@ -27,6 +27,7 @@ const defaultForm = {
   smtp_password: "",
   notify_cash_low: true,
   notify_cash_empty: true,
+  notify_switch_disconnected: true,
 };
 
 const smtpSecurityOptions = [
@@ -54,6 +55,7 @@ function buildForm(settings) {
     smtp_password: "",
     notify_cash_low: Boolean(settings.notify_cash_low),
     notify_cash_empty: Boolean(settings.notify_cash_empty),
+    notify_switch_disconnected: settings.notify_switch_disconnected !== false,
   };
 }
 
@@ -336,8 +338,9 @@ export default function NotificationCenter() {
       [
         form.notify_cash_low ? "انخفاض النقد" : null,
         form.notify_cash_empty ? "انتهاء النقد" : null,
+        form.notify_switch_disconnected ? "فصل الصراف عن السويتش" : null,
       ].filter(Boolean),
-    [form.notify_cash_empty, form.notify_cash_low],
+    [form.notify_cash_empty, form.notify_cash_low, form.notify_switch_disconnected],
   );
 
   const visibleDeliveries = useMemo(() => {
@@ -391,6 +394,7 @@ export default function NotificationCenter() {
         smtp_username: form.smtp_username.trim() || null,
         notify_cash_low: form.notify_cash_low,
         notify_cash_empty: form.notify_cash_empty,
+        notify_switch_disconnected: form.notify_switch_disconnected,
       };
       if (form.smtp_password.trim()) {
         payload.smtp_password = form.smtp_password.trim();
@@ -553,6 +557,11 @@ export default function NotificationCenter() {
                   checked={form.notify_cash_empty}
                   onChange={(value) => updateField("notify_cash_empty", value)}
                   label="تنبيه انتهاء النقد"
+                />
+                <ToggleField
+                  checked={form.notify_switch_disconnected}
+                  onChange={(value) => updateField("notify_switch_disconnected", value)}
+                  label="تنبيه فصل الصراف عن السويتش"
                 />
               </div>
 

@@ -191,6 +191,20 @@ def migrate_existing_schema() -> None:
                 )
             )
 
+        if "notification_settings" in table_names:
+            existing_columns = {column["name"] for column in inspector.get_columns("notification_settings")}
+            default_true = (
+                "BOOLEAN NOT NULL DEFAULT TRUE"
+                if connection.dialect.name == "postgresql"
+                else "BOOLEAN NOT NULL DEFAULT 1"
+            )
+            notification_columns = {
+                "notify_switch_disconnected": default_true,
+            }
+            for name, definition in notification_columns.items():
+                if name not in existing_columns:
+                    connection.execute(text(f"ALTER TABLE notification_settings ADD COLUMN {name} {definition}"))
+
         if "update_targets" not in table_names:
             return
 
