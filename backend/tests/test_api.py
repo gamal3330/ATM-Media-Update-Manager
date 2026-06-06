@@ -598,7 +598,7 @@ def test_switch_probe_disconnect_can_send_whatsapp_without_smtp(monkeypatch) -> 
         assert sent_messages and sent_messages[0]["recipient"] == "967777777777"
 
 
-def test_switch_probe_disconnect_sends_whatsapp_to_multiple_atm_recipients(monkeypatch) -> None:
+def test_switch_probe_disconnect_sends_whatsapp_to_default_group_and_one_atm_recipient(monkeypatch) -> None:
     sent_messages = []
 
     def fake_send_whatsapp(settings, recipient, message):
@@ -614,12 +614,14 @@ def test_switch_probe_disconnect_sends_whatsapp_to_multiple_atm_recipients(monke
                 "enabled": True,
                 "whatsapp_enabled": True,
                 "whatsapp_gateway_url": "http://127.0.0.1:3020",
-                "whatsapp_default_recipient": "967777777777",
+                "whatsapp_default_recipients": ["967700000001", "967700000002"],
                 "notify_switch_disconnected": True,
             },
             headers=headers,
         )
         assert settings.status_code == 200
+        assert settings.json()["whatsapp_default_recipient"] == "967700000001"
+        assert settings.json()["whatsapp_default_recipients"] == ["967700000001", "967700000002"]
 
         atm_response = client.post(
             "/api/atms",
@@ -651,7 +653,8 @@ def test_switch_probe_disconnect_sends_whatsapp_to_multiple_atm_recipients(monke
         )
         assert recipients.status_code == 200
         row = [item for item in recipients.json() if item["atm_id"] == "ATM-SWITCH-WA-MULTI"][0]
-        assert row["effective_whatsapp_numbers"] == ["967711111111", "967722222222"]
+        assert row["whatsapp_numbers"] == ["967711111111"]
+        assert row["effective_whatsapp_numbers"] == ["967700000001", "967700000002", "967711111111"]
 
         agent_headers = {"X-ATM-ID": "ATM-SWITCH-WA-MULTI", "X-API-Key": atm_response.json()["api_key"]}
         failed = client.post(
@@ -676,8 +679,16 @@ def test_switch_probe_disconnect_sends_whatsapp_to_multiple_atm_recipients(monke
             and item["channel"] == "whatsapp"
             and "WhatsApp Multi ATM" in item["subject"]
         ]
-        assert {item["recipient_email"] for item in whatsapp_deliveries} == {"967711111111", "967722222222"}
-        assert {item["recipient"] for item in sent_messages} == {"967711111111", "967722222222"}
+        assert {item["recipient_email"] for item in whatsapp_deliveries} == {
+            "967700000001",
+            "967700000002",
+            "967711111111",
+        }
+        assert {item["recipient"] for item in sent_messages} == {
+            "967700000001",
+            "967700000002",
+            "967711111111",
+        }
 
 
 def test_whatsapp_status_transition_sends_email_alert(monkeypatch) -> None:

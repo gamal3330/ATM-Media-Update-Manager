@@ -24,6 +24,15 @@ from ..services.notification_service import (
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 
+def unique_values(values: list[str | None]) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if text and text not in result:
+            result.append(text)
+    return result
+
+
 def require_notification_manager(current_user: User = Depends(get_current_user)) -> User:
     if current_user.role not in {*SYSTEM_ADMIN_ROLES, "cash_monitoring_admin"}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
@@ -51,10 +60,17 @@ def update_notification_settings(
             "clear_smtp_password",
             "whatsapp_gateway_token",
             "clear_whatsapp_gateway_token",
+            "whatsapp_default_recipients",
         }
     )
     for key, value in changes.items():
         setattr(settings, key, value)
+
+    default_whatsapp_recipients = payload.whatsapp_default_recipients or (
+        [payload.whatsapp_default_recipient] if payload.whatsapp_default_recipient else []
+    )
+    settings.whatsapp_default_recipients_json = default_whatsapp_recipients
+    settings.whatsapp_default_recipient = default_whatsapp_recipients[0] if default_whatsapp_recipients else None
 
     if payload.clear_smtp_password:
         settings.smtp_password = None
@@ -94,7 +110,7 @@ def recipient_read(
     atm: ATM,
     recipient: NotificationRecipient | None,
     default_email: str | None,
-    default_whatsapp: str | None,
+    default_whatsapp_numbers: list[str],
 ) -> NotificationRecipientRead:
     enabled = recipient.enabled if recipient else True
     custom_email = recipient.recipient_email if recipient else None
@@ -102,10 +118,9 @@ def recipient_read(
     if not custom_whatsapp_numbers and recipient and recipient.whatsapp_number:
         custom_whatsapp_numbers = [recipient.whatsapp_number]
     custom_whatsapp = custom_whatsapp_numbers[0] if custom_whatsapp_numbers else recipient.whatsapp_number if recipient else None
+    custom_whatsapp_numbers = [custom_whatsapp] if custom_whatsapp else []
     effective_email = (custom_email or default_email) if enabled else None
-    effective_whatsapp_numbers = custom_whatsapp_numbers or ([custom_whatsapp] if custom_whatsapp else [])
-    if enabled and not effective_whatsapp_numbers and default_whatsapp:
-        effective_whatsapp_numbers = [default_whatsapp]
+    effective_whatsapp_numbers = unique_values([*default_whatsapp_numbers, *custom_whatsapp_numbers]) if enabled else []
     effective_whatsapp = effective_whatsapp_numbers[0] if effective_whatsapp_numbers else None
     return NotificationRecipientRead(
         atm_id=atm.atm_id,
@@ -132,7 +147,7 @@ def list_notification_recipients(
     recipients = {item.atm_id: item for item in db.query(NotificationRecipient).all()}
     atms = db.query(ATM).order_by(ATM.branch.asc(), ATM.atm_id.asc()).all()
     return [
-        recipient_read(atm, recipients.get(atm.id), settings.recipient_email, settings.whatsapp_default_recipient)
+        recipient_read(atm, recipients.get(atm.id), settings.recipient_email, settings.whatsapp_default_recipients)
         for atm in atms
     ]
 
@@ -157,6 +172,8 @@ def update_notification_recipients(
         atm = atms_by_atm_id[item.atm_id]
         recipient = existing.get(atm.id)
         whatsapp_numbers = item.whatsapp_numbers or ([item.whatsapp_number] if item.whatsapp_number else [])
+        whatsapp_number = whatsapp_numbers[0] if whatsapp_numbers else None
+        whatsapp_numbers = [whatsapp_number] if whatsapp_number else []
         needs_row = bool(item.recipient_email) or bool(whatsapp_numbers) or not item.enabled
         if recipient is None and not needs_row:
             continue
@@ -167,7 +184,7 @@ def update_notification_recipients(
 
         recipient.recipient_email = item.recipient_email
         recipient.whatsapp_numbers_json = whatsapp_numbers
-        recipient.whatsapp_number = whatsapp_numbers[0] if whatsapp_numbers else None
+        recipient.whatsapp_number = whatsapp_number
         recipient.enabled = item.enabled
         recipient.updated_by = current_user.username
         changed.append(
@@ -254,7 +271,7 @@ def test_whatsapp_notification(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="WhatsApp gateway settings are incomplete",
         )
-    if not settings.whatsapp_default_recipient:
+    if not settings.whatsapp_default_recipients:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Notification default WhatsApp recipient is missing",

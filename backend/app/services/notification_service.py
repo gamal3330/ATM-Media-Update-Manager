@@ -335,6 +335,7 @@ def notification_recipient_for_atm(db: Session, settings: NotificationSettings, 
 
 
 def whatsapp_recipients_for_atm(db: Session, settings: NotificationSettings, atm: ATM) -> list[str]:
+    recipients = normalize_whatsapp_recipients(settings.whatsapp_default_recipients)
     recipient = (
         db.query(NotificationRecipient)
         .filter(NotificationRecipient.atm_id == atm.id)
@@ -343,15 +344,14 @@ def whatsapp_recipients_for_atm(db: Session, settings: NotificationSettings, atm
     if recipient is not None:
         if not recipient.enabled:
             return []
-        configured = normalize_whatsapp_recipients(
+        custom = normalize_whatsapp_recipients(
             [
-                *(recipient.whatsapp_numbers_json or []),
+                (recipient.whatsapp_numbers_json or [None])[0] if recipient.whatsapp_numbers_json else None,
                 recipient.whatsapp_number,
             ]
         )
-        if configured:
-            return configured
-    return normalize_whatsapp_recipients([settings.whatsapp_default_recipient])
+        recipients = normalize_whatsapp_recipients([*recipients, *(custom[:1])])
+    return recipients
 
 
 def send_email(
@@ -601,7 +601,7 @@ def create_whatsapp_delivery(
     alert: AtmCashAlert | None = None,
     atm: ATM | None = None,
 ) -> NotificationDelivery:
-    recipient_value = recipient or settings.whatsapp_default_recipient
+    recipient_value = recipient or (settings.whatsapp_default_recipients[0] if settings.whatsapp_default_recipients else None)
     if not recipient_value:
         raise ValueError("WhatsApp recipient is missing")
 
@@ -764,23 +764,28 @@ def send_test_notification(db: Session, settings: NotificationSettings) -> Notif
 def send_test_whatsapp_notification(db: Session, settings: NotificationSettings) -> NotificationDelivery:
     subject = f"{BRAND_NAME} - WhatsApp test notification"
     now = utcnow()
+    recipients = settings.whatsapp_default_recipients
     body = whatsapp_template(
         title="رسالة اختبار WhatsApp",
         subtitle="مركز التنبيهات يعمل",
         rows=[
             ("الحالة", "جاهز"),
             ("وقت الاختبار", email_datetime(now)),
-            ("المستلم", settings.whatsapp_default_recipient or "-"),
+            ("المستلمون", ", ".join(recipients) or "-"),
         ],
         note="هذه رسالة اختبار من مركز التنبيهات عبر WhatsApp.",
     )
-    if not settings.whatsapp_default_recipient:
+    if not recipients:
         raise ValueError("Notification default WhatsApp recipient is missing")
-    return create_whatsapp_delivery(
-        db,
-        settings,
-        event_type="TEST",
-        subject=subject,
-        body=body,
-        recipient=settings.whatsapp_default_recipient,
-    )
+    deliveries = [
+        create_whatsapp_delivery(
+            db,
+            settings,
+            event_type="TEST",
+            subject=subject,
+            body=body,
+            recipient=recipient,
+        )
+        for recipient in recipients
+    ]
+    return deliveries[0]

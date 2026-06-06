@@ -34,6 +34,7 @@ const defaultForm = {
   whatsapp_gateway_url: "http://127.0.0.1:3020",
   whatsapp_gateway_token: "",
   whatsapp_default_recipient: "",
+  whatsapp_default_recipients_text: "",
   notify_cash_low: true,
   notify_cash_empty: true,
   notify_switch_disconnected: true,
@@ -69,6 +70,13 @@ function buildForm(settings) {
     whatsapp_gateway_url: settings.whatsapp_gateway_url || "http://127.0.0.1:3020",
     whatsapp_gateway_token: "",
     whatsapp_default_recipient: settings.whatsapp_default_recipient || "",
+    whatsapp_default_recipients_text: (
+      settings.whatsapp_default_recipients?.length
+        ? settings.whatsapp_default_recipients
+        : settings.whatsapp_default_recipient
+          ? [settings.whatsapp_default_recipient]
+          : []
+    ).join(", "),
     notify_cash_low: Boolean(settings.notify_cash_low),
     notify_cash_empty: Boolean(settings.notify_cash_empty),
     notify_switch_disconnected: settings.notify_switch_disconnected !== false,
@@ -128,8 +136,8 @@ function normalizeRecipientRows(rows) {
     recipient_email: row.recipient_email || "",
     effective_recipient_email: row.effective_recipient_email || "",
     whatsapp_number: row.whatsapp_number || "",
-    whatsapp_numbers: row.whatsapp_numbers?.length ? row.whatsapp_numbers : row.whatsapp_number ? [row.whatsapp_number] : [],
-    whatsapp_numbers_text: (row.whatsapp_numbers?.length ? row.whatsapp_numbers : row.whatsapp_number ? [row.whatsapp_number] : []).join(", "),
+    whatsapp_numbers: row.whatsapp_number ? [row.whatsapp_number] : row.whatsapp_numbers?.length ? [row.whatsapp_numbers[0]] : [],
+    whatsapp_numbers_text: row.whatsapp_number || row.whatsapp_numbers?.[0] || "",
     effective_whatsapp_number: row.effective_whatsapp_number || "",
     effective_whatsapp_numbers: row.effective_whatsapp_numbers || [],
   }));
@@ -173,7 +181,8 @@ function buildSettingsPayload(form) {
     smtp_username: form.smtp_username.trim() || null,
     whatsapp_enabled: form.whatsapp_enabled,
     whatsapp_gateway_url: form.whatsapp_gateway_url.trim() || null,
-    whatsapp_default_recipient: form.whatsapp_default_recipient.trim() || null,
+    whatsapp_default_recipient: parseWhatsAppNumbers(form.whatsapp_default_recipients_text)[0] || null,
+    whatsapp_default_recipients: parseWhatsAppNumbers(form.whatsapp_default_recipients_text),
     notify_cash_low: form.notify_cash_low,
     notify_cash_empty: form.notify_cash_empty,
     notify_switch_disconnected: form.notify_switch_disconnected,
@@ -254,6 +263,7 @@ function ToggleField({ checked, onChange, label }) {
 }
 
 function RecipientRules({ rows, defaultEmail, defaultWhatsapp, saving, search, onSearch, onChange, onSave }) {
+  const defaultWhatsappNumbers = parseWhatsAppNumbers(defaultWhatsapp);
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return rows;
@@ -319,7 +329,7 @@ function RecipientRules({ rows, defaultEmail, defaultWhatsapp, saving, search, o
             {defaultEmail || "لا يوجد بريد افتراضي"}
           </span>
           <span className="max-w-56 truncate rounded-full bg-slate-100 px-2.5 py-1" dir="ltr">
-            {defaultWhatsapp || "لا يوجد رقم واتساب افتراضي"}
+            {defaultWhatsappNumbers.length ? `${defaultWhatsappNumbers.length} أرقام افتراضية` : "لا توجد أرقام واتساب افتراضية"}
           </span>
         </div>
       </div>
@@ -328,17 +338,16 @@ function RecipientRules({ rows, defaultEmail, defaultWhatsapp, saving, search, o
         <div className="grid grid-cols-[minmax(170px,1fr)_minmax(230px,1.15fr)_minmax(230px,1.15fr)_112px] gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600 max-lg:hidden">
           <span>الصراف</span>
           <span>البريد</span>
-          <span>أرقام WhatsApp</span>
+          <span>رقم WhatsApp مخصص</span>
           <span>الحالة</span>
         </div>
         <div className="divide-y divide-slate-100">
           {filteredRows.map((row) => {
             const effective = row.enabled ? row.recipient_email || defaultEmail || "" : "";
             const effectiveWhatsappNumbers = row.enabled
-              ? row.whatsapp_numbers_text
-                ? parseWhatsAppNumbers(row.whatsapp_numbers_text)
-                : row.effective_whatsapp_numbers || []
+              ? row.effective_whatsapp_numbers || []
               : [];
+            const customWhatsappNumber = parseWhatsAppNumbers(row.whatsapp_numbers_text)[0] || "";
             return (
               <div
                 key={row.atm_id}
@@ -369,14 +378,18 @@ function RecipientRules({ rows, defaultEmail, defaultWhatsapp, saving, search, o
                   <input
                     dir="ltr"
                     value={row.whatsapp_numbers_text}
-                    onChange={(event) => onChange(row.atm_id, { whatsapp_numbers_text: event.target.value })}
+                    onChange={(event) => onChange(row.atm_id, { whatsapp_numbers_text: parseWhatsAppNumbers(event.target.value)[0] || event.target.value })}
                     className="focus-ring w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                    placeholder="9677XXXXXXX, 9677YYYYYYY"
+                    placeholder="9677XXXXXXX"
                     disabled={!row.enabled}
                     title={(row.effective_whatsapp_numbers || []).join(", ") || "أرقام واتساب"}
                   />
                   <div className="mt-1 truncate px-1 text-xs text-slate-500" dir="ltr">
-                    {row.enabled ? effectiveWhatsappNumbers.join(", ") || defaultWhatsapp || "لا يوجد رقم" : "التنبيهات متوقفة"}
+                    {row.enabled
+                      ? customWhatsappNumber
+                        ? `+ ${customWhatsappNumber} مع المجموعة الافتراضية`
+                        : effectiveWhatsappNumbers.join(", ") || "المجموعة الافتراضية"
+                      : "التنبيهات متوقفة"}
                   </div>
                 </div>
                 <label className="flex min-h-10 items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
@@ -515,7 +528,7 @@ export default function NotificationCenter() {
   const configured = Boolean(settings?.is_configured);
   const whatsappConfigured = Boolean(settings?.is_whatsapp_configured);
   const canSendTest = configured && Boolean(form.recipient_email.trim());
-  const canSendWhatsAppTest = whatsappConfigured && Boolean(form.whatsapp_default_recipient.trim());
+  const canSendWhatsAppTest = whatsappConfigured && parseWhatsAppNumbers(form.whatsapp_default_recipients_text).length > 0;
   const usesGmailSmtp = form.smtp_host.trim().toLowerCase() === "smtp.gmail.com";
   const failedDeliveries = deliveries.filter((delivery) => delivery.status === "failed").length;
   const sentDeliveries = deliveries.filter((delivery) => delivery.status === "sent").length;
@@ -610,7 +623,7 @@ export default function NotificationCenter() {
           atm_id: row.atm_id,
           enabled: row.enabled,
           recipient_email: row.recipient_email.trim() || null,
-          whatsapp_numbers: parseWhatsAppNumbers(row.whatsapp_numbers_text || row.whatsapp_number),
+          whatsapp_number: parseWhatsAppNumbers(row.whatsapp_numbers_text || row.whatsapp_number)[0] || null,
         })),
       );
       setRecipientRows(normalizeRecipientRows(updated));
@@ -953,13 +966,13 @@ export default function NotificationCenter() {
                 />
               </FormField>
 
-              <FormField label="رقم واتساب الافتراضي">
-                <input
+              <FormField label="مجموعة أرقام واتساب الافتراضية" hint="اكتب أكثر من رقم مفصولاً بفاصلة أو كل رقم في سطر. ترسل هذه المجموعة لكل الصرافات.">
+                <textarea
                   dir="ltr"
-                  value={form.whatsapp_default_recipient}
-                  onChange={(event) => updateField("whatsapp_default_recipient", event.target.value)}
-                  className="focus-ring w-full rounded-lg border border-slate-300 px-3 py-2"
-                  placeholder="9677XXXXXXX"
+                  value={form.whatsapp_default_recipients_text}
+                  onChange={(event) => updateField("whatsapp_default_recipients_text", event.target.value)}
+                  className="focus-ring min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2"
+                  placeholder={"9677XXXXXXX, 9677YYYYYYY"}
                 />
               </FormField>
 
@@ -972,7 +985,7 @@ export default function NotificationCenter() {
           <RecipientRules
             rows={recipientRows}
             defaultEmail={form.recipient_email.trim()}
-            defaultWhatsapp={form.whatsapp_default_recipient.trim()}
+            defaultWhatsapp={form.whatsapp_default_recipients_text.trim()}
             saving={savingRecipients}
             search={recipientSearch}
             onSearch={setRecipientSearch}

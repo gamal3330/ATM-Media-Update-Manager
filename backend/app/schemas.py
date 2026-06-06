@@ -724,6 +724,7 @@ class NotificationSettingsUpdate(BaseModel):
     whatsapp_gateway_token: str | None = Field(default=None, max_length=500)
     clear_whatsapp_gateway_token: bool = False
     whatsapp_default_recipient: str | None = Field(default=None, max_length=40)
+    whatsapp_default_recipients: list[str] = Field(default_factory=list, max_length=20)
     notify_cash_low: bool = True
     notify_cash_empty: bool = True
     notify_switch_disconnected: bool = True
@@ -738,6 +739,11 @@ class NotificationSettingsUpdate(BaseModel):
     @classmethod
     def validate_whatsapp_recipient(cls, value: str | None) -> str | None:
         return validate_whatsapp_number(value)
+
+    @field_validator("whatsapp_default_recipients")
+    @classmethod
+    def validate_whatsapp_recipients(cls, value: list[str]) -> list[str]:
+        return normalize_whatsapp_numbers(value)
 
     @field_validator("whatsapp_gateway_url")
     @classmethod
@@ -775,6 +781,7 @@ class NotificationSettingsRead(BaseModel):
     whatsapp_enabled: bool
     whatsapp_gateway_url: str | None
     whatsapp_default_recipient: str | None
+    whatsapp_default_recipients: list[str] = Field(default_factory=list)
     notify_cash_low: bool
     notify_cash_empty: bool
     notify_switch_disconnected: bool

@@ -347,6 +347,7 @@ class NotificationSettings(Base):
     whatsapp_gateway_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     whatsapp_gateway_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     whatsapp_default_recipient: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    whatsapp_default_recipients_json: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     notify_cash_low: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     notify_cash_empty: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     notify_switch_disconnected: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -374,6 +375,15 @@ class NotificationSettings(Base):
     @property
     def is_whatsapp_configured(self) -> bool:
         return bool(self.whatsapp_enabled and self.whatsapp_gateway_url)
+
+    @property
+    def whatsapp_default_recipients(self) -> list[str]:
+        recipients: list[str] = []
+        for value in [*(self.whatsapp_default_recipients_json or []), self.whatsapp_default_recipient]:
+            text = str(value or "").strip()
+            if text and text not in recipients:
+                recipients.append(text)
+        return recipients
 
 
 class NotificationRecipient(Base):
