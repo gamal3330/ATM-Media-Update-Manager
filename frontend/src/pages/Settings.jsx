@@ -38,6 +38,14 @@ const intervalFields = [
     defaultValue: 120,
   },
   {
+    key: "switch_probe_interval_seconds",
+    label: "Switch Probe Interval",
+    unit: "Ø«Ø§Ù†ÙŠØ©",
+    min: 30,
+    max: 86400,
+    defaultValue: 30,
+  },
+  {
     key: "cash_stale_after_minutes",
     label: "Cash Stale After",
     unit: "دقيقة",
@@ -252,7 +260,7 @@ export default function Settings({ atms = [], onChanged, onOpenAgentDownloads })
                 </span>
               )}
             </div>
-            <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-5">
               {intervalFields.map((field) => (
                 <label key={field.key} className="block">
                   <span className="mb-1 block text-sm font-medium text-slate-700">{field.label}</span>

@@ -136,12 +136,24 @@ def test_remote_config_rejects_paths_outside_atm_root():
 class FakeApi:
     def __init__(self):
         self.snapshots = []
+        self.switch_snapshots = []
 
     def check_update(self):
         return None
 
     def cash_snapshot(self, payload):
         self.snapshots.append(payload)
+
+    def report_switch_probe_snapshot(self, status, latency_ms, error_message, host, port):
+        self.switch_snapshots.append(
+            {
+                "status": status,
+                "latency_ms": latency_ms,
+                "error_message": error_message,
+                "host": host,
+                "port": port,
+            }
+        )
 
 
 def remote_payload(media_enabled=True, cash_enabled=True):
@@ -150,6 +162,9 @@ def remote_payload(media_enabled=True, cash_enabled=True):
         "config_version": 2,
         "heartbeat_interval_seconds": 60,
         "config_sync_interval_seconds": 120,
+        "switch_probe_host": "172.16.25.75",
+        "switch_probe_port": 10200,
+        "switch_probe_interval_seconds": 30,
         "modules": {
             "media_update": {
                 "enabled": media_enabled,
@@ -216,6 +231,9 @@ def test_core_parse_remote_config_modules():
     assert config.cash_monitoring.xfs_profile == "ncr_aptra"
     assert config.cash_monitoring.xfs_logical_service == "MediaDispenser1"
     assert config.cash_monitoring.cash_layout[2].currency == "USD"
+    assert config.switch_probe_host == "172.16.25.75"
+    assert config.switch_probe_port == 10200
+    assert config.switch_probe_interval_seconds == 30
     assert "gif" in config.media_update.allowed_extensions
 
 
@@ -555,3 +573,35 @@ def test_tcp_connect_probe_uses_socket_without_shell():
 
     assert result.success is True
     assert result.latency_ms is not None
+
+
+def test_agent_runs_periodic_switch_probe_on_configured_interval(monkeypatch):
+    api = FakeApi()
+    agent = SimpleNamespace(
+        remote_config=parse_remote_config(remote_payload()),
+        last_periodic_switch_probe=0.0,
+        api=api,
+        logger=__import__("logging").getLogger("test"),
+    )
+
+    def fake_probe(host, port, timeout_seconds=5):
+        assert host == "172.16.25.75"
+        assert port == 10200
+        assert timeout_seconds == 5
+        return SimpleNamespace(success=False, latency_ms=5000, error_message="timed out")
+
+    monkeypatch.setattr(atm_agent, "tcp_connect_probe", fake_probe)
+
+    atm_agent.AtmAgent.handle_periodic_switch_probe(agent, 10.0)
+    assert api.switch_snapshots == []
+
+    atm_agent.AtmAgent.handle_periodic_switch_probe(agent, 31.0)
+    assert api.switch_snapshots == [
+        {
+            "status": "failed",
+            "latency_ms": 5000,
+            "error_message": "timed out",
+            "host": "172.16.25.75",
+            "port": 10200,
+        }
+    ]

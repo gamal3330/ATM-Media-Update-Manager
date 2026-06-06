@@ -164,6 +164,46 @@ def build_cash_alert_email(atm: ATM, alert: AtmCashAlert) -> tuple[str, str, str
     return subject, body, html_body
 
 
+def build_switch_probe_failed_email(
+    atm: ATM,
+    host: str,
+    port: int,
+    error_message: str,
+    failed_at: datetime,
+) -> tuple[str, str, str]:
+    tone = {"label": "خارج الخدمة", "color": "#be123c", "bg": "#fff1f2", "border": "#fecdd3"}
+    title = "فشل اتصال السويتش"
+    subject = f"{BRAND_NAME} - {title} - {atm.name} ({atm.atm_id})"
+    target = f"{host}:{port}"
+    body = "\n".join(
+        [
+            BRAND_NAME,
+            "",
+            f"نوع التنبيه: {title}",
+            f"الصراف: {atm.name} ({atm.atm_id})",
+            f"الفرع: {atm.branch}",
+            f"هدف السويتش: {target}",
+            f"وقت الفشل: {email_datetime(failed_at)}",
+            "",
+            error_message,
+        ]
+    )
+    html_body = branded_email_html(
+        title=title,
+        subtitle=f"{atm.name} - {atm.atm_id}",
+        badge=tone["label"],
+        tone=tone,
+        rows=[
+            ("الصراف", f"{atm.name} ({atm.atm_id})"),
+            ("الفرع", atm.branch),
+            ("هدف السويتش", target),
+            ("وقت الفشل", email_datetime(failed_at)),
+        ],
+        note=error_message,
+    )
+    return subject, body, html_body
+
+
 def notification_recipient_for_atm(db: Session, settings: NotificationSettings, atm: ATM) -> str | None:
     recipient = (
         db.query(NotificationRecipient)
@@ -286,6 +326,34 @@ def notify_cash_alert_opened(db: Session, atm: ATM, alert: AtmCashAlert) -> Noti
         html_body=html_body,
         recipient_email=recipient_email,
         alert=alert,
+        atm=atm,
+    )
+
+
+def notify_switch_probe_failed(
+    db: Session,
+    atm: ATM,
+    host: str,
+    port: int,
+    error_message: str,
+    failed_at: datetime,
+) -> NotificationDelivery | None:
+    settings = get_notification_settings(db)
+    if not settings.enabled or not settings.is_configured:
+        return None
+    recipient_email = notification_recipient_for_atm(db, settings, atm)
+    if not recipient_email:
+        return None
+
+    subject, body, html_body = build_switch_probe_failed_email(atm, host, port, error_message, failed_at)
+    return create_email_delivery(
+        db,
+        settings,
+        event_type="SWITCH_DISCONNECTED",
+        subject=subject,
+        body=body,
+        html_body=html_body,
+        recipient_email=recipient_email,
         atm=atm,
     )
 

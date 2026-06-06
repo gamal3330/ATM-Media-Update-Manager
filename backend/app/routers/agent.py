@@ -18,6 +18,7 @@ from ..schemas import (
     AgentLogRequest,
     AgentNoUpdate,
     AgentProgressRequest,
+    AgentSwitchProbeSnapshot,
     AgentUpdateAvailable,
     HeartbeatRequest,
     HeartbeatResponse,
@@ -28,6 +29,7 @@ from ..schemas import (
     UpdateResultRequest,
 )
 from ..services.audit_service import write_audit
+from ..services.notification_service import notify_switch_probe_failed
 from ..services.package_service import ALLOWED_IMAGE_EXTENSIONS
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
@@ -81,6 +83,9 @@ def get_agent_config(atm: ATM = Depends(get_agent_atm)) -> AgentConfigResponse:
         atm_id=atm.atm_id,
         config_version=atm.config_version,
         config_sync_interval_seconds=atm.config_sync_interval_seconds,
+        switch_probe_host=atm.switch_probe_host,
+        switch_probe_port=atm.switch_probe_port,
+        switch_probe_interval_seconds=atm.switch_probe_interval_seconds,
         modules=AgentModulesConfig(
             media_update=MediaUpdateRemoteConfig(
                 enabled=atm.media_update_enabled,
@@ -336,6 +341,59 @@ def report_switch_probe_result(
             "error_message": probe.error_message,
         },
     )
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/switch-probe-snapshot")
+def report_periodic_switch_probe(
+    payload: AgentSwitchProbeSnapshot,
+    atm: ATM = Depends(get_agent_atm),
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    now = datetime.now(timezone.utc)
+    previous_status = atm.last_switch_probe_status
+    host = payload.host or atm.switch_probe_host
+    port = payload.port or atm.switch_probe_port
+    error_message = payload.error_message if payload.status == "failed" else None
+
+    probe = AtmSwitchProbe(
+        atm_id=atm.id,
+        host=host,
+        port=port,
+        status=payload.status,
+        requested_by="agent:auto",
+        requested_at=now,
+        started_at=now,
+        completed_at=now,
+        latency_ms=payload.latency_ms,
+        error_message=error_message,
+    )
+    db.add(probe)
+
+    atm.last_switch_probe_status = payload.status
+    atm.last_switch_probe_latency_ms = payload.latency_ms
+    atm.last_switch_probe_error = error_message
+    atm.last_switch_probe_at = now
+
+    write_audit(
+        db,
+        actor_type="agent",
+        actor_id=atm.atm_id,
+        action="switch_probe_reported",
+        entity_type="atm_switch_probe",
+        entity_id="periodic",
+        details={
+            "host": host,
+            "port": port,
+            "status": payload.status,
+            "latency_ms": payload.latency_ms,
+            "error_message": error_message,
+            "periodic": True,
+        },
+    )
+    if payload.status == "failed" and previous_status != "failed":
+        notify_switch_probe_failed(db, atm, host, port, error_message or "Switch TCP probe failed", now)
     db.commit()
     return {"ok": True}
 

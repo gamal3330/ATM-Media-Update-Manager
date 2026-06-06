@@ -434,6 +434,7 @@ class AtmAgent:
         self.stop_event = stop_event or threading.Event()
         self.remote_config: RemoteConfig | None = None
         self.applied_config_version = 0
+        self.last_periodic_switch_probe = 0.0
 
     def write_runtime_state(self) -> None:
         write_state(
@@ -462,6 +463,27 @@ class AtmAgent:
 
         self.api.report_switch_probe(probe_id, "failed", result.latency_ms, result.error_message)
         self.logger.warning("Switch TCP probe failed: %s:%s error=%s", host, port, result.error_message)
+
+    def handle_periodic_switch_probe(self, now: float) -> None:
+        config = self.remote_config
+        if config is None:
+            return
+        interval = max(30, int(config.switch_probe_interval_seconds or 30))
+        if now - self.last_periodic_switch_probe < interval:
+            return
+
+        self.last_periodic_switch_probe = now
+        host = config.switch_probe_host
+        port = int(config.switch_probe_port)
+        self.logger.info("Running periodic switch TCP probe: %s:%s", host, port)
+        result = tcp_connect_probe(host, port, timeout_seconds=5)
+        if result.success:
+            self.api.report_switch_probe_snapshot("success", result.latency_ms, None, host, port)
+            self.logger.info("Periodic switch TCP probe succeeded: %s:%s latency=%sms", host, port, result.latency_ms)
+            return
+
+        self.api.report_switch_probe_snapshot("failed", result.latency_ms, result.error_message, host, port)
+        self.logger.warning("Periodic switch TCP probe failed: %s:%s error=%s", host, port, result.error_message)
 
     def handle_agent_commands(self) -> None:
         commands = self.api.list_commands()
@@ -531,6 +553,8 @@ class AtmAgent:
             module_statuses=self.modules.module_statuses(),
         )
         self.handle_switch_probe()
+        self.last_periodic_switch_probe = 0.0
+        self.handle_periodic_switch_probe(time.monotonic())
         self.handle_agent_commands()
         self.modules.tick(time.monotonic())
         self.write_runtime_state()
@@ -578,6 +602,7 @@ class AtmAgent:
 
                 if config:
                     self.handle_switch_probe()
+                    self.handle_periodic_switch_probe(now)
                     self.handle_agent_commands()
                     self.modules.tick(now)
                     self.write_runtime_state()

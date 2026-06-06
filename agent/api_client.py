@@ -208,3 +208,24 @@ class ApiClient:
             timeout=15,
         )
         response.raise_for_status()
+
+    def report_switch_probe_snapshot(
+        self,
+        status: str,
+        latency_ms: int | None,
+        error_message: str | None,
+        host: str,
+        port: int,
+    ) -> None:
+        response = self.session.post(
+            self.url("/api/agent/switch-probe-snapshot"),
+            json={
+                "status": status,
+                "latency_ms": latency_ms,
+                "error_message": error_message,
+                "host": host,
+                "port": port,
+            },
+            timeout=15,
+        )
+        response.raise_for_status()

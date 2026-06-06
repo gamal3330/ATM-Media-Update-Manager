@@ -213,6 +213,7 @@ class ATMCreate(ATMBase):
     cash_stale_after_minutes: int | None = Field(default=None, ge=1, le=1440)
     switch_probe_host: str | None = Field(default=None, min_length=1, max_length=120)
     switch_probe_port: int | None = Field(default=None, ge=1, le=65535)
+    switch_probe_interval_seconds: int | None = Field(default=None, ge=30, le=86400)
 
     @field_validator("media_path", "backup_path", "temp_path")
     @classmethod
@@ -278,6 +279,7 @@ class ATMUpdate(BaseModel):
     cash_stale_after_minutes: int | None = Field(default=None, ge=1, le=1440)
     switch_probe_host: str | None = Field(default=None, min_length=1, max_length=120)
     switch_probe_port: int | None = Field(default=None, ge=1, le=65535)
+    switch_probe_interval_seconds: int | None = Field(default=None, ge=30, le=86400)
 
     @field_validator("media_path", "backup_path", "temp_path")
     @classmethod
@@ -354,6 +356,7 @@ class ATMRead(ATMBase):
     cash_stale_after_minutes: int
     switch_probe_host: str
     switch_probe_port: int
+    switch_probe_interval_seconds: int
     last_switch_probe_status: str | None = None
     last_switch_probe_latency_ms: int | None = None
     last_switch_probe_error: str | None = None
@@ -487,6 +490,19 @@ class AgentSwitchProbeResult(BaseModel):
     error_message: str | None = Field(default=None, max_length=1000)
 
 
+class AgentSwitchProbeSnapshot(BaseModel):
+    status: Literal["success", "failed"]
+    latency_ms: int | None = Field(default=None, ge=0, le=600000)
+    error_message: str | None = Field(default=None, max_length=1000)
+    host: str | None = Field(default=None, min_length=1, max_length=120)
+    port: int | None = Field(default=None, ge=1, le=65535)
+
+    @field_validator("host")
+    @classmethod
+    def validate_host(cls, value: str | None) -> str | None:
+        return validate_probe_host(value)
+
+
 class HeartbeatRequest(BaseModel):
     atm_id: str | None = None
     status: str = "online"
@@ -579,6 +595,9 @@ class AgentConfigResponse(BaseModel):
     atm_id: str
     config_version: int
     config_sync_interval_seconds: int = 120
+    switch_probe_host: str
+    switch_probe_port: int
+    switch_probe_interval_seconds: int = 30
     modules: AgentModulesConfig
     # Legacy fields kept so older installed agents can continue to run during rollout.
     media_path: str
