@@ -1094,7 +1094,6 @@ export default function Atms({ atms, onChanged }) {
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-slate-950 sm:text-3xl">إدارة الصرافات</h1>
-          <p className="text-sm text-slate-500">إدارة الاتصال والـ Agent وإعدادات XFS لكل صراف</p>
         </div>
         <button
           onClick={() => setShowCreateForm((current) => !current)}
