@@ -143,6 +143,32 @@ function parseWhatsAppNumbers(value) {
     .filter((item, index, array) => array.indexOf(item) === index);
 }
 
+function buildSettingsPayload(form) {
+  const payload = {
+    enabled: form.enabled,
+    recipient_email: form.recipient_email.trim() || null,
+    sender_email: form.sender_email.trim() || null,
+    smtp_host: form.smtp_host.trim() || null,
+    smtp_port: Number(form.smtp_port),
+    smtp_security: form.smtp_security,
+    smtp_username: form.smtp_username.trim() || null,
+    whatsapp_enabled: form.whatsapp_enabled,
+    whatsapp_gateway_url: form.whatsapp_gateway_url.trim() || null,
+    whatsapp_default_recipient: form.whatsapp_default_recipient.trim() || null,
+    notify_cash_low: form.notify_cash_low,
+    notify_cash_empty: form.notify_cash_empty,
+    notify_switch_disconnected: form.notify_switch_disconnected,
+    notify_whatsapp_disconnected: form.notify_whatsapp_disconnected,
+  };
+  if (form.smtp_password.trim()) {
+    payload.smtp_password = form.smtp_password.trim();
+  }
+  if (form.whatsapp_gateway_token.trim()) {
+    payload.whatsapp_gateway_token = form.whatsapp_gateway_token.trim();
+  }
+  return payload;
+}
+
 function StatCard({ icon: Icon, label, value, meta, tone = "slate" }) {
   const tones = {
     slate: "border-slate-200 bg-white text-slate-950",
@@ -527,44 +553,32 @@ export default function NotificationCenter() {
     }
   }
 
-  async function saveSettings(event) {
-    event.preventDefault();
+  async function persistSettings(nextForm, successMessage) {
     setSaving(true);
     setMessage("");
     setError("");
     try {
-      const payload = {
-        enabled: form.enabled,
-        recipient_email: form.recipient_email.trim() || null,
-        sender_email: form.sender_email.trim() || null,
-        smtp_host: form.smtp_host.trim() || null,
-        smtp_port: Number(form.smtp_port),
-        smtp_security: form.smtp_security,
-        smtp_username: form.smtp_username.trim() || null,
-        whatsapp_enabled: form.whatsapp_enabled,
-        whatsapp_gateway_url: form.whatsapp_gateway_url.trim() || null,
-        whatsapp_default_recipient: form.whatsapp_default_recipient.trim() || null,
-        notify_cash_low: form.notify_cash_low,
-        notify_cash_empty: form.notify_cash_empty,
-        notify_switch_disconnected: form.notify_switch_disconnected,
-        notify_whatsapp_disconnected: form.notify_whatsapp_disconnected,
-      };
-      if (form.smtp_password.trim()) {
-        payload.smtp_password = form.smtp_password.trim();
-      }
-      if (form.whatsapp_gateway_token.trim()) {
-        payload.whatsapp_gateway_token = form.whatsapp_gateway_token.trim();
-      }
-      const updated = await api.updateNotificationSettings(payload);
+      const updated = await api.updateNotificationSettings(buildSettingsPayload(nextForm));
       setSettings(updated);
       setForm(buildForm(updated));
       setRecipientRows(normalizeRecipientRows(await api.listNotificationRecipients()));
-      setMessage("تم حفظ مركز التنبيهات.");
+      setMessage(successMessage);
     } catch (err) {
       setError(err.message || "تعذر حفظ مركز التنبيهات.");
     } finally {
       setSaving(false);
     }
+  }
+
+  async function saveSettings(event) {
+    event.preventDefault();
+    await persistSettings(form, "تم حفظ مركز التنبيهات.");
+  }
+
+  async function saveWhatsAppSettings() {
+    const nextForm = { ...form, whatsapp_enabled: true };
+    setForm(nextForm);
+    await persistSettings(nextForm, "تم تفعيل وحفظ واتساب.");
   }
 
   async function saveRecipients() {
@@ -878,13 +892,14 @@ export default function NotificationCenter() {
                   </button>
                 </div>
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={saveWhatsAppSettings}
                   disabled={saving}
                   className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
                   title="حفظ إعدادات واتساب"
                 >
                   <Save size={16} />
-                  <span>{saving ? "جاري الحفظ..." : "حفظ واتساب"}</span>
+                  <span>{saving ? "جاري الحفظ..." : "تفعيل وحفظ واتساب"}</span>
                 </button>
               </div>
             }
