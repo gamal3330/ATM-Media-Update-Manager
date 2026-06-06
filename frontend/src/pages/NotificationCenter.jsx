@@ -855,25 +855,36 @@ export default function NotificationCenter() {
             icon={MessageCircle}
             footer={
               <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={refreshWhatsappQr}
+                    disabled={loadingQr || !settings?.whatsapp_gateway_url}
+                    className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                    title="عرض QR"
+                  >
+                    <QrCode size={16} />
+                    <span>{loadingQr ? "جاري الجلب..." : "عرض QR"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={sendTestWhatsApp}
+                    disabled={testingWhatsapp || !canSendWhatsAppTest}
+                    className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-teal-300 px-4 py-2 text-sm font-semibold text-teal-800 hover:bg-teal-50 disabled:opacity-60"
+                    title="إرسال اختبار WhatsApp"
+                  >
+                    <Send size={16} />
+                    <span>{testingWhatsapp ? "جاري الإرسال..." : "إرسال اختبار"}</span>
+                  </button>
+                </div>
                 <button
-                  type="button"
-                  onClick={refreshWhatsappQr}
-                  disabled={loadingQr || !settings?.whatsapp_gateway_url}
-                  className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-                  title="عرض QR"
+                  type="submit"
+                  disabled={saving}
+                  className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+                  title="حفظ إعدادات واتساب"
                 >
-                  <QrCode size={16} />
-                  <span>{loadingQr ? "جاري الجلب..." : "عرض QR"}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={sendTestWhatsApp}
-                  disabled={testingWhatsapp || !canSendWhatsAppTest}
-                  className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-teal-300 px-4 py-2 text-sm font-semibold text-teal-800 hover:bg-teal-50 disabled:opacity-60"
-                  title="إرسال اختبار WhatsApp"
-                >
-                  <Send size={16} />
-                  <span>{testingWhatsapp ? "جاري الإرسال..." : "إرسال اختبار"}</span>
+                  <Save size={16} />
+                  <span>{saving ? "جاري الحفظ..." : "حفظ واتساب"}</span>
                 </button>
               </div>
             }
