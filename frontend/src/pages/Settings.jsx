@@ -14,6 +14,14 @@ import { api, apiBaseUrl } from "../api/client";
 
 const intervalFields = [
   {
+    key: "check_interval_seconds",
+    label: "Media Check Interval",
+    unit: "ثانية",
+    min: 30,
+    max: 86400,
+    defaultValue: 300,
+  },
+  {
     key: "config_sync_interval_seconds",
     label: "Config Sync Interval",
     unit: "ثانية",
@@ -244,7 +252,7 @@ export default function Settings({ atms = [], onChanged, onOpenAgentDownloads })
                 </span>
               )}
             </div>
-            <div className="grid gap-3 p-4 md:grid-cols-3">
+            <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
               {intervalFields.map((field) => (
                 <label key={field.key} className="block">
                   <span className="mb-1 block text-sm font-medium text-slate-700">{field.label}</span>
