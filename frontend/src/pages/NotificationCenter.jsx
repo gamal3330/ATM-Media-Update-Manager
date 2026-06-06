@@ -2,7 +2,9 @@ import {
   AlertTriangle,
   AtSign,
   Bell,
+  CheckCircle2,
   Clock3,
+  Mail,
   MessageCircle,
   QrCode,
   RefreshCw,
@@ -13,6 +15,7 @@ import {
   Settings2,
   ShieldCheck,
   Users,
+  XCircle,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
@@ -79,10 +82,28 @@ function statusTone(status) {
   return "bg-amber-50 text-amber-700 ring-amber-100";
 }
 
+function statusIcon(status) {
+  if (status === "sent") return CheckCircle2;
+  if (status === "failed") return XCircle;
+  return Clock3;
+}
+
+function deliveryStatusLabel(status) {
+  if (status === "sent") return "مرسل";
+  if (status === "failed") return "فشل";
+  return status || "-";
+}
+
 function channelLabel(channel) {
-  if (channel === "whatsapp") return "WhatsApp";
-  if (channel === "email") return "Email";
+  if (channel === "whatsapp") return "واتساب";
+  if (channel === "email") return "البريد";
   return channel || "-";
+}
+
+function channelIcon(channel) {
+  if (channel === "whatsapp") return MessageCircle;
+  if (channel === "email") return Mail;
+  return AtSign;
 }
 
 function deliveryErrorSummary(message) {
@@ -132,12 +153,12 @@ function StatCard({ icon: Icon, label, value, meta, tone = "slate" }) {
   };
 
   return (
-    <article className={`rounded-lg border px-4 py-3 shadow-sm ${tones[tone]}`}>
+    <article className={`min-h-[112px] rounded-lg border px-4 py-3 shadow-sm ${tones[tone]}`}>
       <div className="flex items-center justify-between gap-3">
-        <div className="text-sm font-medium text-slate-600">{label}</div>
+        <div className="text-sm font-semibold text-slate-600">{label}</div>
         <Icon size={19} className="text-current opacity-75" />
       </div>
-      <div className="mt-2 truncate text-2xl font-semibold leading-tight tracking-normal">{value}</div>
+      <div className="mt-3 truncate text-2xl font-semibold leading-tight tracking-normal">{value}</div>
       {meta && <div className="mt-1 truncate text-xs text-slate-500">{meta}</div>}
     </article>
   );
@@ -147,7 +168,7 @@ function SectionCard({ title, icon: Icon, action, children, footer }) {
   return (
     <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
-        <div className="flex items-center gap-2 font-semibold text-slate-950">
+        <div className="flex items-center gap-2 text-base font-semibold text-slate-950">
           {Icon && <Icon size={18} />}
           <span>{title}</span>
         </div>
@@ -174,15 +195,15 @@ function ToggleField({ checked, onChange, label }) {
     <button
       type="button"
       onClick={() => onChange(!checked)}
-      className={`focus-ring inline-flex min-h-10 items-center gap-3 rounded-lg border px-3 py-2 text-sm font-semibold ${
+      className={`focus-ring flex min-h-11 w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm font-semibold ${
         checked ? "border-teal-200 bg-teal-50 text-teal-800" : "border-slate-200 bg-white text-slate-600"
       }`}
       title={label}
     >
+      <span>{label}</span>
       <span className={`h-5 w-10 rounded-full p-0.5 transition ${checked ? "bg-teal-600" : "bg-slate-300"}`}>
         <span className={`block h-4 w-4 rounded-full bg-white transition ${checked ? "translate-x-0" : "-translate-x-5"}`} />
       </span>
-      <span>{label}</span>
     </button>
   );
 }
@@ -237,7 +258,7 @@ function RecipientRules({ rows, defaultEmail, defaultWhatsapp, saving, search, o
         </button>
       }
     >
-      <div className="mb-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+      <div className="mb-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto]">
         <label className="relative block">
           <Search className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
           <input
@@ -247,32 +268,36 @@ function RecipientRules({ rows, defaultEmail, defaultWhatsapp, saving, search, o
             placeholder="بحث باسم الصراف أو الفرع أو البريد"
           />
         </label>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-          <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold">{enabledCount}/{rows.length} مفعلة</span>
-          <span className="max-w-64 truncate rounded-full bg-slate-100 px-2.5 py-1" dir="ltr">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 xl:justify-end">
+          <span className="rounded-full bg-teal-50 px-2.5 py-1 font-semibold text-teal-800">{enabledCount}/{rows.length} مفعلة</span>
+          <span className="max-w-56 truncate rounded-full bg-slate-100 px-2.5 py-1" dir="ltr">
             {defaultEmail || "لا يوجد بريد افتراضي"}
           </span>
-          <span className="max-w-64 truncate rounded-full bg-slate-100 px-2.5 py-1" dir="ltr">
+          <span className="max-w-56 truncate rounded-full bg-slate-100 px-2.5 py-1" dir="ltr">
             {defaultWhatsapp || "لا يوجد رقم واتساب افتراضي"}
           </span>
         </div>
       </div>
 
       <div className="overflow-hidden rounded-lg border border-slate-200">
-        <div className="grid grid-cols-[minmax(150px,1fr)_minmax(210px,1.2fr)_minmax(170px,1fr)_minmax(170px,1fr)_110px] gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600 max-lg:hidden">
+        <div className="grid grid-cols-[minmax(170px,1fr)_minmax(230px,1.15fr)_minmax(230px,1.15fr)_112px] gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600 max-lg:hidden">
           <span>الصراف</span>
-          <span>بريد خاص</span>
-          <span>البريد الفعلي</span>
+          <span>البريد</span>
           <span>أرقام WhatsApp</span>
           <span>الحالة</span>
         </div>
         <div className="divide-y divide-slate-100">
           {filteredRows.map((row) => {
             const effective = row.enabled ? row.recipient_email || defaultEmail || "" : "";
+            const effectiveWhatsappNumbers = row.enabled
+              ? row.whatsapp_numbers_text
+                ? parseWhatsAppNumbers(row.whatsapp_numbers_text)
+                : row.effective_whatsapp_numbers || []
+              : [];
             return (
               <div
                 key={row.atm_id}
-                className="grid items-center gap-3 px-3 py-3 lg:grid-cols-[minmax(150px,1fr)_minmax(210px,1.2fr)_minmax(170px,1fr)_minmax(170px,1fr)_110px]"
+                className="grid items-center gap-3 px-3 py-3 lg:grid-cols-[minmax(170px,1fr)_minmax(230px,1.15fr)_minmax(230px,1.15fr)_112px]"
               >
                 <div className="min-w-0">
                   <div className="truncate font-semibold text-slate-950">{row.name}</div>
@@ -281,30 +306,35 @@ function RecipientRules({ rows, defaultEmail, defaultWhatsapp, saving, search, o
                     <span className="rounded-full bg-slate-100 px-2 py-1">{row.branch}</span>
                   </div>
                 </div>
-                <input
-                  type="email"
-                  dir="ltr"
-                  value={row.recipient_email}
-                  onChange={(event) => onChange(row.atm_id, { recipient_email: event.target.value })}
-                  className="focus-ring w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  placeholder={defaultEmail ? "uses default" : "recipient@example.com"}
-                  disabled={!row.enabled}
-                />
                 <div className="min-w-0">
-                  <div className="truncate rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600" dir="ltr">
-                    {row.enabled ? effective || "no email" : "notifications disabled"}
+                  <input
+                    type="email"
+                    dir="ltr"
+                    value={row.recipient_email}
+                    onChange={(event) => onChange(row.atm_id, { recipient_email: event.target.value })}
+                    className="focus-ring w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    placeholder={defaultEmail ? "البريد الافتراضي" : "recipient@example.com"}
+                    disabled={!row.enabled}
+                  />
+                  <div className="mt-1 truncate px-1 text-xs text-slate-500" dir="ltr">
+                    {row.enabled ? effective || "لا يوجد بريد" : "التنبيهات متوقفة"}
                   </div>
                 </div>
-                <input
-                  dir="ltr"
-                  value={row.whatsapp_numbers_text}
-                  onChange={(event) => onChange(row.atm_id, { whatsapp_numbers_text: event.target.value })}
-                  className="focus-ring w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  placeholder="9677XXXXXXX, 9677YYYYYYY"
-                  disabled={!row.enabled}
-                  title={(row.effective_whatsapp_numbers || []).join(", ") || "أرقام واتساب"}
-                />
-                <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                <div className="min-w-0">
+                  <input
+                    dir="ltr"
+                    value={row.whatsapp_numbers_text}
+                    onChange={(event) => onChange(row.atm_id, { whatsapp_numbers_text: event.target.value })}
+                    className="focus-ring w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    placeholder="9677XXXXXXX, 9677YYYYYYY"
+                    disabled={!row.enabled}
+                    title={(row.effective_whatsapp_numbers || []).join(", ") || "أرقام واتساب"}
+                  />
+                  <div className="mt-1 truncate px-1 text-xs text-slate-500" dir="ltr">
+                    {row.enabled ? effectiveWhatsappNumbers.join(", ") || defaultWhatsapp || "لا يوجد رقم" : "التنبيهات متوقفة"}
+                  </div>
+                </div>
+                <label className="flex min-h-10 items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
                   <span className="font-medium text-slate-700">{row.enabled ? "مفعل" : "متوقف"}</span>
                   <input
                     type="checkbox"
@@ -338,36 +368,82 @@ function DeliveryList({ deliveries }) {
   }
 
   return (
-    <div className="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200">
-      {deliveries.map((delivery) => (
-        <div key={delivery.id} className="grid gap-3 px-3 py-3 lg:grid-cols-[108px_minmax(0,1fr)_150px]">
-          <div>
-            <div className="flex flex-wrap gap-1">
-              <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusTone(delivery.status)}`}>
-                {delivery.status}
-              </span>
-              <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
-                {channelLabel(delivery.channel)}
-              </span>
+    <div className="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200 bg-white">
+      {deliveries.map((delivery) => {
+        const StatusIcon = statusIcon(delivery.status);
+        const ChannelIcon = channelIcon(delivery.channel);
+        return (
+          <div key={delivery.id} className="grid gap-3 px-3 py-3 lg:grid-cols-[minmax(0,1fr)_160px]">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusTone(delivery.status)}`}>
+                  <StatusIcon size={13} />
+                  <span>{deliveryStatusLabel(delivery.status)}</span>
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                  <ChannelIcon size={13} />
+                  <span>{channelLabel(delivery.channel)}</span>
+                </span>
+              </div>
+              <div className="mt-2 truncate font-semibold text-slate-950">{delivery.subject}</div>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                <span className="truncate" dir="ltr">
+                  {delivery.recipient_email || "-"}
+                </span>
+                <span className="rounded-full bg-slate-50 px-2 py-0.5 text-slate-500">{delivery.event_type}</span>
+              </div>
+              {delivery.error_message && (
+                <details className="mt-2 text-xs text-rose-700">
+                  <summary className="cursor-pointer font-medium">{deliveryErrorSummary(delivery.error_message)}</summary>
+                  <div className="mt-1 max-h-28 overflow-y-auto rounded-md bg-rose-50 p-2 leading-5 text-rose-800" dir="ltr">
+                    <span className="break-words">{delivery.error_message}</span>
+                  </div>
+                </details>
+              )}
             </div>
+            <div className="text-sm font-medium text-slate-500 lg:text-left">{formatApiDate(delivery.sent_at || delivery.created_at)}</div>
           </div>
-          <div className="min-w-0">
-            <div className="truncate font-semibold text-slate-950">{delivery.subject}</div>
-            <div className="mt-1 truncate text-xs text-slate-500" dir="ltr">
-              {delivery.recipient_email}
-            </div>
-            {delivery.error_message && (
-              <details className="mt-2 text-xs text-rose-700">
-                <summary className="cursor-pointer font-medium">{deliveryErrorSummary(delivery.error_message)}</summary>
-                <div className="mt-1 max-h-28 overflow-y-auto rounded-md bg-rose-50 p-2 leading-5 text-rose-800" dir="ltr">
-                  <span className="break-words">{delivery.error_message}</span>
-                </div>
-              </details>
-            )}
-          </div>
-          <div className="text-sm text-slate-500">{formatApiDate(delivery.sent_at || delivery.created_at)}</div>
+        );
+      })}
+    </div>
+  );
+}
+
+function WhatsAppStatusPanel({ status, qr, ready }) {
+  return (
+    <div className="rounded-lg bg-slate-50 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold text-slate-950">حالة WhatsApp</div>
+          <div className="mt-1 text-xs text-slate-500">{status?.message || status?.status || "-"}</div>
         </div>
-      ))}
+        <span
+          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+            ready ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+          }`}
+        >
+          {ready ? "متصل" : status?.status || "غير متصل"}
+        </span>
+      </div>
+      {qr?.qr_image && (
+        <div className="mt-3 flex justify-center rounded-lg bg-white p-3">
+          <img src={qr.qr_image} alt="WhatsApp QR" className="h-56 w-56" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Notice({ tone, children }) {
+  const isError = tone === "error";
+  return (
+    <div
+      className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
+        isError ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"
+      }`}
+    >
+      {isError && <AlertTriangle className="mt-0.5 shrink-0" size={16} />}
+      <span>{children}</span>
     </div>
   );
 }
@@ -572,13 +648,10 @@ export default function NotificationCenter() {
   return (
     <section className="space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-semibold text-slate-950">
-            <Bell size={26} />
-            <span>مركز التنبيهات</span>
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">إدارة تنبيهات النقد والبريد لكل صراف.</p>
-        </div>
+        <h1 className="flex items-center gap-2 text-2xl font-semibold text-slate-950">
+          <Bell size={26} />
+          <span>مركز التنبيهات</span>
+        </h1>
         <button
           type="button"
           onClick={loadData}
@@ -630,24 +703,19 @@ export default function NotificationCenter() {
       </div>
 
       {message && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-          {message}
-        </div>
+        <Notice>{message}</Notice>
       )}
       {error && (
-        <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-          <AlertTriangle className="mt-0.5 shrink-0" size={16} />
-          <span>{error}</span>
-        </div>
+        <Notice tone="error">{error}</Notice>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(360px,480px)_minmax(0,1fr)]">
-        <form noValidate onSubmit={saveSettings} className="space-y-4">
+      <div className="grid gap-4 2xl:grid-cols-[minmax(380px,500px)_minmax(0,1fr)]">
+        <form noValidate onSubmit={saveSettings} className="space-y-4 2xl:sticky 2xl:top-4 2xl:self-start">
           <SectionCard
-            title="إعدادات الإرسال"
+            title="التنبيهات"
             icon={Settings2}
             footer={
-              <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center justify-end gap-3">
                 <button
                   type="button"
                   onClick={sendTestEmail}
@@ -670,7 +738,7 @@ export default function NotificationCenter() {
             }
           >
             <div className="space-y-4">
-              <div className="grid gap-2">
+              <div className="grid gap-2 sm:grid-cols-2">
                 <ToggleField checked={form.enabled} onChange={(value) => updateField("enabled", value)} label="تفعيل الإرسال" />
                 <ToggleField
                   checked={form.notify_cash_low}
@@ -694,8 +762,8 @@ export default function NotificationCenter() {
                 />
               </div>
 
-              <div className="grid gap-3">
-                <FormField label="البريد الافتراضي" hint="يستخدم عندما لا يوجد بريد خاص للصراف.">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <FormField label="البريد الافتراضي">
                   <input
                     type="email"
                     dir="ltr"
@@ -719,7 +787,7 @@ export default function NotificationCenter() {
             </div>
           </SectionCard>
 
-          <SectionCard title="SMTP" icon={Server}>
+          <SectionCard title="البريد SMTP" icon={Server}>
             <div className="grid gap-3">
               <FormField label="SMTP Host">
                 <input
@@ -769,7 +837,7 @@ export default function NotificationCenter() {
               </FormField>
               <FormField
                 label={`SMTP Password ${hasStoredPassword ? "(محفوظ)" : ""}`}
-                hint={usesGmailSmtp ? "Gmail يحتاج App Password من إعدادات الحساب، وليس كلمة مرور Gmail العادية." : null}
+                hint={usesGmailSmtp ? "Gmail يحتاج App Password." : null}
               >
                 <input
                   type="password"
@@ -783,7 +851,7 @@ export default function NotificationCenter() {
             </div>
           </SectionCard>
           <SectionCard
-            title="WhatsApp"
+            title="واتساب"
             icon={MessageCircle}
             footer={
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -805,7 +873,7 @@ export default function NotificationCenter() {
                   title="إرسال اختبار WhatsApp"
                 >
                   <Send size={16} />
-                  <span>{testingWhatsapp ? "جاري الإرسال..." : "إرسال WhatsApp اختبار"}</span>
+                  <span>{testingWhatsapp ? "جاري الإرسال..." : "إرسال اختبار"}</span>
                 </button>
               </div>
             }
@@ -817,7 +885,7 @@ export default function NotificationCenter() {
                 label="تفعيل WhatsApp"
               />
 
-              <FormField label="Gateway URL" hint="خدمة Node المستقلة، غالباً http://127.0.0.1:3020 على نفس السيرفر.">
+              <FormField label="Gateway URL">
                 <input
                   dir="ltr"
                   value={form.whatsapp_gateway_url}
@@ -827,7 +895,7 @@ export default function NotificationCenter() {
                 />
               </FormField>
 
-              <FormField label="Gateway Token" hint="اتركه فارغاً إذا لم تستخدم token في خدمة WhatsApp.">
+              <FormField label="Gateway Token">
                 <input
                   type="password"
                   dir="ltr"
@@ -838,7 +906,7 @@ export default function NotificationCenter() {
                 />
               </FormField>
 
-              <FormField label="رقم WhatsApp الافتراضي" hint="اكتب الرقم مع مفتاح الدولة، مثل 9677XXXXXXX.">
+              <FormField label="رقم واتساب الافتراضي">
                 <input
                   dir="ltr"
                   value={form.whatsapp_default_recipient}
@@ -848,26 +916,7 @@ export default function NotificationCenter() {
                 />
               </FormField>
 
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <div className="text-sm font-semibold text-slate-950">حالة WhatsApp</div>
-                    <div className="mt-1 text-xs text-slate-500">{whatsappStatus?.message || whatsappStatus?.status || "-"}</div>
-                  </div>
-                  <span
-                    className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                      whatsappReady ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
-                    }`}
-                  >
-                    {whatsappReady ? "متصل" : whatsappStatus?.status || "غير متصل"}
-                  </span>
-                </div>
-                {whatsappQr?.qr_image && (
-                  <div className="mt-3 flex justify-center rounded-lg bg-white p-3">
-                    <img src={whatsappQr.qr_image} alt="WhatsApp QR" className="h-56 w-56" />
-                  </div>
-                )}
-              </div>
+              <WhatsAppStatusPanel status={whatsappStatus} qr={whatsappQr} ready={whatsappReady} />
             </div>
           </SectionCard>
         </form>
