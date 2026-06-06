@@ -40,7 +40,7 @@ const intervalFields = [
   {
     key: "switch_probe_interval_seconds",
     label: "Switch Probe Interval",
-    unit: "Ø«Ø§Ù†ÙŠØ©",
+    unit: "ثانية",
     min: 30,
     max: 86400,
     defaultValue: 30,
@@ -58,6 +58,7 @@ const intervalFields = [
 function commonAtmValue(atms, key, fallback) {
   if (!atms.length) return String(fallback);
   const values = [...new Set(atms.map((atm) => Number(atm[key])).filter((value) => Number.isFinite(value)))];
+  if (values.length === 0) return String(fallback);
   return values.length === 1 ? String(values[0]) : "";
 }
 
