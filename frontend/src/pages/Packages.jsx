@@ -287,13 +287,13 @@ export default function Packages({ packages, atms, onChanged }) {
       <div className="mb-5 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-4 py-3 font-semibold text-slate-950">الحزم المتاحة</div>
         <div className="overflow-x-auto">
-        <table className="min-w-[720px] divide-y divide-slate-200 text-sm">
+        <table className="w-full min-w-[720px] table-fixed divide-y divide-slate-200 text-sm">
           <thead className="bg-slate-50 text-slate-600">
             <tr>
-              <th className="px-4 py-3 text-right font-medium">الإصدار</th>
-              <th className="px-4 py-3 text-right font-medium">الملف</th>
-              <th className="px-4 py-3 text-right font-medium">التقدم</th>
-              <th className="px-4 py-3 text-right font-medium">اختيار</th>
+              <th className="w-[20%] px-4 py-3 text-right font-medium">الإصدار</th>
+              <th className="w-[34%] px-4 py-3 text-right font-medium">الملف</th>
+              <th className="w-[30%] px-4 py-3 text-right font-medium">التقدم</th>
+              <th className="w-[16%] px-4 py-3 text-right font-medium">اختيار</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -305,7 +305,7 @@ export default function Packages({ packages, atms, onChanged }) {
                     <div className="font-medium text-slate-900">{item.version}</div>
                     <div className="text-xs text-slate-500">{formatApiDate(item.created_at)}</div>
                   </td>
-                  <td className="max-w-[260px] px-4 py-3">
+                  <td className="px-4 py-3">
                     <div className="truncate" title={item.original_filename}>{item.original_filename}</div>
                   </td>
                   <td className="px-4 py-3">
@@ -618,15 +618,15 @@ export default function Packages({ packages, atms, onChanged }) {
             <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-200 px-4 py-3 font-semibold text-slate-950">الصرافات المستهدفة</div>
               <div className="overflow-x-auto">
-              <table className="min-w-[960px] divide-y divide-slate-200 text-sm">
+              <table className="w-full min-w-[960px] table-fixed divide-y divide-slate-200 text-sm">
                 <thead className="bg-slate-50 text-slate-600">
                   <tr>
-                    <th className="px-4 py-3 text-right font-medium">الصراف</th>
-                    <th className="px-4 py-3 text-right font-medium">الحالة</th>
-                    <th className="px-4 py-3 text-right font-medium">التقدم</th>
-                    <th className="px-4 py-3 text-right font-medium">المحاولات</th>
-                    <th className="px-4 py-3 text-right font-medium">آخر فحص</th>
-                    <th className="px-4 py-3 text-right font-medium">الخطأ</th>
+                    <th className="w-[20%] px-4 py-3 text-right font-medium">الصراف</th>
+                    <th className="w-[12%] px-4 py-3 text-right font-medium">الحالة</th>
+                    <th className="w-[26%] px-4 py-3 text-right font-medium">التقدم</th>
+                    <th className="w-[10%] px-4 py-3 text-right font-medium">المحاولات</th>
+                    <th className="w-[15%] px-4 py-3 text-right font-medium">آخر فحص</th>
+                    <th className="w-[17%] px-4 py-3 text-right font-medium">الخطأ</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -651,7 +651,9 @@ export default function Packages({ packages, atms, onChanged }) {
                         </span>
                       </td>
                       <td className="px-4 py-3">{formatApiDate(target.last_checked_at)}</td>
-                      <td className="max-w-xl px-4 py-3 text-rose-700">{target.last_error || "-"}</td>
+                      <td className="px-4 py-3 text-rose-700">
+                        <div className="truncate" title={target.last_error || ""}>{target.last_error || "-"}</div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
