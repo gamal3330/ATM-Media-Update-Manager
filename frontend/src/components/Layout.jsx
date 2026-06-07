@@ -17,7 +17,7 @@ import {
 export const nav = [
   { id: "dashboard", label: "لوحة المراقبة", icon: Home },
   { id: "atms", label: "الصرافات", icon: MonitorCog },
-  { id: "upload", label: "رفع الحزمة", icon: Upload },
+  { id: "upload", label: "رفع حزمة الوسائط", icon: Upload },
   { id: "packages", label: "تحديثات الوسائط", icon: FileArchive },
   { id: "agent-updates", label: "تحديثات Agent", icon: Boxes },
   { id: "cash", label: "مراقبة النقد", icon: Landmark },
