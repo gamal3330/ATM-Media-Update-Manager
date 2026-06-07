@@ -312,7 +312,6 @@ export default function Logs({ logs, auditLogs, onRefresh }) {
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-slate-950 sm:text-3xl">السجلات</h1>
-          <p className="text-sm text-slate-500">Agent و Audit في مسار زمني واحد</p>
         </div>
         <button
           onClick={onRefresh}
