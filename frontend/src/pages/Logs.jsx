@@ -68,7 +68,60 @@ function getLevelMeta(level) {
   };
 }
 
-function getAuditActionLabel(action) {
+function cashAlertLabel(alertType) {
+  const labels = {
+    CASH_LOW: "انخفاض النقد",
+    CASH_CRITICAL: "النقد في مستوى حرج",
+    CASH_EMPTY: "انتهاء النقد",
+    REJECT_BIN_HIGH: "صندوق المرفوضات قريب من الامتلاء",
+    REJECT_BIN_FULL: "صندوق المرفوضات ممتلئ",
+    RETRACT_OCCURRED: "تم رصد نقد مسترجع",
+    CASSETTE_HEALTH: "حالة كاسيت غير طبيعية",
+    CURRENCY_MISMATCH: "اختلاف العملة",
+    DENOMINATION_MISMATCH: "اختلاف الفئة",
+    CONFIG_PENDING: "بانتظار تطبيق الإعدادات",
+  };
+  return labels[alertType] || alertType || "تنبيه نقد";
+}
+
+function cashAlertSummary(action, details) {
+  if (action !== "cash_alert_opened" || !details || typeof details !== "object") return null;
+
+  const alertType = details.alert_type || "";
+  const unitNo = Number(details.unit_no || 0);
+  const currentCount = Number(details.current_count || 0);
+  const unitLabel = unitNo > 0 ? `كاسيت ${unitNo}` : "صندوق عام";
+  const countText = Number.isFinite(currentCount) ? `${currentCount} ورقة` : "-";
+  const title = cashAlertLabel(alertType);
+
+  let subtitle = `تم فتح تنبيه نقد: ${title}`;
+  if (alertType === "RETRACT_OCCURRED") {
+    subtitle = `تم رصد ${countText} في صندوق النقد المسترجع.`;
+  } else if (alertType === "REJECT_BIN_FULL") {
+    subtitle = `صندوق المرفوضات ممتلئ بعدد ${countText}.`;
+  } else if (alertType === "REJECT_BIN_HIGH") {
+    subtitle = `صندوق المرفوضات قريب من الامتلاء بعدد ${countText}.`;
+  } else if (alertType === "CASH_EMPTY") {
+    subtitle = `${unitLabel} انتهى النقد فيه.`;
+  } else if (alertType === "CASH_LOW" || alertType === "CASH_CRITICAL") {
+    subtitle = `${unitLabel}: الرصيد الحالي ${countText}.`;
+  }
+
+  return {
+    title,
+    subtitle,
+    items: [
+      ["نوع التنبيه", title],
+      ["الصندوق", unitLabel],
+      ["العدد الحالي", countText],
+    ],
+  };
+}
+
+function getAuditActionLabel(action, details) {
+  const cashSummary = cashAlertSummary(action, details);
+  if (cashSummary) return cashSummary.title;
+
   const labels = {
     atm_create: "إنشاء صراف",
     atm_delete: "حذف صراف",
@@ -81,6 +134,7 @@ function getAuditActionLabel(action) {
     package_assign: "تعيين تحديث",
     package_create: "إنشاء حزمة",
     package_delete: "حذف حزمة",
+    cash_alert_opened: "فتح تنبيه نقد",
     user_create: "إنشاء مستخدم",
     user_delete: "حذف مستخدم",
     user_update: "تعديل مستخدم",
@@ -124,13 +178,14 @@ function buildAgentRecord(log) {
 function buildAuditRecord(log) {
   const actor = `${log.actor_type || "-"}: ${log.actor_id || "-"}`;
   const target = [log.entity_type, log.entity_id].filter(Boolean).join(" · ");
+  const alertSummary = cashAlertSummary(log.action, log.details);
   return {
     id: `audit-${log.id}`,
     source: "audit",
     sourceLabel: "Audit",
     icon: ShieldCheck,
-    title: getAuditActionLabel(log.action),
-    subtitle: actor,
+    title: alertSummary?.title || getAuditActionLabel(log.action, log.details),
+    subtitle: alertSummary?.subtitle || actor,
     level: "audit",
     levelMeta: {
       label: "Audit",
@@ -140,9 +195,10 @@ function buildAuditRecord(log) {
       dot: "bg-sky-500",
     },
     details: log.details,
+    detailItems: alertSummary?.items || [],
     target,
     occurredAt: log.created_at,
-    searchText: [log.action, actor, target, stringifyDetails(log.details)].join(" "),
+    searchText: [log.action, actor, target, alertSummary?.title, alertSummary?.subtitle, stringifyDetails(log.details)].join(" "),
   };
 }
 
@@ -186,7 +242,8 @@ function LogTimeline({ records }) {
           const Icon = record.icon;
           const BadgeIcon = record.levelMeta.icon;
           const detailsText = stringifyDetails(record.details);
-          const hasDetails = Boolean(detailsText);
+          const hasStructuredDetails = Array.isArray(record.detailItems) && record.detailItems.length > 0;
+          const hasDetails = hasStructuredDetails || Boolean(detailsText);
 
           return (
             <article key={record.id} className="grid gap-3 px-4 py-4 md:grid-cols-[auto_1fr_auto]">
@@ -252,9 +309,20 @@ function LogTimeline({ records }) {
                     <summary className="focus-ring inline-flex cursor-pointer list-none items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
                       <span>التفاصيل</span>
                     </summary>
-                    <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-slate-950 p-3 text-xs leading-5 text-slate-100" dir="ltr">
-                      {detailsText}
-                    </pre>
+                    {hasStructuredDetails ? (
+                      <div className="mt-2 grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm sm:grid-cols-3">
+                        {record.detailItems.map(([label, value]) => (
+                          <div key={label} className="rounded-lg bg-white px-3 py-2">
+                            <div className="text-xs font-medium text-slate-500">{label}</div>
+                            <div className="mt-1 font-semibold text-slate-950">{value}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-slate-950 p-3 text-xs leading-5 text-slate-100" dir="ltr">
+                        {detailsText}
+                      </pre>
+                    )}
                   </details>
                 )}
               </div>
