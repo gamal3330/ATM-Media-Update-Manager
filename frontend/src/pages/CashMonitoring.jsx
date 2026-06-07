@@ -575,31 +575,31 @@ export default function CashMonitoring({ atms }) {
               </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="min-w-[760px] divide-y divide-slate-200 text-sm">
+              <table className="w-full min-w-[760px] table-fixed divide-y divide-slate-200 text-sm">
                 <thead className="bg-slate-50 text-slate-600">
                   <tr>
-                    <th className="px-4 py-3 text-right font-medium">Cassette</th>
-                    <th className="px-4 py-3 text-right font-medium">Cash</th>
-                    <th className="px-4 py-3 text-right font-medium">Current</th>
-                    <th className="px-4 py-3 text-right font-medium">Low / Critical</th>
-                    <th className="px-4 py-3 text-right font-medium">Cassette Rejects</th>
-                    <th className="px-4 py-3 text-right font-medium">Status</th>
-                    <th className="px-4 py-3 text-right font-medium">Last Read</th>
+                    <th className="w-[15%] px-4 py-3 text-right font-medium">Cassette</th>
+                    <th className="w-[17%] px-4 py-3 text-right font-medium">Cash</th>
+                    <th className="w-[12%] px-4 py-3 text-right font-medium">Current</th>
+                    <th className="w-[14%] px-4 py-3 text-right font-medium">Low / Critical</th>
+                    <th className="w-[14%] px-4 py-3 text-right font-medium">Cassette Rejects</th>
+                    <th className="w-[12%] px-4 py-3 text-right font-medium">Status</th>
+                    <th className="w-[16%] px-4 py-3 text-right font-medium">Last Read</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {(details?.units || []).map((unit) => (
-                    <tr key={unit.id}>
+                    <tr key={unit.id} className="hover:bg-slate-50/70">
                       <td className="px-4 py-3">
                         <div className="font-medium text-slate-950">{unit.cassette_no}</div>
-                        <div className="text-xs text-slate-500">{unit.cassette_name || unit.cassette_id || "-"}</div>
+                        <div className="truncate text-xs text-slate-500">{unit.cassette_name || unit.cassette_id || "-"}</div>
                       </td>
                       <td className="px-4 py-3">
-                        <div>
+                        <div className="font-medium text-slate-800">
                           {unit.expected_currency} {unit.expected_denomination}
                         </div>
                         {unit.layout_match_status !== "MATCH" && (
-                          <div className="mt-1 text-xs font-medium text-rose-700">
+                          <div className="mt-1 truncate text-xs font-medium text-rose-700">
                             Reported: {unit.reported_currency} {unit.reported_denomination}
                           </div>
                         )}
