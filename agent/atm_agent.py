@@ -26,7 +26,7 @@ from network_probe import tcp_connect_probe
 from xfs_cdm_diagnostics import diagnose_xfs_cdm, format_diagnostics
 from xfs_cdm_reader import read_cash_units, format_read_result
 
-AGENT_VERSION = "2.0.10"
+AGENT_VERSION = "2.0.11"
 DEFAULT_INSTALL_DIR = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "QIB ATM Manager Agent"
 DEFAULT_CONFIG = DEFAULT_INSTALL_DIR / "config.json"
 SERVICE_NAME = "ATMUnifiedAgent"
@@ -562,6 +562,8 @@ class AtmAgent:
                 media_path=config.media_update.media_path,
                 backup_path=config.media_update.backup_path,
                 temp_path=config.media_update.temp_path,
+                last_server_error=None,
+                last_update_error=None,
                 last_config_error=None,
             )
         except Exception as exc:
@@ -595,6 +597,8 @@ class AtmAgent:
                 agent_version=AGENT_VERSION,
                 service_status="running",
                 latency_ms=self.api.last_latency_ms,
+                last_server_error=None,
+                last_update_error=None,
             )
             self.handle_switch_probe()
             self.last_periodic_switch_probe = 0.0
@@ -645,6 +649,8 @@ class AtmAgent:
                         latency_ms=self.api.last_latency_ms,
                         enabled_modules=self.modules.enabled_modules(),
                         module_statuses=self.modules.module_statuses(),
+                        last_server_error=None,
+                        last_update_error=None,
                     )
                     last_heartbeat = now
 
