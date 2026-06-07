@@ -81,13 +81,19 @@ class AgentSelfUpdateManager:
         version = result.get("version")
         finished_at = result.get("updated_at")
 
-        self.api.report_agent_update_result(
-            int(package_id),
-            version,
-            status,
-            message,
-            finished_at=finished_at,
-        )
+        try:
+            self.api.report_agent_update_result(
+                int(package_id),
+                version,
+                status,
+                message,
+                finished_at=finished_at,
+            )
+        except Exception as exc:
+            if self.logger:
+                self.logger.warning("Could not report agent update result package=%s: %s", package_id, exc)
+            return False
+
         reported_path = self.result_file.with_suffix(".reported.json")
         try:
             if reported_path.exists():
@@ -98,6 +104,8 @@ class AgentSelfUpdateManager:
                 self.result_file.unlink()
             except OSError:
                 pass
+        if self.logger:
+            self.logger.info("Agent update result reported package=%s status=%s version=%s", package_id, status, version)
         return True
 
     def check_and_apply(self) -> bool:

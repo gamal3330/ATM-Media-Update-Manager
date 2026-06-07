@@ -15,6 +15,7 @@ from pathlib import Path
 import requests
 
 from api_client import ApiClient
+from agent_instance_lock import AgentInstanceLock
 from agent_self_update import AgentSelfUpdateManager
 from cash_monitoring_module import CashMonitoringModule
 from config_manager import LocalConfig, RemoteConfig, load_local_config, write_local_config
@@ -25,7 +26,7 @@ from network_probe import tcp_connect_probe
 from xfs_cdm_diagnostics import diagnose_xfs_cdm, format_diagnostics
 from xfs_cdm_reader import read_cash_units, format_read_result
 
-AGENT_VERSION = "2.0.8"
+AGENT_VERSION = "2.0.9"
 DEFAULT_INSTALL_DIR = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "QIB ATM Manager Agent"
 DEFAULT_CONFIG = DEFAULT_INSTALL_DIR / "config.json"
 SERVICE_NAME = "ATMUnifiedAgent"
@@ -431,6 +432,11 @@ class AtmAgent:
         self.config_path = config_path
         self.local_config = load_local_config(config_path)
         self.logger = setup_logger(self.local_config.local_log_path)
+        self.instance_lock = AgentInstanceLock(config_path.parent / "agent.lock")
+        if not self.instance_lock.acquire():
+            message = f"Another QIB ATM Manager Agent instance is already running for config {config_path}"
+            self.logger.warning(message)
+            raise SystemExit(message)
         self.api = ApiClient(self.local_config)
         self.self_update_manager = AgentSelfUpdateManager(
             self.api,
@@ -522,7 +528,6 @@ class AtmAgent:
                     pass
 
     def handle_agent_self_update(self, now: float) -> bool:
-        self.self_update_manager.report_pending_result()
         config = self.remote_config
         config_interval = (
             config.config_sync_interval_seconds
@@ -571,32 +576,36 @@ class AtmAgent:
             raise
 
     def run_once(self) -> None:
-        self.sync_config()
-        config = self.remote_config
-        if config is None:
-            return
-        self.api.heartbeat(
-            AGENT_VERSION,
-            "running",
-            self.media_module.current_package_version,
-            self.applied_config_version,
-            enabled_modules=self.modules.enabled_modules(),
-            module_statuses=self.modules.module_statuses(),
-        )
-        write_state(
-            self.local_config,
-            last_heartbeat_at=utc_now_iso(),
-            agent_version=AGENT_VERSION,
-            service_status="running",
-            latency_ms=self.api.last_latency_ms,
-            last_server_error=None,
-        )
-        self.handle_switch_probe()
-        self.last_periodic_switch_probe = 0.0
-        self.handle_periodic_switch_probe(time.monotonic())
-        self.handle_agent_commands()
-        self.modules.tick(time.monotonic())
-        self.write_runtime_state()
+        try:
+            self.self_update_manager.report_pending_result()
+            self.sync_config()
+            config = self.remote_config
+            if config is None:
+                return
+            self.api.heartbeat(
+                AGENT_VERSION,
+                "running",
+                self.media_module.current_package_version,
+                self.applied_config_version,
+                enabled_modules=self.modules.enabled_modules(),
+                module_statuses=self.modules.module_statuses(),
+            )
+            write_state(
+                self.local_config,
+                last_heartbeat_at=utc_now_iso(),
+                agent_version=AGENT_VERSION,
+                service_status="running",
+                latency_ms=self.api.last_latency_ms,
+                last_server_error=None,
+            )
+            self.handle_switch_probe()
+            self.last_periodic_switch_probe = 0.0
+            self.handle_periodic_switch_probe(time.monotonic())
+            self.handle_agent_commands()
+            self.modules.tick(time.monotonic())
+            self.write_runtime_state()
+        finally:
+            self.instance_lock.release()
 
     def run_forever(self) -> None:
         last_heartbeat = 0.0
@@ -614,6 +623,8 @@ class AtmAgent:
             )
 
             try:
+                self.self_update_manager.report_pending_result()
+
                 if now - last_config >= config_interval:
                     self.sync_config()
                     last_config = now
@@ -667,6 +678,8 @@ class AtmAgent:
                     pass
 
             self.stop_event.wait(5)
+
+        self.instance_lock.release()
 
 
 def install(args: argparse.Namespace) -> None:
