@@ -26,7 +26,7 @@ from network_probe import tcp_connect_probe
 from xfs_cdm_diagnostics import diagnose_xfs_cdm, format_diagnostics
 from xfs_cdm_reader import read_cash_units, format_read_result
 
-AGENT_VERSION = "2.0.11"
+AGENT_VERSION = "2.0.12"
 DEFAULT_INSTALL_DIR = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "QIB ATM Manager Agent"
 DEFAULT_CONFIG = DEFAULT_INSTALL_DIR / "config.json"
 SERVICE_NAME = "ATMUnifiedAgent"
