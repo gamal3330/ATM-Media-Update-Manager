@@ -16,6 +16,18 @@ import UserManagement from "./pages/UserManagement";
 
 const fallbackPages = ["dashboard"];
 
+function AuthLoading() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4" dir="rtl">
+      <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-5 text-center shadow-sm">
+        <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-teal-100 border-t-teal-700" />
+        <div className="font-semibold text-slate-950">جاري التحقق من الجلسة</div>
+        <div className="mt-1 text-sm text-slate-500">لن يتم فتح لوحة التحكم قبل التأكد من تسجيل الدخول.</div>
+      </div>
+    </div>
+  );
+}
+
 function getAllowedPages(user) {
   const pageIds = nav.map((item) => item.id);
   const pages = Array.isArray(user?.allowed_pages) ? user.allowed_pages : fallbackPages;
@@ -24,6 +36,7 @@ function getAllowedPages(user) {
 
 export default function App() {
   const [user, setUser] = useState(null);
+  const [checkingAuth, setCheckingAuth] = useState(() => Boolean(getAuthToken()));
   const [activePage, setActivePage] = useState("dashboard");
   const [atms, setAtms] = useState([]);
   const [packages, setPackages] = useState([]);
@@ -68,19 +81,34 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (getAuthToken()) {
-      api
-        .me()
-        .then((currentUser) => {
-          setUser(currentUser);
-          refreshCore();
-          refreshLogs();
-        })
-        .catch(() => {
-          clearAuthToken();
-          setUser(null);
-        });
+    const token = getAuthToken();
+    if (!token) {
+      setCheckingAuth(false);
+      return undefined;
     }
+
+    let active = true;
+    setCheckingAuth(true);
+    api
+      .me()
+      .then((currentUser) => {
+        if (!active) return;
+        setUser(currentUser);
+        refreshCore();
+        refreshLogs();
+      })
+      .catch(() => {
+        if (!active) return;
+        clearAuthToken();
+        setUser(null);
+      })
+      .finally(() => {
+        if (active) setCheckingAuth(false);
+      });
+
+    return () => {
+      active = false;
+    };
   }, [refreshCore, refreshLogs]);
 
   const allowedPages = useMemo(() => getAllowedPages(user), [user]);
@@ -95,10 +123,24 @@ export default function App() {
   function logout() {
     clearAuthToken();
     setUser(null);
+    setCheckingAuth(false);
   }
 
-  if (!user && !getAuthToken()) {
-    return <Login onLogin={(loggedInUser) => { setUser(loggedInUser); refreshCore(); refreshLogs(); }} />;
+  if (checkingAuth) {
+    return <AuthLoading />;
+  }
+
+  if (!user) {
+    return (
+      <Login
+        onLogin={(loggedInUser) => {
+          setUser(loggedInUser);
+          setCheckingAuth(false);
+          refreshCore();
+          refreshLogs();
+        }}
+      />
+    );
   }
 
   let page = null;
