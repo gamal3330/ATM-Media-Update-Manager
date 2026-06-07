@@ -82,6 +82,8 @@ const fieldLabels = {
   username: "اسم المستخدم",
   password: "كلمة المرور",
   file: "ملف ZIP",
+  agent_file: "atm-agent.exe",
+  updater_file: "agent-updater.exe",
   version: "رقم الإصدار",
   notes: "الملاحظات",
   atm_ids: "الصرافات المستهدفة",
@@ -119,6 +121,11 @@ function translatePlainMessage(message, status) {
     "ATM already has a pending reboot request": "يوجد طلب إعادة تشغيل معلق لهذا الصراف بالفعل.",
     "Package not found": "حزمة التحديث غير موجودة.",
     "Only ZIP packages are accepted": "يجب رفع ملف ZIP فقط.",
+    "Only .exe files are accepted": "يجب رفع ملفات EXE فقط.",
+    "Agent version is required": "أدخل رقم إصدار نسخة Agent.",
+    "Agent package version already exists": "رقم إصدار Agent مستخدم مسبقاً.",
+    "atm-agent.exe must be a valid Windows EXE": "ملف atm-agent.exe غير صالح كملف Windows EXE.",
+    "agent-updater.exe must be a valid Windows EXE": "ملف agent-updater.exe غير صالح كملف Windows EXE.",
     "Invalid ZIP file": "ملف ZIP غير صالح.",
     "ZIP package must contain at least one image file": "ملف ZIP يجب أن يحتوي على صورة واحدة على الأقل.",
     "atm-agent.exe is not available. Build it on Windows and place it at agent/dist/atm-agent.exe":
@@ -132,6 +139,9 @@ function translatePlainMessage(message, status) {
 
   if (message?.startsWith("Executable or script file is not allowed in ZIP:")) {
     return `يوجد ملف تنفيذي أو سكربت ممنوع داخل ZIP: ${message.split(":").slice(1).join(":").trim()}`;
+  }
+  if (message?.includes("must be 32-bit x86")) {
+    return "يجب أن تكون ملفات Agent بنسخة 32-bit x86 حتى تعمل على كل الصرافات.";
   }
 
   if (known[message]) return known[message];

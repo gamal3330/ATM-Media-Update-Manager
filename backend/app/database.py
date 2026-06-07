@@ -45,7 +45,7 @@ def migrate_existing_schema() -> None:
                     connection.execute(text("ALTER TABLE users ADD COLUMN allowed_pages JSON NOT NULL DEFAULT '[]'"))
 
             all_pages_json = (
-                '["dashboard","atms","upload","packages","cash","notifications","agent-downloads","logs","settings","users"]'
+                '["dashboard","atms","upload","packages","agent-updates","cash","notifications","agent-downloads","logs","settings","users"]'
             )
             default_pages_json = '["dashboard"]'
             connection.execute(
@@ -54,7 +54,7 @@ def migrate_existing_schema() -> None:
                     UPDATE users
                     SET allowed_pages = :all_pages
                     WHERE role IN ('admin', 'system_admin')
-                        AND (allowed_pages IS NULL OR allowed_pages = '[]' OR allowed_pages NOT LIKE '%"notifications"%')
+                        AND (allowed_pages IS NULL OR allowed_pages = '[]' OR allowed_pages NOT LIKE '%"agent-updates"%')
                     """
                 ),
                 {"all_pages": all_pages_json},

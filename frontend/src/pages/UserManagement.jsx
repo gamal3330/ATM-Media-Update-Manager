@@ -36,7 +36,7 @@ const roles = [
 
 const pageGroups = [
   { title: "العمليات", ids: ["dashboard", "atms", "cash", "notifications"] },
-  { title: "التحديثات", ids: ["upload", "packages", "agent-downloads"] },
+  { title: "التحديثات", ids: ["upload", "packages", "agent-updates", "agent-downloads"] },
   { title: "الإدارة", ids: ["logs", "settings", "users"] },
 ];
 

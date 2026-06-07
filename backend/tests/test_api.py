@@ -230,6 +230,7 @@ def test_admin_can_manage_users_and_page_visibility() -> None:
         assert page_map["atms"] == "الصرافات"
         assert page_map["cash"] == "مراقبة النقد"
         assert page_map["notifications"] == "مركز التنبيهات"
+        assert page_map["agent-updates"] == "تحديثات Agent"
         assert page_map["agent-downloads"] == "Agent Downloads"
         assert page_map["logs"] == "السجلات"
         assert page_map["settings"] == "الإعدادات"

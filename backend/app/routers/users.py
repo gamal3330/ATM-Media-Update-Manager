@@ -14,7 +14,8 @@ PAGE_LABELS = {
     "dashboard": "لوحة المراقبة",
     "atms": "الصرافات",
     "upload": "رفع الحزمة",
-    "packages": "التحديثات",
+    "packages": "تحديثات الوسائط",
+    "agent-updates": "تحديثات Agent",
     "cash": "مراقبة النقد",
     "notifications": "مركز التنبيهات",
     "agent-downloads": "Agent Downloads",
@@ -121,9 +122,7 @@ def update_user(
         action="user_updated",
         entity_type="user",
         entity_id=user.username,
-        details={
-            key: value for key, value in changes.items() if key != "password"
-        },
+        details={key: value for key, value in changes.items() if key != "password"},
     )
     db.commit()
     db.refresh(user)

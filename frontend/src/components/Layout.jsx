@@ -1,6 +1,7 @@
 import {
   Activity,
   Bell,
+  Boxes,
   Download,
   FileArchive,
   Landmark,
@@ -17,7 +18,8 @@ export const nav = [
   { id: "dashboard", label: "لوحة المراقبة", icon: Home },
   { id: "atms", label: "الصرافات", icon: MonitorCog },
   { id: "upload", label: "رفع الحزمة", icon: Upload },
-  { id: "packages", label: "التحديثات", icon: FileArchive },
+  { id: "packages", label: "تحديثات الوسائط", icon: FileArchive },
+  { id: "agent-updates", label: "تحديثات Agent", icon: Boxes },
   { id: "cash", label: "مراقبة النقد", icon: Landmark },
   { id: "notifications", label: "مركز التنبيهات", icon: Bell },
   { id: "agent-downloads", label: "Agent Downloads", icon: Download },

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, clearAuthToken, getAuthToken } from "./api/client";
 import Layout, { nav } from "./components/Layout";
 import AgentDownloads from "./pages/AgentDownloads";
+import AgentUpdates from "./pages/AgentUpdates";
 import Atms from "./pages/Atms";
 import CashMonitoring from "./pages/CashMonitoring";
 import Dashboard from "./pages/Dashboard";
@@ -105,6 +106,7 @@ export default function App() {
   if (visiblePage === "atms") page = <Atms atms={atms} onChanged={refreshCore} />;
   if (visiblePage === "upload") page = <UploadPackage onUploaded={refreshCore} onOpenPackages={() => setActivePage("packages")} />;
   if (visiblePage === "packages") page = <Packages packages={packages} atms={atms} onChanged={refreshCore} />;
+  if (visiblePage === "agent-updates") page = <AgentUpdates atms={atms} />;
   if (visiblePage === "cash") page = <CashMonitoring atms={atms} />;
   if (visiblePage === "notifications") page = <NotificationCenter />;
   if (visiblePage === "agent-downloads") page = <AgentDownloads />;
