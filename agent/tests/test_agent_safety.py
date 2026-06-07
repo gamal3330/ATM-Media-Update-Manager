@@ -1,12 +1,18 @@
 import hashlib
 import json
 import socket
+import sys
 import threading
 import zipfile
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import agent_self_update
+import agent_updater
 import atm_agent
 from backup_manager import create_backup, restore_backup
 from atm_agent import choose_run_mode, powershell_executable, scheduled_task_not_found, write_hidden_task_runner
@@ -107,6 +113,219 @@ def test_hidden_task_runner_quotes_program_files_paths(tmp_path):
     assert 'shell.Run """' in content
     assert '"" run --config ""' in content
     assert '""", 0, False' in content
+
+
+def test_agent_updater_replaces_current_agent_and_keeps_backup(tmp_path):
+    current = tmp_path / "atm-agent.exe"
+    new = tmp_path / "atm-agent-new.exe"
+    backup_dir = tmp_path / "backups"
+    current.write_bytes(b"old-agent")
+    new.write_bytes(b"new-agent")
+
+    result = agent_updater.perform_update(
+        agent_updater.UpdateOptions(
+            current_path=current,
+            new_path=new,
+            mode="none",
+            backup_dir=backup_dir,
+            timeout_seconds=5,
+        )
+    )
+
+    assert result["ok"] is True
+    assert current.read_bytes() == b"new-agent"
+    assert not new.exists()
+    backups = list(backup_dir.glob("*.bak"))
+    assert len(backups) == 1
+    assert backups[0].read_bytes() == b"old-agent"
+
+
+def test_agent_updater_rejects_sha256_mismatch_without_replacing(tmp_path):
+    current = tmp_path / "atm-agent.exe"
+    new = tmp_path / "atm-agent-new.exe"
+    current.write_bytes(b"old-agent")
+    new.write_bytes(b"new-agent")
+
+    with pytest.raises(ValueError, match="SHA256 mismatch"):
+        agent_updater.perform_update(
+            agent_updater.UpdateOptions(
+                current_path=current,
+                new_path=new,
+                mode="none",
+                expected_sha256="0" * 64,
+                timeout_seconds=5,
+            )
+        )
+
+    assert current.read_bytes() == b"old-agent"
+    assert new.read_bytes() == b"new-agent"
+
+
+def test_agent_updater_uses_scheduled_task_commands(tmp_path):
+    current = tmp_path / "atm-agent.exe"
+    new = tmp_path / "atm-agent-new.exe"
+    current.write_bytes(b"old-agent")
+    new.write_bytes(b"new-agent")
+    commands = []
+
+    def fake_runner(args, ignore_errors=False):
+        commands.append((args, ignore_errors))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    result = agent_updater.perform_update(
+        agent_updater.UpdateOptions(
+            current_path=current,
+            new_path=new,
+            mode="scheduled-task",
+            task_name="QIB ATM Manager Agent",
+            process_name="atm-agent.exe",
+            backup_dir=tmp_path / "backups",
+            timeout_seconds=5,
+        ),
+        runner=fake_runner,
+    )
+
+    assert result["started"] is True
+    assert [item[0] for item in commands] == [
+        ["schtasks.exe", "/End", "/TN", "QIB ATM Manager Agent"],
+        ["taskkill.exe", "/IM", "atm-agent.exe", "/F"],
+        ["schtasks.exe", "/Run", "/TN", "QIB ATM Manager Agent"],
+    ]
+    assert commands[0][1] is True
+    assert commands[1][1] is True
+    assert commands[2][1] is False
+
+
+class FakeSelfUpdateApi:
+    def __init__(self, update=None, downloads=None):
+        self.update = update
+        self.downloads = downloads or {}
+        self.progresses = []
+        self.results = []
+
+    def check_agent_update(self):
+        return self.update
+
+    def download_package(self, download_url, output):
+        payload = self.downloads[download_url]
+        output.write(payload)
+        return len(payload), len(payload)
+
+    def agent_update_progress(self, *args, **kwargs):
+        self.progresses.append((args, kwargs))
+
+    def report_agent_update_result(self, *args, **kwargs):
+        self.results.append((args, kwargs))
+
+
+def test_agent_self_update_downloads_verified_files_and_launches_updater(tmp_path):
+    current = tmp_path / "atm-agent.exe"
+    config_path = tmp_path / "config.json"
+    current.write_bytes(b"old-agent")
+    config_path.write_text("{}", encoding="utf-8")
+    agent_payload = b"new-agent"
+    updater_payload = b"updater"
+    update = {
+        "agent_package_id": 7,
+        "version": "2.0.7",
+        "agent_download_url": "/agent.exe",
+        "updater_download_url": "/updater.exe",
+        "agent_sha256": hashlib.sha256(agent_payload).hexdigest(),
+        "updater_sha256": hashlib.sha256(updater_payload).hexdigest(),
+        "agent_size_bytes": len(agent_payload),
+        "updater_size_bytes": len(updater_payload),
+    }
+    api = FakeSelfUpdateApi(update, {"/agent.exe": agent_payload, "/updater.exe": updater_payload})
+    launched = []
+
+    def fake_launcher(command, cwd):
+        launched.append((command, cwd))
+
+    manager = agent_self_update.AgentSelfUpdateManager(
+        api,
+        current_version="2.0.6",
+        config_path=config_path,
+        startup_mode="scheduled-task",
+        current_exe=current,
+        launcher=fake_launcher,
+    )
+
+    assert manager.check_and_apply() is True
+
+    assert len(launched) == 1
+    command, cwd = launched[0]
+    assert cwd == tmp_path
+    assert command[0].endswith("agent-updater.exe")
+    assert command[command.index("--current") + 1] == str(current)
+    assert command[command.index("--mode") + 1] == "scheduled-task"
+    assert command[command.index("--agent-package-id") + 1] == "7"
+    assert command[command.index("--version") + 1] == "2.0.7"
+    assert command[command.index("--expected-sha256") + 1] == update["agent_sha256"]
+    assert (tmp_path / "agent_updates" / "package-7" / "atm-agent.exe").read_bytes() == agent_payload
+    assert api.progresses[-1][0][:4] == (7, "applying", 90, "Agent updater launched")
+
+
+def test_agent_self_update_reports_pending_updater_result(tmp_path):
+    current = tmp_path / "atm-agent.exe"
+    config_path = tmp_path / "config.json"
+    current.write_bytes(b"current")
+    config_path.write_text("{}", encoding="utf-8")
+    result_path = tmp_path / "update-result.json"
+    result_path.write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "agent_package_id": 9,
+                "version": "2.0.8",
+                "updated_at": "2026-06-07T10:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    api = FakeSelfUpdateApi()
+    manager = agent_self_update.AgentSelfUpdateManager(
+        api,
+        current_version="2.0.8",
+        config_path=config_path,
+        startup_mode="none",
+        current_exe=current,
+    )
+
+    assert manager.report_pending_result() is True
+    assert api.results == [
+        (
+            (9, "2.0.8", "success", "Agent update applied"),
+            {"finished_at": "2026-06-07T10:00:00+00:00"},
+        )
+    ]
+    assert not result_path.exists()
+    assert (tmp_path / "update-result.reported.json").exists()
+
+
+def test_agent_self_update_marks_same_version_applied_without_launch(tmp_path):
+    current = tmp_path / "atm-agent.exe"
+    config_path = tmp_path / "config.json"
+    current.write_bytes(b"current")
+    config_path.write_text("{}", encoding="utf-8")
+    api = FakeSelfUpdateApi({"agent_package_id": 12, "version": "2.0.6"})
+    launched = []
+    manager = agent_self_update.AgentSelfUpdateManager(
+        api,
+        current_version="2.0.6",
+        config_path=config_path,
+        startup_mode="scheduled-task",
+        current_exe=current,
+        launcher=lambda command, cwd: launched.append((command, cwd)),
+    )
+
+    assert manager.check_and_apply() is False
+    assert launched == []
+    assert api.results[0][0][:4] == (
+        12,
+        "2.0.6",
+        "success",
+        "Agent is already running the requested version",
+    )
 
 
 def test_powershell_executable_prefers_sysnative_for_32_bit_agent(tmp_path, monkeypatch):

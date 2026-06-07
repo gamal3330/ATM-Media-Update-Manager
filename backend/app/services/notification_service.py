@@ -23,6 +23,9 @@ ALERT_LABELS = {
 BRAND_NAME = "QIB ATM Manager"
 YEMEN_TIMEZONE = timezone(timedelta(hours=3))
 WHATSAPP_PROBLEM_STATUSES = {"disconnected", "auth_failure", "unreachable", "error", "qr"}
+MAX_DELIVERY_ATTEMPTS = 5
+DELIVERY_RETRY_DELAY_SECONDS = 120
+DELIVERY_RETRY_BATCH_SIZE = 50
 
 
 def utcnow() -> datetime:
@@ -550,6 +553,171 @@ def send_whatsapp(settings: NotificationSettings, recipient: str, message: str) 
         raise RuntimeError(result.get("error") or "WhatsApp gateway failed to send the message")
 
 
+def same_notification_sent_exists(db: Session, delivery: NotificationDelivery) -> bool:
+    if not delivery.alert_id:
+        return False
+    query = db.query(NotificationDelivery.id).filter(
+        NotificationDelivery.id != delivery.id,
+        NotificationDelivery.channel == delivery.channel,
+        NotificationDelivery.recipient_email == delivery.recipient_email,
+        NotificationDelivery.status == "sent",
+    )
+    query = query.filter(NotificationDelivery.alert_id == delivery.alert_id)
+    return query.first() is not None
+
+
+def tracked_alert_delivery_exists(db: Session, alert_id: int | None, channel: str, recipient: str) -> bool:
+    if not alert_id:
+        return False
+    return (
+        db.query(NotificationDelivery.id)
+        .filter(
+            NotificationDelivery.alert_id == alert_id,
+            NotificationDelivery.channel == channel,
+            NotificationDelivery.recipient_email == recipient,
+        )
+        .first()
+        is not None
+    )
+
+
+def delivery_retry_due(delivery: NotificationDelivery, now: datetime) -> bool:
+    if delivery.status != "failed":
+        return False
+    if delivery.attempt_count >= MAX_DELIVERY_ATTEMPTS:
+        return False
+    if delivery.next_retry_at is None:
+        return False
+    next_retry_at = delivery.next_retry_at
+    if next_retry_at.tzinfo is None:
+        next_retry_at = next_retry_at.replace(tzinfo=timezone.utc)
+    return next_retry_at <= now
+
+
+def resolve_delivery_content(db: Session, delivery: NotificationDelivery) -> tuple[str, str, str | None]:
+    if delivery.body:
+        return delivery.subject, delivery.body, delivery.html_body
+
+    if delivery.alert_id and delivery.atm_id:
+        alert = db.query(AtmCashAlert).filter(AtmCashAlert.id == delivery.alert_id).first()
+        atm = db.query(ATM).filter(ATM.id == delivery.atm_id).first()
+        if alert and atm:
+            if delivery.channel == "whatsapp":
+                subject, body = build_cash_alert_whatsapp(atm, alert)
+                return subject, body, None
+            return build_cash_alert_email(atm, alert)
+
+    raise ValueError("Original notification body is unavailable for retry")
+
+
+def mark_delivery_failed(delivery: NotificationDelivery, exc: Exception, now: datetime) -> None:
+    delivery.status = "failed"
+    delivery.error_message = str(exc)[:1000]
+    if delivery.attempt_count < MAX_DELIVERY_ATTEMPTS:
+        delivery.next_retry_at = now + timedelta(seconds=DELIVERY_RETRY_DELAY_SECONDS)
+    else:
+        delivery.next_retry_at = None
+
+
+def send_notification_delivery(
+    db: Session,
+    settings: NotificationSettings,
+    delivery: NotificationDelivery,
+) -> NotificationDelivery:
+    now = utcnow()
+    if delivery.status == "sent":
+        return delivery
+    if same_notification_sent_exists(db, delivery):
+        delivery.status = "skipped"
+        delivery.error_message = "Skipped because this notification was already sent successfully to this recipient."
+        delivery.next_retry_at = None
+        return delivery
+
+    delivery.status = "pending"
+    delivery.error_message = None
+    delivery.next_retry_at = None
+    delivery.attempt_count = (delivery.attempt_count or 0) + 1
+    db.flush()
+
+    try:
+        subject, body, html_body = resolve_delivery_content(db, delivery)
+        delivery.subject = subject
+        delivery.body = body
+        delivery.html_body = html_body
+        if delivery.channel == "whatsapp":
+            send_whatsapp(settings, delivery.recipient_email, body)
+        else:
+            send_email(settings, subject, body, delivery.recipient_email, html_body)
+    except Exception as exc:  # Delivery errors should not block ATM ingestion.
+        mark_delivery_failed(delivery, exc, now)
+        return delivery
+
+    delivery.status = "sent"
+    delivery.error_message = None
+    delivery.sent_at = utcnow()
+    delivery.next_retry_at = None
+    return delivery
+
+
+def retry_failed_notification_deliveries(
+    db: Session,
+    *,
+    force: bool = False,
+    limit: int = DELIVERY_RETRY_BATCH_SIZE,
+) -> dict:
+    settings = get_notification_settings(db)
+    now = utcnow()
+    candidates = (
+        db.query(NotificationDelivery)
+        .filter(
+            NotificationDelivery.status == "failed",
+            NotificationDelivery.attempt_count < MAX_DELIVERY_ATTEMPTS,
+        )
+        .order_by(NotificationDelivery.created_at.asc())
+        .limit(max(1, min(limit, 200)))
+        .all()
+    )
+
+    deliveries: list[NotificationDelivery] = []
+    skipped = 0
+    for delivery in candidates:
+        if not force and not delivery_retry_due(delivery, now):
+            skipped += 1
+            continue
+        deliveries.append(send_notification_delivery(db, settings, delivery))
+
+    return {
+        "retried": len(deliveries),
+        "sent": sum(1 for delivery in deliveries if delivery.status == "sent"),
+        "failed": sum(1 for delivery in deliveries if delivery.status == "failed"),
+        "skipped": skipped + sum(1 for delivery in deliveries if delivery.status == "skipped"),
+        "deliveries": deliveries,
+    }
+
+
+def retry_failed_notification_deliveries_once(session_factory) -> None:
+    db = session_factory()
+    try:
+        retry_failed_notification_deliveries(db)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Notification delivery retry failed")
+    finally:
+        db.close()
+
+
+async def monitor_notification_delivery_retries(
+    session_factory,
+    interval_seconds: int = 60,
+    initial_delay_seconds: int = 45,
+) -> None:
+    await asyncio.sleep(initial_delay_seconds)
+    while True:
+        await asyncio.to_thread(retry_failed_notification_deliveries_once, session_factory)
+        await asyncio.sleep(interval_seconds)
+
+
 def create_email_delivery(
     db: Session,
     settings: NotificationSettings,
@@ -570,23 +738,16 @@ def create_email_delivery(
         alert_id=alert.id if alert else None,
         atm_id=atm.id if atm else None,
         event_type=event_type,
+        channel="email",
         recipient_email=recipient,
         subject=subject,
+        body=body,
+        html_body=html_body,
         status="pending",
     )
     db.add(delivery)
     db.flush()
-
-    try:
-        send_email(settings, subject, body, recipient, html_body)
-    except Exception as exc:  # SMTP errors should not block cash snapshot ingestion.
-        delivery.status = "failed"
-        delivery.error_message = str(exc)[:1000]
-        return delivery
-
-    delivery.status = "sent"
-    delivery.sent_at = utcnow()
-    return delivery
+    return send_notification_delivery(db, settings, delivery)
 
 
 def create_whatsapp_delivery(
@@ -612,44 +773,31 @@ def create_whatsapp_delivery(
         channel="whatsapp",
         recipient_email=recipient_value,
         subject=subject,
+        body=message or body,
         status="pending",
     )
     db.add(delivery)
     db.flush()
-
-    try:
-        send_whatsapp(settings, recipient_value, message or body)
-    except Exception as exc:
-        delivery.status = "failed"
-        delivery.error_message = str(exc)[:1000]
-        return delivery
-
-    delivery.status = "sent"
-    delivery.sent_at = utcnow()
-    return delivery
+    return send_notification_delivery(db, settings, delivery)
 
 
 def notify_cash_alert_opened(db: Session, atm: ATM, alert: AtmCashAlert) -> NotificationDelivery | None:
     settings = get_notification_settings(db)
-    if not settings.enabled:
+    if not (settings.is_email_configured or settings.is_whatsapp_configured):
         return None
     if not alert_notification_enabled(settings, alert.alert_type):
         return None
 
     subject, body, html_body = build_cash_alert_email(atm, alert)
     whatsapp_subject, whatsapp_body = build_cash_alert_whatsapp(atm, alert)
-    existing_channels = (
-        {
-            (delivery.channel, delivery.recipient_email)
-            for delivery in db.query(NotificationDelivery).filter(NotificationDelivery.alert_id == alert.id).all()
-        }
-        if alert.id
-        else set()
-    )
     deliveries = []
 
     recipient_email = notification_recipient_for_atm(db, settings, atm)
-    if settings.is_email_configured and recipient_email and ("email", recipient_email) not in existing_channels:
+    if (
+        settings.is_email_configured
+        and recipient_email
+        and not tracked_alert_delivery_exists(db, alert.id, "email", recipient_email)
+    ):
         deliveries.append(
             create_email_delivery(
                 db,
@@ -666,7 +814,7 @@ def notify_cash_alert_opened(db: Session, atm: ATM, alert: AtmCashAlert) -> Noti
 
     if settings.is_whatsapp_configured:
         for whatsapp_recipient in whatsapp_recipients_for_atm(db, settings, atm):
-            if ("whatsapp", whatsapp_recipient) in existing_channels:
+            if tracked_alert_delivery_exists(db, alert.id, "whatsapp", whatsapp_recipient):
                 continue
             deliveries.append(
                 create_whatsapp_delivery(
@@ -693,7 +841,7 @@ def notify_switch_probe_failed(
     failed_at: datetime,
 ) -> NotificationDelivery | None:
     settings = get_notification_settings(db)
-    if not settings.enabled:
+    if not (settings.is_email_configured or settings.is_whatsapp_configured):
         return None
     if not settings.notify_switch_disconnected:
         return None

@@ -32,6 +32,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     packages: Mapped[list["UpdatePackage"]] = relationship(back_populates="created_by")
+    agent_packages: Mapped[list["AgentPackage"]] = relationship(back_populates="created_by")
 
 
 class ATM(Base):
@@ -98,6 +99,7 @@ class ATM(Base):
     cash_thresholds: Mapped[list["AtmCashThreshold"]] = relationship(back_populates="atm")
     reject_retract_statuses: Mapped[list["AtmRejectRetractStatus"]] = relationship(back_populates="atm")
     switch_probes: Mapped[list["AtmSwitchProbe"]] = relationship(back_populates="atm")
+    agent_update_targets: Mapped[list["AgentUpdateTarget"]] = relationship(back_populates="atm")
 
     @property
     def seconds_since_last_seen(self) -> int | None:
@@ -197,6 +199,54 @@ class UpdateTarget(Base):
 
     package: Mapped[UpdatePackage] = relationship(back_populates="targets")
     atm: Mapped[ATM] = relationship(back_populates="targets")
+
+
+class AgentPackage(Base):
+    __tablename__ = "agent_packages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    version: Mapped[str] = mapped_column(String(120), unique=True, index=True, nullable=False)
+    architecture: Mapped[str] = mapped_column(String(20), default="x86", nullable=False)
+    agent_original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    agent_stored_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    agent_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    agent_size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    agent_storage_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    updater_original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    updater_stored_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    updater_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    updater_size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    updater_storage_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    created_by: Mapped[Optional[User]] = relationship(back_populates="agent_packages")
+    targets: Mapped[list["AgentUpdateTarget"]] = relationship(back_populates="package")
+
+
+class AgentUpdateTarget(Base):
+    __tablename__ = "agent_update_targets"
+    __table_args__ = (UniqueConstraint("agent_package_id", "atm_id", name="uq_agent_update_target_package_atm"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    agent_package_id: Mapped[int] = mapped_column(ForeignKey("agent_packages.id"), nullable=False)
+    atm_id: Mapped[int] = mapped_column(ForeignKey("atms.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="pending", nullable=False)
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    last_checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    progress_percent: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    progress_phase: Mapped[str] = mapped_column(String(40), default="pending", nullable=False)
+    progress_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    bytes_downloaded: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    total_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    last_progress_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    package: Mapped[AgentPackage] = relationship(back_populates="targets")
+    atm: Mapped[ATM] = relationship(back_populates="agent_update_targets")
 
 
 class AgentLog(Base):
@@ -416,8 +466,12 @@ class NotificationDelivery(Base):
     channel: Mapped[str] = mapped_column(String(30), default="email", nullable=False)
     recipient_email: Mapped[str] = mapped_column(String(255), nullable=False)
     subject: Mapped[str] = mapped_column(String(500), nullable=False)
+    body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    html_body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="pending", nullable=False)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    next_retry_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 

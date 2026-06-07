@@ -2,6 +2,10 @@ param(
   [string]$HostAddress = "0.0.0.0",
   [int]$BackendPort = 8001,
   [int]$FrontendPort = 5175,
+  [int]$WhatsappPort = 3020,
+  [string]$WhatsappHostName = "127.0.0.1",
+  [string]$WhatsappToken = "",
+  [switch]$NoWhatsappGateway,
   [switch]$NoInstall
 )
 
@@ -49,6 +53,7 @@ function File-Is-NewerThanMarker([string]$FilePath, [string]$MarkerPath) {
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BackendDir = Join-Path $Root "backend"
 $FrontendDir = Join-Path $Root "frontend"
+$WhatsappGatewayDir = Join-Path $Root "whatsapp-gateway"
 $RootEnv = Join-Path $Root ".env"
 $ExampleEnv = Join-Path $Root ".env.example"
 $FrontendEnv = Join-Path $FrontendDir ".env"
@@ -103,6 +108,32 @@ if (-not $NoInstall) {
       Pop-Location
     }
   }
+
+  if (-not $NoWhatsappGateway) {
+    if (-not (Test-Path $WhatsappGatewayDir)) {
+      throw "WhatsApp gateway directory was not found at $WhatsappGatewayDir."
+    }
+    $WhatsappNodeModules = Join-Path $WhatsappGatewayDir "node_modules"
+    $WhatsappNpmMarker = Join-Path $WhatsappNodeModules ".install-marker"
+    $WhatsappPackageJson = Join-Path $WhatsappGatewayDir "package.json"
+    $WhatsappPackageLock = Join-Path $WhatsappGatewayDir "package-lock.json"
+    $NeedsWhatsappInstall = (
+      (-not (Test-Path $WhatsappNodeModules)) -or
+      (File-Is-NewerThanMarker $WhatsappPackageJson $WhatsappNpmMarker) -or
+      (File-Is-NewerThanMarker $WhatsappPackageLock $WhatsappNpmMarker)
+    )
+
+    if ($NeedsWhatsappInstall) {
+      Write-Host "Installing WhatsApp gateway packages..." -ForegroundColor Cyan
+      Push-Location $WhatsappGatewayDir
+      try {
+        npm install
+        New-Item -ItemType File -Force -Path $WhatsappNpmMarker | Out-Null
+      } finally {
+        Pop-Location
+      }
+    }
+  }
 }
 
 $VenvPython = Join-Path $BackendDir ".venv\Scripts\python.exe"
@@ -114,18 +145,32 @@ Require-Command "npm" "Install Node.js LTS on the server."
 
 $BackendDirQ = Quote-PowerShellPath $BackendDir
 $FrontendDirQ = Quote-PowerShellPath $FrontendDir
+$WhatsappGatewayDirQ = Quote-PowerShellPath $WhatsappGatewayDir
 $VenvPythonQ = Quote-PowerShellPath $VenvPython
 
 $BackendCommand = "Set-Location -LiteralPath $BackendDirQ; & $VenvPythonQ -m uvicorn app.main:app --host $HostAddress --port $BackendPort"
 $FrontendCommand = "Set-Location -LiteralPath $FrontendDirQ; npm run dev -- --host $HostAddress --port $FrontendPort"
+$WhatsappTokenArgument = if ($WhatsappToken) { " -Token " + (Quote-PowerShellPath $WhatsappToken) } else { "" }
+$WhatsappCommand = "Set-Location -LiteralPath $WhatsappGatewayDirQ; .\start-whatsapp-gateway.ps1 -HostName $WhatsappHostName -Port $WhatsappPort$WhatsappTokenArgument"
 
 Write-Host "Starting QIB ATM Manager..." -ForegroundColor Green
 Write-Host "Backend:  http://localhost:$BackendPort/docs"
 Write-Host "Frontend: http://localhost:$FrontendPort"
 Write-Host "Network frontend example: http://SERVER-IP:$FrontendPort"
+if (-not $NoWhatsappGateway) {
+  Write-Host "WhatsApp gateway: http://$WhatsappHostName`:$WhatsappPort"
+}
 
 Start-Process powershell.exe -ArgumentList @("-NoExit", "-ExecutionPolicy", "Bypass", "-Command", $BackendCommand) -WindowStyle Normal
 Start-Sleep -Seconds 2
 Start-Process powershell.exe -ArgumentList @("-NoExit", "-ExecutionPolicy", "Bypass", "-Command", $FrontendCommand) -WindowStyle Normal
+if (-not $NoWhatsappGateway) {
+  Start-Sleep -Seconds 2
+  Start-Process powershell.exe -ArgumentList @("-NoExit", "-ExecutionPolicy", "Bypass", "-Command", $WhatsappCommand) -WindowStyle Normal
+}
 
-Write-Host "Backend and frontend were started in separate PowerShell windows." -ForegroundColor Green
+if ($NoWhatsappGateway) {
+  Write-Host "Backend and frontend were started in separate PowerShell windows." -ForegroundColor Green
+} else {
+  Write-Host "Backend, frontend, and WhatsApp gateway were started in separate PowerShell windows." -ForegroundColor Green
+}

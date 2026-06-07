@@ -31,6 +31,20 @@ cd C:\ATM-Media-Update-Manager
 .\start_server.bat -BackendPort 8001 -FrontendPort 5175
 ```
 
+يتم تشغيل خدمة WhatsApp Gateway تلقائياً مع النظام على `127.0.0.1:3020`.
+
+يمكن تغيير منفذ واتساب أو إضافة token:
+
+```powershell
+.\start_server.bat -WhatsappPort 3020 -WhatsappToken "change-this-token"
+```
+
+ويمكن تشغيل النظام بدون خدمة واتساب:
+
+```powershell
+.\start_server.bat -NoWhatsappGateway
+```
+
 ### 1. Backend
 
 ```bash

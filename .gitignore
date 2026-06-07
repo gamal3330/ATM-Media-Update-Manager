@@ -37,3 +37,6 @@ agent/config.json
 agent/agent.log
 agent/build/
 agent/dist/
+!agent/dist/
+!agent/dist/atm-agent.exe
+!agent/dist/agent-updater.exe

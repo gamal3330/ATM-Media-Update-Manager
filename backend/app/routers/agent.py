@@ -8,7 +8,18 @@ from sqlalchemy.orm import Session
 from ..auth import get_agent_atm
 from ..cash_layout import normalized_cash_layout
 from ..database import get_db
-from ..models import ATM, AgentCommand, AgentLog, AtmCashSnapshot, AtmSwitchProbe, UpdatePackage, UpdateResult, UpdateTarget
+from ..models import (
+    ATM,
+    AgentCommand,
+    AgentLog,
+    AgentPackage,
+    AgentUpdateTarget,
+    AtmCashSnapshot,
+    AtmSwitchProbe,
+    UpdatePackage,
+    UpdateResult,
+    UpdateTarget,
+)
 from ..schemas import (
     AgentCommandAckRequest,
     AgentCommandRead,
@@ -18,6 +29,9 @@ from ..schemas import (
     AgentLogRequest,
     AgentNoUpdate,
     AgentProgressRequest,
+    AgentSelfUpdateAvailable,
+    AgentSelfUpdateProgressRequest,
+    AgentSelfUpdateResultRequest,
     AgentSwitchProbeSnapshot,
     AgentUpdateAvailable,
     HeartbeatRequest,
@@ -58,6 +72,26 @@ def has_recent_cash_snapshot(db: Session, atm: ATM, now: datetime) -> bool:
 
 def update_target_progress(
     target: UpdateTarget,
+    *,
+    phase: str,
+    percent: int,
+    message: str | None = None,
+    bytes_downloaded: int | None = None,
+    total_bytes: int | None = None,
+) -> None:
+    target.progress_phase = phase
+    target.progress_percent = max(0, min(100, percent))
+    target.last_progress_at = datetime.now(timezone.utc)
+    if message is not None:
+        target.progress_message = message
+    if bytes_downloaded is not None:
+        target.bytes_downloaded = bytes_downloaded
+    if total_bytes is not None:
+        target.total_bytes = total_bytes
+
+
+def update_agent_target_progress(
+    target: AgentUpdateTarget,
     *,
     phase: str,
     percent: int,
@@ -179,6 +213,11 @@ def heartbeat(
         .filter(UpdateTarget.atm_id == atm.id, UpdateTarget.status.in_(["pending", "downloading"]))
         .count()
     )
+    pending += (
+        db.query(AgentUpdateTarget)
+        .filter(AgentUpdateTarget.atm_id == atm.id, AgentUpdateTarget.status.in_(["pending", "downloading", "applying"]))
+        .count()
+    )
     db.commit()
     return HeartbeatResponse(pending_updates=pending)
 
@@ -217,6 +256,51 @@ def check_update(
         sha256=package.sha256,
         size_bytes=package.size_bytes,
         download_url=download_url,
+    )
+
+
+@router.get("/check-agent-update", response_model=AgentSelfUpdateAvailable | AgentNoUpdate)
+def check_agent_update(
+    request: Request,
+    atm: ATM = Depends(get_agent_atm),
+    db: Session = Depends(get_db),
+) -> AgentSelfUpdateAvailable | AgentNoUpdate:
+    atm.status = "online"
+    atm.last_seen = datetime.now(timezone.utc)
+
+    target = (
+        db.query(AgentUpdateTarget)
+        .join(AgentPackage)
+        .filter(AgentUpdateTarget.atm_id == atm.id, AgentUpdateTarget.status == "pending")
+        .order_by(AgentPackage.created_at.asc())
+        .first()
+    )
+    if not target:
+        db.commit()
+        return AgentNoUpdate(update_available=False)
+
+    target.last_checked_at = datetime.now(timezone.utc)
+    update_agent_target_progress(
+        target,
+        phase="pending",
+        percent=0,
+        message="Agent update is ready for download",
+    )
+    db.commit()
+
+    package = target.package
+    return AgentSelfUpdateAvailable(
+        update_available=True,
+        has_update=True,
+        agent_package_id=package.id,
+        version=package.version,
+        architecture=package.architecture,
+        agent_sha256=package.agent_sha256,
+        agent_size_bytes=package.agent_size_bytes,
+        agent_download_url=str(request.url_for("download_agent_update_file", package_id=package.id, file_kind="agent")),
+        updater_sha256=package.updater_sha256,
+        updater_size_bytes=package.updater_size_bytes,
+        updater_download_url=str(request.url_for("download_agent_update_file", package_id=package.id, file_kind="updater")),
     )
 
 
@@ -435,6 +519,53 @@ def download_package(
     )
 
 
+@router.get("/agent-update-download/{package_id}/{file_kind}", name="download_agent_update_file")
+def download_agent_update_file(
+    package_id: int,
+    file_kind: str,
+    atm: ATM = Depends(get_agent_atm),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    if file_kind not in {"agent", "updater"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="file_kind must be agent or updater")
+
+    target = (
+        db.query(AgentUpdateTarget)
+        .filter(AgentUpdateTarget.atm_id == atm.id, AgentUpdateTarget.agent_package_id == package_id)
+        .first()
+    )
+    if not target:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent package is not assigned to this ATM")
+
+    package = db.query(AgentPackage).filter(AgentPackage.id == package_id).first()
+    if not package:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent package not found")
+
+    path = Path(package.agent_storage_path if file_kind == "agent" else package.updater_storage_path)
+    if not path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent update file not found")
+
+    size_bytes = package.agent_size_bytes if file_kind == "agent" else package.updater_size_bytes
+    if target.status != "downloading":
+        target.attempt_count += 1
+    target.status = "downloading"
+    target.last_checked_at = datetime.now(timezone.utc)
+    update_agent_target_progress(
+        target,
+        phase="downloading",
+        percent=1,
+        message=f"{file_kind} download started",
+        bytes_downloaded=0,
+        total_bytes=size_bytes,
+    )
+    db.commit()
+    return FileResponse(
+        path,
+        media_type="application/vnd.microsoft.portable-executable",
+        filename="atm-agent.exe" if file_kind == "agent" else "agent-updater.exe",
+    )
+
+
 @router.post("/progress")
 def report_progress(
     payload: AgentProgressRequest,
@@ -458,6 +589,42 @@ def report_progress(
         target.status = "applied"
 
     update_target_progress(
+        target,
+        phase=payload.phase,
+        percent=payload.progress_percent,
+        message=payload.message,
+        bytes_downloaded=payload.bytes_downloaded,
+        total_bytes=payload.total_bytes,
+    )
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/agent-update-progress")
+def report_agent_update_progress(
+    payload: AgentSelfUpdateProgressRequest,
+    atm: ATM = Depends(get_agent_atm),
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    target = (
+        db.query(AgentUpdateTarget)
+        .filter(AgentUpdateTarget.atm_id == atm.id, AgentUpdateTarget.agent_package_id == payload.agent_package_id)
+        .first()
+    )
+    if not target:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assigned agent package not found")
+
+    if payload.phase in {"downloading", "applying"} and target.status not in {"applied", "failed"}:
+        target.status = payload.phase
+    if payload.phase == "failed":
+        target.status = "failed"
+        target.last_error = payload.message
+        target.completed_at = datetime.now(timezone.utc)
+    if payload.phase == "applied":
+        target.status = "applied"
+        target.completed_at = datetime.now(timezone.utc)
+
+    update_agent_target_progress(
         target,
         phase=payload.phase,
         percent=payload.progress_percent,
@@ -518,6 +685,50 @@ def report_result(
         entity_type="update_package",
         entity_id=str(package.id),
         details={"status": result_status, "message": payload.message, "rollback_done": payload.rollback_done},
+    )
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/agent-update-result")
+def report_agent_update_result(
+    payload: AgentSelfUpdateResultRequest,
+    atm: ATM = Depends(get_agent_atm),
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    if payload.atm_id and payload.atm_id != atm.atm_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ATM ID does not match credentials")
+
+    target = (
+        db.query(AgentUpdateTarget)
+        .filter(AgentUpdateTarget.atm_id == atm.id, AgentUpdateTarget.agent_package_id == payload.agent_package_id)
+        .first()
+    )
+    package = db.query(AgentPackage).filter(AgentPackage.id == payload.agent_package_id).first()
+    if not target or not package:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assigned agent package not found")
+
+    result_status = "applied" if payload.status == "success" else "failed"
+    target.status = result_status
+    target.completed_at = datetime.now(timezone.utc)
+    target.last_error = payload.message if payload.status == "failed" else None
+    update_agent_target_progress(
+        target,
+        phase="applied" if payload.status == "success" else "failed",
+        percent=100 if payload.status == "success" else target.progress_percent,
+        message=payload.message,
+    )
+    if payload.status == "success":
+        atm.agent_version = payload.version or package.version
+
+    write_audit(
+        db,
+        actor_type="agent",
+        actor_id=atm.atm_id,
+        action="agent_update_result_reported",
+        entity_type="agent_package",
+        entity_id=str(package.id),
+        details={"status": result_status, "version": payload.version or package.version, "message": payload.message},
     )
     db.commit()
     return {"ok": True}

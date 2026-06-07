@@ -10,8 +10,8 @@ from fastapi.staticfiles import StaticFiles
 from .auth import ensure_admin_user
 from .config import settings
 from .database import SessionLocal, init_db
-from .routers import agent, atms, auth, cash, downloads, logs, notifications, packages, users
-from .services.notification_service import monitor_whatsapp_gateway
+from .routers import agent, agent_packages, atms, auth, cash, downloads, logs, notifications, packages, users
+from .services.notification_service import monitor_notification_delivery_retries, monitor_whatsapp_gateway
 
 
 @asynccontextmanager
@@ -24,14 +24,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         db.close()
     whatsapp_monitor_task = asyncio.create_task(monitor_whatsapp_gateway(SessionLocal))
+    notification_retry_task = asyncio.create_task(monitor_notification_delivery_retries(SessionLocal))
     try:
         yield
     finally:
-        whatsapp_monitor_task.cancel()
-        try:
-            await whatsapp_monitor_task
-        except asyncio.CancelledError:
-            pass
+        for task in (whatsapp_monitor_task, notification_retry_task):
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
@@ -53,6 +55,7 @@ def health() -> dict[str, str]:
 app.include_router(auth.router)
 app.include_router(atms.router)
 app.include_router(packages.router)
+app.include_router(agent_packages.router)
 app.include_router(agent.router)
 app.include_router(downloads.router)
 app.include_router(logs.router)

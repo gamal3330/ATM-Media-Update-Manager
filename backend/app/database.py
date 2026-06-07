@@ -239,6 +239,28 @@ def migrate_existing_schema() -> None:
                         """
                     )
                 )
+            if "enabled" in existing_columns:
+                if connection.dialect.name == "postgresql":
+                    connection.execute(
+                        text(
+                            """
+                            UPDATE notification_settings
+                            SET enabled = TRUE
+                            WHERE COALESCE(email_enabled, FALSE) = TRUE
+                                OR COALESCE(whatsapp_enabled, FALSE) = TRUE
+                            """
+                        )
+                    )
+                else:
+                    connection.execute(
+                        text(
+                            """
+                            UPDATE notification_settings
+                            SET enabled = 1
+                            WHERE COALESCE(email_enabled, 0) = 1 OR COALESCE(whatsapp_enabled, 0) = 1
+                            """
+                        )
+                    )
 
         if "notification_recipients" in table_names:
             existing_columns = {column["name"] for column in inspector.get_columns("notification_recipients")}
@@ -261,6 +283,28 @@ def migrate_existing_schema() -> None:
                         UPDATE notification_recipients
                         SET whatsapp_numbers_json = {json_array_expression}
                         WHERE whatsapp_number IS NOT NULL AND whatsapp_number != ''
+                        """
+                    )
+                )
+
+        if "notification_deliveries" in table_names:
+            existing_columns = {column["name"] for column in inspector.get_columns("notification_deliveries")}
+            delivery_columns = {
+                "body": "TEXT",
+                "html_body": "TEXT",
+                "attempt_count": "INTEGER NOT NULL DEFAULT 0",
+                "next_retry_at": datetime_type,
+            }
+            for name, definition in delivery_columns.items():
+                if name not in existing_columns:
+                    connection.execute(text(f"ALTER TABLE notification_deliveries ADD COLUMN {name} {definition}"))
+            if "attempt_count" not in existing_columns:
+                connection.execute(
+                    text(
+                        """
+                        UPDATE notification_deliveries
+                        SET attempt_count = 1
+                        WHERE status IN ('sent', 'failed')
                         """
                     )
                 )

@@ -46,7 +46,7 @@ def run_service(config_path: Path) -> None:
             try:
                 from atm_agent import AtmAgent
 
-                AtmAgent(config_path, stop_event=self.stop_event).run_forever()
+                AtmAgent(config_path, stop_event=self.stop_event, startup_mode="service").run_forever()
             except Exception:
                 details = traceback.format_exc()
                 write_bootstrap_log(config_path, f"Service failed during startup or run:\n{details}")

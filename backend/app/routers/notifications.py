@@ -7,6 +7,7 @@ from ..models import ATM, NotificationDelivery, NotificationRecipient, Notificat
 from ..page_permissions import SYSTEM_ADMIN_ROLES
 from ..schemas import (
     NotificationDeliveryRead,
+    NotificationRetryResult,
     NotificationRecipientRead,
     NotificationRecipientsUpdate,
     NotificationSettingsRead,
@@ -16,6 +17,7 @@ from ..services.audit_service import write_audit
 from ..services.notification_service import (
     get_notification_settings,
     get_whatsapp_gateway_qr,
+    retry_failed_notification_deliveries,
     send_test_notification,
     send_test_whatsapp_notification,
     sync_whatsapp_gateway_status,
@@ -312,3 +314,28 @@ def list_notification_deliveries(
         .limit(max(1, min(limit, 200)))
         .all()
     )
+
+
+@router.post("/deliveries/retry-failed", response_model=NotificationRetryResult)
+def retry_failed_deliveries(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_notification_manager),
+) -> dict:
+    result = retry_failed_notification_deliveries(db, force=True, limit=100)
+    write_audit(
+        db,
+        actor_type="user",
+        actor_id=current_user.username,
+        action="notification_failed_deliveries_retried",
+        entity_type="notification_delivery",
+        details={
+            "retried": result["retried"],
+            "sent": result["sent"],
+            "failed": result["failed"],
+            "skipped": result["skipped"],
+        },
+    )
+    db.commit()
+    for delivery in result["deliveries"]:
+        db.refresh(delivery)
+    return result

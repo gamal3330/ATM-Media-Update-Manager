@@ -38,6 +38,16 @@ def make_zip(files: dict[str, bytes]) -> io.BytesIO:
     return buffer
 
 
+def make_pe_exe(machine: int) -> bytes:
+    data = bytearray(512)
+    data[:2] = b"MZ"
+    pe_offset = 0x80
+    data[0x3C:0x40] = pe_offset.to_bytes(4, "little")
+    data[pe_offset : pe_offset + 4] = b"PE\x00\x00"
+    data[pe_offset + 4 : pe_offset + 6] = machine.to_bytes(2, "little")
+    return bytes(data)
+
+
 def login(client: TestClient) -> dict[str, str]:
     response = client.post("/api/auth/login", json={"username": "admin", "password": "secret123"})
     assert response.status_code == 200
@@ -69,6 +79,115 @@ def test_admin_can_download_agent_exe_when_available() -> None:
             exe_path.unlink(missing_ok=True)
         else:
             exe_path.write_bytes(original)
+
+
+def test_admin_can_upload_x86_agent_package_and_assign_to_atm() -> None:
+    with TestClient(app) as client:
+        headers = login(client)
+        atm_response = client.post(
+            "/api/atms",
+            json={"atm_id": "ATM-AGENT-PKG", "name": "Agent Package ATM", "vpn_ip": "10.10.8.1", "branch": "HQ"},
+            headers=headers,
+        )
+        assert atm_response.status_code == 201
+        api_key = atm_response.json()["api_key"]
+        agent_headers = {"X-ATM-ID": "ATM-AGENT-PKG", "X-API-Key": api_key}
+
+        upload = client.post(
+            "/api/agent-packages/upload",
+            data={"version": "agent-test-2.0.7-x86", "notes": "x86 smoke test"},
+            files={
+                "agent_file": ("atm-agent.exe", make_pe_exe(0x014C), "application/octet-stream"),
+                "updater_file": ("agent-updater.exe", make_pe_exe(0x014C), "application/octet-stream"),
+            },
+            headers=headers,
+        )
+        assert upload.status_code == 201
+        package = upload.json()
+        assert package["version"] == "agent-test-2.0.7-x86"
+        assert package["architecture"] == "x86"
+        assert package["agent_sha256"]
+        assert package["updater_sha256"]
+
+        assign = client.post(
+            f"/api/agent-packages/{package['id']}/assign",
+            json={"atm_ids": ["ATM-AGENT-PKG"]},
+            headers=headers,
+        )
+        assert assign.status_code == 200
+        assigned = assign.json()
+        assert assigned["agent_package_id"] == package["id"]
+        assert assigned["assigned"] == 1
+        assert assigned["targets"][0]["status"] == "pending"
+        assert assigned["targets"][0]["atm"]["atm_id"] == "ATM-AGENT-PKG"
+
+        details = client.get(f"/api/agent-packages/{package['id']}", headers=headers)
+        assert details.status_code == 200
+        assert len(details.json()["targets"]) == 1
+
+        check = client.get("/api/agent/check-agent-update", headers=agent_headers)
+        assert check.status_code == 200
+        update = check.json()
+        assert update["update_available"] is True
+        assert update["agent_package_id"] == package["id"]
+        assert update["version"] == package["version"]
+        assert update["architecture"] == "x86"
+        assert update["agent_sha256"] == package["agent_sha256"]
+        assert update["updater_sha256"] == package["updater_sha256"]
+
+        agent_download = client.get(f"/api/agent/agent-update-download/{package['id']}/agent", headers=agent_headers)
+        assert agent_download.status_code == 200
+        assert agent_download.content.startswith(b"MZ")
+        updater_download = client.get(f"/api/agent/agent-update-download/{package['id']}/updater", headers=agent_headers)
+        assert updater_download.status_code == 200
+        assert updater_download.content.startswith(b"MZ")
+
+        progress = client.post(
+            "/api/agent/agent-update-progress",
+            json={
+                "agent_package_id": package["id"],
+                "phase": "applying",
+                "progress_percent": 90,
+                "message": "Updater launched",
+            },
+            headers=agent_headers,
+        )
+        assert progress.status_code == 200
+
+        report = client.post(
+            "/api/agent/agent-update-result",
+            json={
+                "agent_package_id": package["id"],
+                "version": package["version"],
+                "status": "success",
+                "message": "Agent update applied",
+            },
+            headers=agent_headers,
+        )
+        assert report.status_code == 200
+
+        applied = client.get(f"/api/agent-packages/{package['id']}", headers=headers)
+        assert applied.status_code == 200
+        applied_target = applied.json()["targets"][0]
+        assert applied_target["status"] == "applied"
+        assert applied_target["progress_percent"] == 100
+        assert applied_target["attempt_count"] == 1
+
+
+def test_agent_package_upload_rejects_x64_exe() -> None:
+    with TestClient(app) as client:
+        headers = login(client)
+        upload = client.post(
+            "/api/agent-packages/upload",
+            data={"version": "agent-test-x64-rejected"},
+            files={
+                "agent_file": ("atm-agent.exe", make_pe_exe(0x8664), "application/octet-stream"),
+                "updater_file": ("agent-updater.exe", make_pe_exe(0x014C), "application/octet-stream"),
+            },
+            headers=headers,
+        )
+        assert upload.status_code == 400
+        assert "32-bit x86" in upload.json()["detail"]
 
 
 def test_admin_can_create_atm_and_agent_can_heartbeat() -> None:
@@ -689,6 +808,47 @@ def test_switch_probe_disconnect_sends_whatsapp_to_default_group_and_one_atm_rec
             "967700000002",
             "967711111111",
         }
+
+
+def test_failed_notification_delivery_can_be_retried(monkeypatch) -> None:
+    attempts = []
+
+    def fake_send_whatsapp(settings, recipient, message):
+        attempts.append({"recipient": recipient, "message": message})
+        if len(attempts) == 1:
+            raise RuntimeError("gateway down")
+
+    monkeypatch.setattr("app.services.notification_service.send_whatsapp", fake_send_whatsapp)
+
+    with TestClient(app) as client:
+        headers = login(client)
+        settings = client.put(
+            "/api/notifications/settings",
+            json={
+                "enabled": True,
+                "whatsapp_enabled": True,
+                "whatsapp_gateway_url": "http://127.0.0.1:3020",
+                "whatsapp_default_recipient": "967733333333",
+            },
+            headers=headers,
+        )
+        assert settings.status_code == 200
+
+        first = client.post("/api/notifications/whatsapp/test", headers=headers)
+        assert first.status_code == 200
+        failed_delivery = first.json()
+        assert failed_delivery["status"] == "failed"
+        assert failed_delivery["attempt_count"] == 1
+        assert failed_delivery["next_retry_at"] is not None
+
+        retry = client.post("/api/notifications/deliveries/retry-failed", headers=headers)
+        assert retry.status_code == 200
+        result = retry.json()
+        retried_delivery = next(item for item in result["deliveries"] if item["id"] == failed_delivery["id"])
+        assert retried_delivery["status"] == "sent"
+        assert retried_delivery["attempt_count"] == 2
+        assert retried_delivery["next_retry_at"] is None
+        assert len(attempts) == 2
 
 
 def test_whatsapp_status_transition_sends_email_alert(monkeypatch) -> None:

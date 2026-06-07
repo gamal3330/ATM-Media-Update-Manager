@@ -36,6 +36,7 @@ The output is:
 
 ```text
 agent\dist\atm-agent.exe
+agent\dist\agent-updater.exe
 ```
 
 For NCR/GRG XFS providers installed under `Program Files (x86)`, build the 32-bit executable:
@@ -43,6 +44,15 @@ For NCR/GRG XFS providers installed under `Program Files (x86)`, build the 32-bi
 ```bat
 build_agent_x86.bat
 ```
+
+Production ATM builds should use `build_agent_x86.bat`. It builds both:
+
+```text
+dist\atm-agent.exe
+dist\agent-updater.exe
+```
+
+with a 32-bit Python runtime. The central Agent package upload rejects 64-bit PE files.
 
 ## Install Agent
 
@@ -154,10 +164,68 @@ If you need machine-readable output:
 atm-agent.exe xfs-cdm-diagnose --json
 ```
 
+## Central Agent Self-Update
+
+`agent-updater.exe` is a small standalone helper used to replace `atm-agent.exe` safely. It is not the full agent.
+The dashboard uploads a 32-bit `atm-agent.exe` and a 32-bit `agent-updater.exe` as one Agent package, then assigns
+that package to selected ATMs. The running agent periodically calls:
+
+```text
+GET /api/agent/check-agent-update
+```
+
+If a package is assigned, the agent downloads both files, verifies both SHA256 values, launches `agent-updater.exe`,
+and exits. The updater stops the current startup mode, keeps a backup of the old executable, replaces it, starts the
+same mode again, and writes `update-result.json` beside the agent.
+
+On the next startup, the new agent reads `update-result.json` and reports the final result to:
+
+```text
+POST /api/agent/agent-update-result
+```
+
+`run --once` never starts self-update; it is kept for diagnostics and manual cash reads only.
+
+Manual updater examples are still useful for emergency recovery and lab testing.
+
+Scheduled Task mode:
+
+```bat
+agent-updater.exe ^
+  --current "C:\ATM_AGENT\atm-agent.exe" ^
+  --new "C:\ATM_AGENT\downloads\atm-agent-new.exe" ^
+  --mode scheduled-task ^
+  --task-name "QIB ATM Manager Agent"
+```
+
+Windows Service mode:
+
+```bat
+agent-updater.exe ^
+  --current "C:\Program Files\QIB ATM Manager Agent\atm-agent.exe" ^
+  --new "C:\ATM_AGENT\downloads\atm-agent-new.exe" ^
+  --mode service ^
+  --service-name ATMUnifiedAgent
+```
+
+Optional checksum verification:
+
+```bat
+agent-updater.exe --current "C:\ATM_AGENT\atm-agent.exe" --new "C:\ATM_AGENT\downloads\atm-agent-new.exe" --mode scheduled-task --expected-sha256 SHA256_VALUE
+```
+
+The backup is stored under:
+
+```text
+agent_backups\
+```
+
+The result file contains `ok`, `status`, `backup_path`, `started`, and `error`.
+
 ## Security
 
 - The agent never accepts shell commands from the server.
-- The agent never executes files downloaded from the server.
+- The agent only executes `agent-updater.exe` from an assigned Agent package after SHA256 verification.
 - Update packages must be ZIP files containing allowed image extensions only.
 - ZIP entries with absolute paths or path traversal are rejected.
 - Cash monitoring is DISPENSE_ONLY and reads CDM cash dispenser data only.

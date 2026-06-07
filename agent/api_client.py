@@ -89,6 +89,16 @@ class ApiClient:
             return None
         return payload
 
+    def check_agent_update(self) -> dict[str, Any] | None:
+        started = time.perf_counter()
+        response = self.session.get(self.url("/api/agent/check-agent-update"), timeout=30)
+        response.raise_for_status()
+        self.last_latency_ms = max(0, int((time.perf_counter() - started) * 1000))
+        payload = response.json()
+        if not payload.get("has_update") and not payload.get("update_available"):
+            return None
+        return payload
+
     def download_package(self, download_url: str, output: BinaryIO) -> tuple[int, int]:
         downloaded = 0
         with self.session.get(self.url(download_url), stream=True, timeout=180) as response:
@@ -125,6 +135,30 @@ class ApiClient:
         except requests.RequestException:
             pass
 
+    def agent_update_progress(
+        self,
+        agent_package_id: int,
+        phase: str,
+        percent: int,
+        message: str,
+        bytes_downloaded: int | None = None,
+        total_bytes: int | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "agent_package_id": agent_package_id,
+            "phase": phase,
+            "progress_percent": max(0, min(100, percent)),
+            "message": message,
+        }
+        if bytes_downloaded is not None:
+            payload["bytes_downloaded"] = bytes_downloaded
+        if total_bytes is not None:
+            payload["total_bytes"] = total_bytes
+        try:
+            self.session.post(self.url("/api/agent/agent-update-progress"), json=payload, timeout=15)
+        except requests.RequestException:
+            pass
+
     def report_result(
         self,
         package_id: int,
@@ -146,6 +180,30 @@ class ApiClient:
                 "started_at": started_at,
                 "finished_at": finished_at,
                 "rollback_done": rollback_done,
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+
+    def report_agent_update_result(
+        self,
+        agent_package_id: int,
+        version: str | None,
+        status: str,
+        message: str | None,
+        started_at: str | None = None,
+        finished_at: str | None = None,
+    ) -> None:
+        response = self.session.post(
+            self.url("/api/agent/agent-update-result"),
+            json={
+                "atm_id": self.config.atm_id,
+                "agent_package_id": agent_package_id,
+                "version": version,
+                "status": status,
+                "message": message,
+                "started_at": started_at,
+                "finished_at": finished_at,
             },
             timeout=30,
         )

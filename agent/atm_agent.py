@@ -15,6 +15,7 @@ from pathlib import Path
 import requests
 
 from api_client import ApiClient
+from agent_self_update import AgentSelfUpdateManager
 from cash_monitoring_module import CashMonitoringModule
 from config_manager import LocalConfig, RemoteConfig, load_local_config, write_local_config
 from logger import setup_logger
@@ -24,7 +25,7 @@ from network_probe import tcp_connect_probe
 from xfs_cdm_diagnostics import diagnose_xfs_cdm, format_diagnostics
 from xfs_cdm_reader import read_cash_units, format_read_result
 
-AGENT_VERSION = "2.0.6"
+AGENT_VERSION = "2.0.7"
 DEFAULT_INSTALL_DIR = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "QIB ATM Manager Agent"
 DEFAULT_CONFIG = DEFAULT_INSTALL_DIR / "config.json"
 SERVICE_NAME = "ATMUnifiedAgent"
@@ -421,11 +422,25 @@ def install_windows_service(target_exe: Path, config_path: Path) -> None:
 
 
 class AtmAgent:
-    def __init__(self, config_path: Path, stop_event: threading.Event | None = None) -> None:
+    def __init__(
+        self,
+        config_path: Path,
+        stop_event: threading.Event | None = None,
+        startup_mode: str = "scheduled-task",
+    ) -> None:
         self.config_path = config_path
         self.local_config = load_local_config(config_path)
         self.logger = setup_logger(self.local_config.local_log_path)
         self.api = ApiClient(self.local_config)
+        self.self_update_manager = AgentSelfUpdateManager(
+            self.api,
+            current_version=AGENT_VERSION,
+            config_path=config_path,
+            startup_mode=startup_mode,
+            service_name=SERVICE_NAME,
+            task_name=SCHEDULED_TASK_NAME,
+            logger=self.logger,
+        )
         self.media_module = MediaUpdateModule(self.api, self.local_config, self.logger)
         self.cash_module = CashMonitoringModule(self.api, self.local_config.atm_id, self.logger)
         self.modules = ModuleRunner(self.logger)
@@ -435,6 +450,7 @@ class AtmAgent:
         self.remote_config: RemoteConfig | None = None
         self.applied_config_version = 0
         self.last_periodic_switch_probe = 0.0
+        self.last_agent_update_check = 0.0
 
     def write_runtime_state(self) -> None:
         write_state(
@@ -504,6 +520,20 @@ class AtmAgent:
                     self.api.ack_command(command_id, "failed", str(exc))
                 except Exception:
                     pass
+
+    def handle_agent_self_update(self, now: float) -> bool:
+        self.self_update_manager.report_pending_result()
+        config = self.remote_config
+        config_interval = (
+            config.config_sync_interval_seconds
+            if config
+            else self.local_config.fallback_config_sync_interval_seconds
+        )
+        interval = max(60, int(config_interval or 60))
+        if now - self.last_agent_update_check < interval:
+            return False
+        self.last_agent_update_check = now
+        return self.self_update_manager.check_and_apply()
 
     def sync_config(self) -> None:
         config = self.api.get_config()
@@ -599,6 +629,10 @@ class AtmAgent:
                         module_statuses=self.modules.module_statuses(),
                     )
                     last_heartbeat = now
+
+                if self.handle_agent_self_update(now):
+                    self.stop_event.set()
+                    break
 
                 if config:
                     self.handle_switch_probe()
@@ -812,7 +846,7 @@ def xfs_cdm_read_command(args: argparse.Namespace) -> None:
 
 def service_main(args: argparse.Namespace) -> None:
     if os.name != "nt":
-        AtmAgent(Path(args.config)).run_forever()
+        AtmAgent(Path(args.config), startup_mode="service").run_forever()
         return
     config_path = Path(args.config)
     bootstrap_log = config_path.parent / "logs" / "service-bootstrap.log"
@@ -882,7 +916,11 @@ def main() -> None:
     run_parser = sub.add_parser("run")
     run_parser.add_argument("--config", default=str(DEFAULT_CONFIG))
     run_parser.add_argument("--once", action="store_true")
-    run_parser.set_defaults(func=lambda args: AtmAgent(Path(args.config)).run_once() if args.once else AtmAgent(Path(args.config)).run_forever())
+    run_parser.set_defaults(
+        func=lambda args: AtmAgent(Path(args.config), startup_mode="none").run_once()
+        if args.once
+        else AtmAgent(Path(args.config), startup_mode="scheduled-task").run_forever()
+    )
 
     service_parser = sub.add_parser("service")
     service_parser.add_argument("--config", default=str(DEFAULT_CONFIG))

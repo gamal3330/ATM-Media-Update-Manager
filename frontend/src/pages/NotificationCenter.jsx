@@ -114,6 +114,7 @@ function statusIcon(status) {
 function deliveryStatusLabel(status) {
   if (status === "sent") return "مرسل";
   if (status === "failed") return "فشل";
+  if (status === "skipped") return "تم تجاوزه";
   return status || "-";
 }
 
@@ -465,6 +466,16 @@ function DeliveryList({ deliveries }) {
                   {delivery.recipient_email || "-"}
                 </span>
                 <span className="rounded-full bg-slate-50 px-2 py-0.5 text-slate-500">{delivery.event_type}</span>
+                {delivery.attempt_count > 0 && (
+                  <span className="rounded-full bg-slate-50 px-2 py-0.5 text-slate-500">
+                    محاولة {delivery.attempt_count}/5
+                  </span>
+                )}
+                {delivery.status === "failed" && delivery.next_retry_at && (
+                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-700">
+                    إعادة المحاولة {formatApiDate(delivery.next_retry_at)}
+                  </span>
+                )}
               </div>
               {delivery.error_message && (
                 <details className="mt-2 text-xs text-rose-700">
@@ -593,6 +604,7 @@ export default function NotificationCenter() {
   const [savingRecipients, setSavingRecipients] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testingWhatsapp, setTestingWhatsapp] = useState(false);
+  const [retryingFailed, setRetryingFailed] = useState(false);
   const [loadingQr, setLoadingQr] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -776,6 +788,25 @@ export default function NotificationCenter() {
       setError(err.message || "تعذر إرسال رسالة اختبار WhatsApp.");
     } finally {
       setTestingWhatsapp(false);
+    }
+  }
+
+  async function retryFailedDeliveries() {
+    setRetryingFailed(true);
+    setMessage("");
+    setError("");
+    try {
+      const result = await api.retryFailedNotificationDeliveries();
+      setDeliveries(await api.listNotificationDeliveries());
+      if (result.retried > 0) {
+        setMessage(`تمت إعادة محاولة ${result.retried} رسالة. نجح ${result.sent} وبقي ${result.failed} فاشل.`);
+      } else {
+        setMessage("لا توجد رسائل فاشلة قابلة لإعادة الإرسال الآن.");
+      }
+    } catch (err) {
+      setError(err.message || "تعذرت إعادة إرسال الرسائل الفاشلة.");
+    } finally {
+      setRetryingFailed(false);
     }
   }
 
@@ -1108,7 +1139,17 @@ export default function NotificationCenter() {
             title="آخر الإرسالات"
             icon={AtSign}
             action={
-              <div className="flex flex-wrap gap-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={retryFailedDeliveries}
+                  disabled={retryingFailed || failedDeliveries === 0}
+                  className="focus-ring inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                  title="إعادة إرسال الرسائل الفاشلة"
+                >
+                  <RefreshCw size={14} className={retryingFailed ? "animate-spin" : ""} />
+                  <span>{retryingFailed ? "جاري الإعادة..." : "إعادة إرسال الفاشلة"}</span>
+                </button>
                 {deliveryFilters.map((filter) => (
                   <button
                     key={filter.id}

@@ -462,6 +462,62 @@ class PackageAssignResponse(BaseModel):
     targets: list[UpdateTargetRead]
 
 
+class AgentPackageRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    version: str
+    architecture: str
+    agent_original_filename: str
+    agent_sha256: str
+    agent_size_bytes: int
+    updater_original_filename: str
+    updater_sha256: str
+    updater_size_bytes: int
+    notes: str | None
+    created_at: datetime
+
+
+class AgentPackageSummary(AgentPackageRead):
+    total_targets: int = 0
+    pending_targets: int = 0
+    applied_targets: int = 0
+    failed_targets: int = 0
+
+
+class AgentUpdateTargetRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    status: str
+    assigned_at: datetime
+    last_checked_at: datetime | None
+    completed_at: datetime | None
+    last_error: str | None
+    attempt_count: int
+    progress_percent: int = 0
+    progress_phase: str = "pending"
+    progress_message: str | None = None
+    bytes_downloaded: int | None = None
+    total_bytes: int | None = None
+    last_progress_at: datetime | None = None
+    atm: ATMRead
+
+
+class AgentPackageDetails(AgentPackageRead):
+    targets: list[AgentUpdateTargetRead]
+
+
+class AgentPackageAssignRequest(BaseModel):
+    atm_ids: list[str] = Field(default_factory=list, min_length=1)
+
+
+class AgentPackageAssignResponse(BaseModel):
+    agent_package_id: int
+    assigned: int
+    targets: list[AgentUpdateTargetRead]
+
+
 class ATMRebootRequest(BaseModel):
     confirmation: Literal["REBOOT"]
     reason: str | None = Field(default=None, max_length=300)
@@ -568,6 +624,20 @@ class AgentNoUpdate(BaseModel):
     has_update: Literal[False] = False
 
 
+class AgentSelfUpdateAvailable(BaseModel):
+    update_available: Literal[True]
+    has_update: Literal[True] = True
+    agent_package_id: int
+    version: str
+    architecture: str = "x86"
+    agent_sha256: str
+    agent_size_bytes: int
+    agent_download_url: str
+    updater_sha256: str
+    updater_size_bytes: int
+    updater_download_url: str
+
+
 class UpdateResultRequest(BaseModel):
     atm_id: str | None = None
     package_id: int
@@ -586,6 +656,25 @@ class AgentProgressRequest(BaseModel):
     message: str | None = Field(default=None, max_length=500)
     bytes_downloaded: int | None = Field(default=None, ge=0)
     total_bytes: int | None = Field(default=None, ge=0)
+
+
+class AgentSelfUpdateProgressRequest(BaseModel):
+    agent_package_id: int
+    phase: Literal["pending", "downloading", "applying", "applied", "failed"]
+    progress_percent: int = Field(ge=0, le=100)
+    message: str | None = Field(default=None, max_length=500)
+    bytes_downloaded: int | None = Field(default=None, ge=0)
+    total_bytes: int | None = Field(default=None, ge=0)
+
+
+class AgentSelfUpdateResultRequest(BaseModel):
+    atm_id: str | None = None
+    agent_package_id: int
+    version: str | None = None
+    status: Literal["success", "failed"]
+    message: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
 
 
 class AgentLogRequest(BaseModel):
@@ -816,8 +905,18 @@ class NotificationDeliveryRead(BaseModel):
     subject: str
     status: str
     error_message: str | None
+    attempt_count: int = 0
+    next_retry_at: datetime | None = None
     created_at: datetime
     sent_at: datetime | None
+
+
+class NotificationRetryResult(BaseModel):
+    retried: int = 0
+    sent: int = 0
+    failed: int = 0
+    skipped: int = 0
+    deliveries: list[NotificationDeliveryRead] = Field(default_factory=list)
 
 
 class NotificationRecipientItemUpdate(BaseModel):

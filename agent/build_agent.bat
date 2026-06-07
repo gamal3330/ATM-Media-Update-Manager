@@ -75,7 +75,9 @@ if errorlevel 1 exit /b 1
 
 if exist build rmdir /s /q build
 if exist dist\atm-agent.exe del /f /q dist\atm-agent.exe
+if exist dist\agent-updater.exe del /f /q dist\agent-updater.exe
 if exist atm-agent.spec del /f /q atm-agent.spec
+if exist agent-updater.spec del /f /q agent-updater.spec
 
 %PYTHON_CMD% -m PyInstaller ^
   --clean ^
@@ -108,7 +110,21 @@ if exist atm-agent.spec del /f /q atm-agent.spec
 if errorlevel 1 exit /b 1
 
 echo.
-echo Build complete: dist\atm-agent.exe
+echo Building agent updater...
+
+%PYTHON_CMD% -m PyInstaller ^
+  --clean ^
+  --onefile ^
+  --name agent-updater ^
+  --paths "%CD%" ^
+  agent_updater.py
+if errorlevel 1 exit /b 1
+if exist agent-updater.spec del /f /q agent-updater.spec
+
+echo.
+echo Build complete:
+echo   dist\atm-agent.exe
+echo   dist\agent-updater.exe
 exit /b 0
 
 :validate_python
