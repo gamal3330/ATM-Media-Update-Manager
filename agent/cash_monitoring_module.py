@@ -391,6 +391,11 @@ class CashMonitoringModule:
         except Exception:
             self.logger.debug("Could not send agent event log: %s", message, exc_info=True)
 
+    def _cdm_status_failure_level(self) -> str:
+        if self.config and self.config.xfs_profile == "ncr_aptra":
+            return "info"
+        return "warning"
+
     def _report_cdm_status_changes(self, now: float) -> None:
         if not hasattr(self.provider, "get_cdm_status"):
             return
@@ -399,12 +404,15 @@ class CashMonitoringModule:
         except Exception as exc:
             if not self._cdm_status_error_reported:
                 self._log_agent_event(
-                    "warning",
+                    self._cdm_status_failure_level(),
                     "CDM status read failed",
                     {
                         "event_type": "CDM_STATUS_READ_FAILED",
                         "error": str(exc),
                         "provider": self.provider.source,
+                        "xfs_profile": self.config.xfs_profile if self.config else None,
+                        "xfs_logical_service": self.config.xfs_logical_service if self.config else None,
+                        "cash_snapshot_sent": True,
                     },
                 )
                 self._cdm_status_error_reported = True

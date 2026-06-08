@@ -823,6 +823,24 @@ def test_cash_monitoring_reports_cdm_busy_duration_when_device_returns_online():
     assert api.logs[0]["details"]["busy_duration_seconds"] == 15
 
 
+def test_cash_monitoring_downgrades_ncr_cdm_status_failure_to_info():
+    api = FakeApi()
+    logger = __import__("logging").getLogger("test")
+    module = CashMonitoringModule(api, "ATM001", logger)
+    module.configure(parse_remote_config(remote_payload(cash_enabled=True)))
+
+    def fail_status():
+        raise RuntimeError("WFSGetInfo(CDM_STATUS) failed")
+
+    module.provider = SimpleNamespace(source="xfs_cdm", get_cdm_status=fail_status)
+    module._report_cdm_status_changes(1000.0)
+
+    assert api.logs[0]["level"] == "info"
+    assert api.logs[0]["details"]["event_type"] == "CDM_STATUS_READ_FAILED"
+    assert api.logs[0]["details"]["xfs_profile"] == "ncr_aptra"
+    assert api.logs[0]["details"]["cash_snapshot_sent"] is True
+
+
 def siu_result(cabinet="CLOSED", safe="CLOSED", tamper="OFF"):
     data = {
         "device_status": "ONLINE",

@@ -170,7 +170,7 @@ function agentEventSummary(context, fallbackMessage) {
     CDM_SAFE_DOOR_CLOSED: "إغلاق باب الخزنة",
     CDM_DEVICE_ATTENTION: "حالة وحدة النقد تحتاج متابعة",
     CDM_DEVICE_ONLINE: "وحدة النقد جاهزة",
-    CDM_STATUS_READ_FAILED: "تعذر قراءة حالة CDM",
+    CDM_STATUS_READ_FAILED: "قراءة حالة CDM غير متاحة",
     CASH_CASSETTE_REMOVED: "تمت إزالة كاسيت",
     CASH_CASSETTE_INSERTED: "تم تركيب كاسيت",
     CASH_CASSETTE_STATUS_CHANGED: "تغيرت حالة كاسيت",
@@ -202,6 +202,12 @@ function agentEventSummary(context, fallbackMessage) {
       ? "وحدة النقد عادت جاهزة بعد انشغال مؤقت"
       : title;
   const subtitleParts = [];
+  if (eventType === "CDM_STATUS_READ_FAILED" && context.cash_snapshot_sent) {
+    subtitleParts.push("قراءة الصناديق مستمرة");
+  }
+  if (eventType === "CDM_STATUS_READ_FAILED" && context.error) {
+    subtitleParts.push(`السبب: ${context.error}`);
+  }
   if (cassetteNo) subtitleParts.push(cassetteNo);
   if (previous || current) subtitleParts.push([friendlyStatus(previous), friendlyStatus(current)].filter(Boolean).join(" → "));
   if (busyDuration) subtitleParts.push(`استمر ${busyDuration}`);
@@ -222,6 +228,10 @@ function agentEventSummary(context, fallbackMessage) {
     state.safe_door_status ? ["Safe door", statusDetail(state.safe_door_status)] : null,
     state.transport_status ? ["Transport", statusDetail(state.transport_status)] : null,
     siu.device_status ? ["SIU", statusDetail(siu.device_status)] : null,
+    context.error ? ["سبب الفشل", context.error] : null,
+    context.xfs_profile ? ["XFS Profile", context.xfs_profile] : null,
+    context.xfs_logical_service ? ["Logical Service", context.xfs_logical_service] : null,
+    context.cash_snapshot_sent ? ["قراءة النقد", "نجحت قبل فحص حالة CDM"] : null,
     context.port ? ["الحساس", context.port] : null,
     context.cassette_no ? ["الكاسيت", context.cassette_no] : null,
   ].filter(Boolean);
