@@ -1174,6 +1174,84 @@ def test_cash_snapshot_updates_units_and_alerts() -> None:
         assert len(summary.json()["empty_cash_atms"]) >= 1
 
 
+def test_cash_summary_counts_low_cassettes_not_only_atms() -> None:
+    with TestClient(app) as client:
+        headers = login(client)
+        atm_response = client.post(
+            "/api/atms",
+            json={
+                "atm_id": "ATM-MULTI-LOW",
+                "name": "Multi Low ATM",
+                "vpn_ip": "10.10.0.59",
+                "branch": "HQ",
+                "cash_monitoring_enabled": True,
+                "cash_layout": [
+                    {"cassette_no": 1, "currency": "YER", "denomination": 1000, "low_threshold": 300, "critical_threshold": 100},
+                    {"cassette_no": 2, "currency": "YER", "denomination": 1000, "low_threshold": 300, "critical_threshold": 100},
+                    {"cassette_no": 3, "currency": "SAR", "denomination": 100, "low_threshold": 100, "critical_threshold": 30},
+                    {"cassette_no": 4, "currency": "USD", "denomination": 100, "low_threshold": 100, "critical_threshold": 30},
+                ],
+            },
+            headers=headers,
+        )
+        assert atm_response.status_code == 201
+        agent_headers = {"X-ATM-ID": "ATM-MULTI-LOW", "X-API-Key": atm_response.json()["api_key"]}
+
+        cash_units = []
+        for cassette_no, currency, denomination, current_count in [
+            (1, "YER", 1000, 250),
+            (2, "YER", 1000, 260),
+            (3, "SAR", 100, 900),
+            (4, "USD", 100, 900),
+        ]:
+            cash_units.append(
+                {
+                    "cassette_no": cassette_no,
+                    "cassette_id": f"CST{cassette_no:02d}",
+                    "cassette_name": f"Dispense Cassette {cassette_no}",
+                    "reported_currency": currency,
+                    "reported_denomination": denomination,
+                    "initial_count": 1000,
+                    "current_count": current_count,
+                    "reject_count": 0,
+                    "retract_count": 0,
+                    "dispensed_count": 1000 - current_count,
+                    "presented_count": 1000 - current_count,
+                    "status": "LOW" if cassette_no in {1, 2} else "OK",
+                    "physical_status": "PRESENT",
+                }
+            )
+
+        snapshot = client.post(
+            "/api/agent/cash-snapshot",
+            json={
+                "atm_id": "ATM-MULTI-LOW",
+                "source": "xfs_cdm",
+                "atm_cash_mode": "DISPENSE_ONLY",
+                "read_at": "2026-06-08T10:30:00Z",
+                "cash_units": cash_units,
+                "reject_retract": {
+                    "reject_count": 0,
+                    "retract_count": 0,
+                    "reject_status": "OK",
+                    "retract_status": "OK",
+                    "reject_max_capacity": 100,
+                    "retract_max_capacity": 50,
+                },
+            },
+            headers=agent_headers,
+        )
+        assert snapshot.status_code == 200
+
+        summary = client.get("/api/cash/summary", headers=headers)
+        assert summary.status_code == 200
+        payload = summary.json()
+        own_low_items = [item for item in payload["low_cash_atms"] if item["atm_id"] == "ATM-MULTI-LOW"]
+        assert len(own_low_items) == 2
+        assert {item["cassette_no"] for item in own_low_items} == {1, 2}
+        assert payload["cash_low_units"] >= 2
+
+
 def test_cash_snapshot_ignores_suspicious_regression() -> None:
     with TestClient(app) as client:
         headers = login(client)

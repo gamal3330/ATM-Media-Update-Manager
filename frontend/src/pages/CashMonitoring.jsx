@@ -153,9 +153,9 @@ function shouldShowFailedCashReadCommand(command, lastReadAt) {
 
 function issueSummaryItems(summary) {
   return [
-    { key: "low", label: "منخفض", value: summary?.cash_low_atms || 0, tone: "border-amber-200 bg-amber-50 text-amber-800" },
-    { key: "critical", label: "حرج", value: summary?.cash_critical_atms || 0, tone: "border-rose-200 bg-rose-50 text-rose-700" },
-    { key: "empty", label: "فارغ", value: summary?.cash_empty_atms || 0, tone: "border-rose-200 bg-rose-50 text-rose-700" },
+    { key: "low", label: "منخفض", value: summary?.cash_low_units ?? summary?.cash_low_atms ?? 0, tone: "border-amber-200 bg-amber-50 text-amber-800" },
+    { key: "critical", label: "حرج", value: summary?.cash_critical_units ?? summary?.cash_critical_atms ?? 0, tone: "border-rose-200 bg-rose-50 text-rose-700" },
+    { key: "empty", label: "فارغ", value: summary?.cash_empty_units ?? summary?.cash_empty_atms ?? 0, tone: "border-rose-200 bg-rose-50 text-rose-700" },
   ].filter((item) => Number(item.value) > 0);
 }
 

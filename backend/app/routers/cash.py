@@ -885,9 +885,12 @@ def cash_summary(
     low_atms = {alert.atm_id for alert in open_alerts if alert.alert_type == "CASH_LOW"}
     critical_atms = {alert.atm_id for alert in open_alerts if alert.alert_type == "CASH_CRITICAL"}
     empty_atms = {alert.atm_id for alert in open_alerts if alert.alert_type == "CASH_EMPTY"}
+    low_units = [alert for alert in open_alerts if alert.alert_type == "CASH_LOW"]
+    critical_units = [alert for alert in open_alerts if alert.alert_type == "CASH_CRITICAL"]
+    empty_units = [alert for alert in open_alerts if alert.alert_type == "CASH_EMPTY"]
     units_by_atm_cassette = {(unit.atm_id, unit.cassette_no): unit for unit in units}
     def cash_alert_atm_details(alert_type: str) -> list[dict[str, Any]]:
-        details_by_atm: dict[int, dict[str, Any]] = {}
+        details: list[dict[str, Any]] = []
         for alert in open_alerts:
             if alert.alert_type != alert_type:
                 continue
@@ -897,10 +900,7 @@ def cash_summary(
             unit = units_by_atm_cassette.get((alert.atm_id, alert.unit_no))
             threshold = max(1, int(alert.threshold_count or 1))
             ratio = int(alert.current_count) / threshold
-            existing = details_by_atm.get(alert.atm_id)
-            if existing and ratio >= existing["_ratio"]:
-                continue
-            details_by_atm[alert.atm_id] = {
+            details.append({
                 "_ratio": ratio,
                 "atm_id": atm.atm_id,
                 "name": atm.name,
@@ -912,12 +912,12 @@ def cash_summary(
                 "threshold_count": alert.threshold_count,
                 "status": unit.status if unit else alert.alert_type,
                 "read_at": unit.read_at if unit else alert.opened_at,
-            }
+            })
         return [
             {key: value for key, value in item.items() if key != "_ratio"}
             for item in sorted(
-                details_by_atm.values(),
-                key=lambda detail: (detail["_ratio"], str(detail["atm_id"])),
+                details,
+                key=lambda detail: (detail["_ratio"], str(detail["atm_id"]), int(detail["cassette_no"] or 0)),
             )
         ]
 
@@ -947,6 +947,9 @@ def cash_summary(
         cash_low_atms=len(low_atms),
         cash_critical_atms=len(critical_atms),
         cash_empty_atms=len(empty_atms),
+        cash_low_units=len(low_units),
+        cash_critical_units=len(critical_units),
+        cash_empty_units=len(empty_units),
         cash_stale_atms=len(stale_atms),
         open_alerts=len(open_alerts),
         units=units,

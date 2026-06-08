@@ -1158,6 +1158,9 @@ class CashSummary(BaseModel):
     cash_low_atms: int
     cash_critical_atms: int
     cash_empty_atms: int
+    cash_low_units: int = 0
+    cash_critical_units: int = 0
+    cash_empty_units: int = 0
     cash_stale_atms: int
     open_alerts: int
     units: list[CashUnitRead]

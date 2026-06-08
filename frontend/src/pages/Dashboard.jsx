@@ -103,7 +103,7 @@ function getAtmHealth(atm) {
   };
 }
 
-function SummaryTile({ label, value, tone = "slate", icon: Icon, children }) {
+function SummaryTile({ label, value, note = "", tone = "slate", icon: Icon, children }) {
   const tones = {
     slate: "border-slate-200 bg-white text-slate-950",
     emerald: "border-emerald-200 bg-emerald-50 text-emerald-900",
@@ -119,6 +119,7 @@ function SummaryTile({ label, value, tone = "slate", icon: Icon, children }) {
         {Icon && <Icon size={19} className="text-current opacity-75" />}
       </div>
       <div className="mt-2 text-3xl font-semibold leading-none tracking-normal sm:text-4xl">{value}</div>
+      {note && <div className="mt-1 truncate text-xs font-medium text-slate-500">{note}</div>}
       {children && (
         <div className="absolute right-0 top-full z-30 mt-2 hidden w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-slate-200 bg-white p-3 text-slate-900 shadow-xl group-hover:block group-focus:block">
           {children}
@@ -175,14 +176,14 @@ function CashRiskDetails({
           </div>
         ))}
       </div>
-      {items.length > 10 && <div className="mt-2 text-xs text-slate-500">و {items.length - 10} صرافات أخرى</div>}
+      {items.length > 10 && <div className="mt-2 text-xs text-slate-500">و {items.length - 10} صناديق أخرى</div>}
     </div>
   );
 }
 
 function fallbackCashRiskDetails(cashSummary, atms, mode = "low") {
   const atmsByInternalId = new Map(atms.map((atm) => [Number(atm.id), atm]));
-  const byAtm = new Map();
+  const details = [];
   (cashSummary?.units || []).forEach((unit) => {
     const current = Number(unit.current_count);
     const low = Number(unit.low_threshold);
@@ -196,9 +197,7 @@ function fallbackCashRiskDetails(cashSummary, atms, mode = "low") {
     if (!atm) return;
     const threshold = mode === "empty" ? Number(unit.critical_threshold || unit.low_threshold || 1) : low;
     const ratio = threshold > 0 ? current / threshold : current;
-    const existing = byAtm.get(Number(unit.atm_id));
-    if (existing && ratio >= existing._ratio) return;
-    byAtm.set(Number(unit.atm_id), {
+    details.push({
       _ratio: ratio,
       atm_id: atm.atm_id,
       name: atm.name,
@@ -212,8 +211,13 @@ function fallbackCashRiskDetails(cashSummary, atms, mode = "low") {
       read_at: unit.read_at,
     });
   });
-  return [...byAtm.values()]
-    .sort((first, second) => first._ratio - second._ratio || String(first.atm_id).localeCompare(String(second.atm_id), "ar"))
+  return details
+    .sort(
+      (first, second) =>
+        first._ratio - second._ratio ||
+        String(first.atm_id).localeCompare(String(second.atm_id), "ar") ||
+        Number(first.cassette_no) - Number(second.cassette_no),
+    )
     .map(({ _ratio, ...item }) => item);
 }
 
@@ -298,14 +302,16 @@ export default function Dashboard({ atms, packages, cashSummary, loading, onRefr
 
   const online = atms.filter(isRecentlyOnline).length;
   const offline = atms.length - online;
-  const cashLow = cashSummary?.cash_low_atms || 0;
-  const cashEmpty = cashSummary?.cash_empty_atms || 0;
+  const cashLowAtms = cashSummary?.cash_low_atms || 0;
+  const cashEmptyAtms = cashSummary?.cash_empty_atms || 0;
   const cashLowDetails = (cashSummary?.low_cash_atms || []).length
     ? cashSummary.low_cash_atms
     : fallbackCashRiskDetails(cashSummary, atms, "low");
   const cashEmptyDetails = (cashSummary?.empty_cash_atms || []).length
     ? cashSummary.empty_cash_atms
     : fallbackCashRiskDetails(cashSummary, atms, "empty");
+  const cashLow = cashSummary?.cash_low_units ?? cashLowDetails.length ?? cashLowAtms;
+  const cashEmpty = cashSummary?.cash_empty_units ?? cashEmptyDetails.length ?? cashEmptyAtms;
 
   const sortedAtms = useMemo(
     () =>
@@ -365,14 +371,30 @@ export default function Dashboard({ atms, packages, cashSummary, loading, onRefr
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryTile label="Online" value={online} tone="emerald" icon={Wifi} />
         <SummaryTile label="Offline" value={offline} tone={offline ? "rose" : "emerald"} icon={WifiOff} />
-        <SummaryTile label="Cash Low" value={cashLow} tone={cashLow ? "amber" : "emerald"} icon={Gauge}>
-          <CashRiskDetails items={cashLowDetails} count={cashLow} />
+        <SummaryTile
+          label="Cash Low"
+          value={cashLow}
+          note={cashLowAtms ? `${cashLowAtms} صرافات` : ""}
+          tone={cashLow ? "amber" : "emerald"}
+          icon={Gauge}
+        >
+          <CashRiskDetails
+            items={cashLowDetails}
+            count={cashLow}
+            title={`صناديق منخفضة${cashLowAtms ? ` في ${cashLowAtms} صرافات` : ""}`}
+          />
         </SummaryTile>
-        <SummaryTile label="Cash Empty" value={cashEmpty} tone={cashEmpty ? "rose" : "emerald"} icon={ShieldAlert}>
+        <SummaryTile
+          label="Cash Empty"
+          value={cashEmpty}
+          note={cashEmptyAtms ? `${cashEmptyAtms} صرافات` : ""}
+          tone={cashEmpty ? "rose" : "emerald"}
+          icon={ShieldAlert}
+        >
           <CashRiskDetails
             items={cashEmptyDetails}
             count={cashEmpty}
-            title="صرافات نفد منها النقد"
+            title={`صناديق نفد منها النقد${cashEmptyAtms ? ` في ${cashEmptyAtms} صرافات` : ""}`}
             emptyText="لا توجد صرافات فارغة النقد حالياً."
             pendingText="توجد صرافات فارغة، لكن تفاصيلها لم تصل بعد. حدّث البيانات أو أعد تشغيل backend."
             tone="rose"
