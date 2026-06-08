@@ -14,6 +14,7 @@ function resolveApiBase() {
 const API_BASE = resolveApiBase();
 export const apiBaseUrl = API_BASE;
 export const authTokenKey = "qib_atm_manager_token";
+export const authExpiredEvent = "qib_auth_expired";
 const legacyAuthTokenKey = "atm_media_token";
 
 export function getAuthToken() {
@@ -108,6 +109,7 @@ function translatePlainMessage(message, status) {
     "Invalid username or password": "اسم المستخدم أو كلمة المرور غير صحيحة.",
     "Missing bearer token": "انتهت الجلسة أو لم يتم تسجيل الدخول.",
     "Invalid token": "جلسة الدخول غير صالحة. سجّل الدخول مرة أخرى.",
+    "Session expired": "تم إنهاء هذه الجلسة بسبب تسجيل دخول جديد لنفس المستخدم.",
     "ATM ID already exists": "ATM ID مستخدم مسبقاً.",
     "Username already exists": "اسم المستخدم مستخدم مسبقاً.",
     "Admin access required": "هذه الصفحة تتطلب صلاحية مدير.",
@@ -173,6 +175,13 @@ function formatValidationItem(item) {
   if (type.includes("literal")) return `${label}: القيمة غير مدعومة.`;
 
   return `${label}: ${message || "قيمة غير صالحة."}`;
+}
+
+function notifyAuthExpired(message) {
+  clearAuthToken();
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(authExpiredEvent, { detail: { message } }));
+  }
 }
 
 function parseErrorPayload(payload, status) {
@@ -252,6 +261,9 @@ async function request(path, options = {}) {
     if (response.status === 404 && path.includes("/whatsapp/")) {
       throw new ApiError("مسار WhatsApp غير متاح على السيرفر. حدّث السيرفر إلى آخر نسخة.", response.status, payload, {}, []);
     }
+    if (response.status === 401) {
+      notifyAuthExpired(parsed.message);
+    }
     throw new ApiError(parsed.message, response.status, payload, parsed.fieldErrors, parsed.details);
   }
 
@@ -278,6 +290,9 @@ async function downloadBlob(path) {
       payload = null;
     }
     const parsed = parseErrorPayload(payload, response.status);
+    if (response.status === 401) {
+      notifyAuthExpired(parsed.message);
+    }
     throw new ApiError(parsed.message, response.status, payload, parsed.fieldErrors, parsed.details);
   }
 
@@ -286,6 +301,7 @@ async function downloadBlob(path) {
 
 export const api = {
   login: (payload) => request("/api/auth/login", { method: "POST", body: JSON.stringify(payload) }),
+  logout: () => request("/api/auth/logout", { method: "POST" }),
   me: () => request("/api/auth/me"),
   listUsers: () => request("/api/users"),
   listUserPages: () => request("/api/users/pages"),

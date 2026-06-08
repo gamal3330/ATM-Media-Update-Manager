@@ -62,6 +62,37 @@ def test_health() -> None:
         assert response.json() == {"status": "ok"}
 
 
+def test_new_login_invalidates_previous_session_for_same_user() -> None:
+    with TestClient(app) as client:
+        first = client.post("/api/auth/login", json={"username": "admin", "password": "secret123"})
+        assert first.status_code == 200
+        first_headers = {"Authorization": f"Bearer {first.json()['access_token']}"}
+        assert client.get("/api/auth/me", headers=first_headers).status_code == 200
+
+        second = client.post("/api/auth/login", json={"username": "admin", "password": "secret123"})
+        assert second.status_code == 200
+        second_headers = {"Authorization": f"Bearer {second.json()['access_token']}"}
+
+        old_session = client.get("/api/auth/me", headers=first_headers)
+        assert old_session.status_code == 401
+        assert old_session.json()["detail"] == "Session expired"
+        assert client.get("/api/auth/me", headers=second_headers).status_code == 200
+
+
+def test_logout_invalidates_current_session() -> None:
+    with TestClient(app) as client:
+        headers = login(client)
+        assert client.get("/api/auth/me", headers=headers).status_code == 200
+
+        logout_response = client.post("/api/auth/logout", headers=headers)
+        assert logout_response.status_code == 200
+        assert logout_response.json() == {"ok": True}
+
+        after_logout = client.get("/api/auth/me", headers=headers)
+        assert after_logout.status_code == 401
+        assert after_logout.json()["detail"] == "Session expired"
+
+
 def test_admin_can_download_agent_exe_when_available() -> None:
     exe_path = ROOT.parent / "agent" / "dist" / "atm-agent.exe"
     original = exe_path.read_bytes() if exe_path.exists() else None

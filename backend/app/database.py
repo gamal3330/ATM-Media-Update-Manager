@@ -38,11 +38,19 @@ def migrate_existing_schema() -> None:
         table_names = inspector.get_table_names()
         if "users" in table_names:
             existing_columns = {column["name"] for column in inspector.get_columns("users")}
+            datetime_type = "TIMESTAMP WITH TIME ZONE" if connection.dialect.name == "postgresql" else "DATETIME"
             if "allowed_pages" not in existing_columns:
                 if connection.dialect.name == "postgresql":
                     connection.execute(text("ALTER TABLE users ADD COLUMN allowed_pages JSONB NOT NULL DEFAULT '[]'::jsonb"))
                 else:
                     connection.execute(text("ALTER TABLE users ADD COLUMN allowed_pages JSON NOT NULL DEFAULT '[]'"))
+            user_columns = {
+                "active_session_hash": "VARCHAR(128)",
+                "active_session_started_at": datetime_type,
+            }
+            for name, definition in user_columns.items():
+                if name not in existing_columns:
+                    connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {definition}"))
 
             all_pages_json = (
                 '["dashboard","atms","upload","packages","agent-updates","cash","notifications","agent-downloads","logs","settings","users"]'

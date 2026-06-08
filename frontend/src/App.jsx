@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, clearAuthToken, getAuthToken } from "./api/client";
+import { api, authExpiredEvent, clearAuthToken, getAuthToken } from "./api/client";
 import Layout, { nav } from "./components/Layout";
 import AgentDownloads from "./pages/AgentDownloads";
 import AgentUpdates from "./pages/AgentUpdates";
@@ -196,12 +196,29 @@ export default function App() {
   const visiblePage = allowedPages.includes(activePage) ? activePage : allowedPages[0] || "dashboard";
 
   useEffect(() => {
+    function handleAuthExpired(event) {
+      setUser(null);
+      setCheckingAuth(false);
+      setInitializingApp(false);
+      setGlobalError(event.detail?.message || "انتهت الجلسة. سجّل الدخول مرة أخرى.");
+    }
+
+    window.addEventListener(authExpiredEvent, handleAuthExpired);
+    return () => window.removeEventListener(authExpiredEvent, handleAuthExpired);
+  }, []);
+
+  useEffect(() => {
     if (user && activePage !== visiblePage) {
       setActivePage(visiblePage);
     }
   }, [activePage, user, visiblePage]);
 
-  function logout() {
+  async function logout() {
+    try {
+      await api.logout();
+    } catch {
+      // Local logout should still complete if the server session is already expired.
+    }
     clearAuthToken();
     setUser(null);
     setCheckingAuth(false);
@@ -214,8 +231,10 @@ export default function App() {
   if (!user) {
     return (
       <Login
+        initialError={globalError}
         onLogin={(loggedInUser) => {
           setUser(loggedInUser);
+          setGlobalError("");
           setCheckingAuth(false);
           loadInitialData();
         }}

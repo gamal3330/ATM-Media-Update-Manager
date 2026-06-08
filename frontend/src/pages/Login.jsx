@@ -1,12 +1,16 @@
 import { ArrowLeft, LockKeyhole, Monitor } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, setAuthToken } from "../api/client";
 
-export default function Login({ onLogin }) {
+export default function Login({ onLogin, initialError = "" }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(initialError);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setError(initialError);
+  }, [initialError]);
 
   async function submit(event) {
     event.preventDefault();

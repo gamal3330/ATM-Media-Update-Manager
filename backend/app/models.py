@@ -29,6 +29,8 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(30), default="admin", nullable=False)
     allowed_pages: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    active_session_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    active_session_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     packages: Mapped[list["UpdatePackage"]] = relationship(back_populates="created_by")

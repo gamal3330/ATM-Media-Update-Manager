@@ -51,6 +51,14 @@ def generate_api_key() -> str:
     return f"ak_{secrets.token_urlsafe(32)}"
 
 
+def generate_session_id() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def hash_session_id(session_id: str) -> str:
+    return hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+
+
 def create_access_token(subject: str, extra: dict[str, Any] | None = None) -> str:
     now = datetime.now(timezone.utc)
     payload: dict[str, Any] = {
@@ -102,6 +110,11 @@ def get_current_user(
     user = db.query(User).filter(User.username == username, User.is_active.is_(True)).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user")
+    session_id = str(payload.get("sid") or "")
+    if not session_id or not user.active_session_hash:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
+    if not hmac.compare_digest(user.active_session_hash, hash_session_id(session_id)):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
     return user
 
 
