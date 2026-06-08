@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
-from ..auth import get_current_user
+from ..auth import require_page
 from ..database import get_db
 from ..models import ATM, UpdatePackage, UpdateTarget, User
 from ..schemas import PackageAssignRequest, PackageAssignResponse, PackageDetails, PackageSummary
@@ -29,7 +29,7 @@ def reset_target_for_retry(target: UpdateTarget) -> None:
 @router.get("", response_model=list[PackageSummary])
 def list_packages(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("packages")),
 ) -> list[PackageSummary]:
     packages = db.query(UpdatePackage).order_by(UpdatePackage.created_at.desc()).all()
     summaries: list[PackageSummary] = []
@@ -62,7 +62,7 @@ def list_packages(
 def get_package(
     package_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("packages")),
 ) -> UpdatePackage:
     package = (
         db.query(UpdatePackage)
@@ -81,7 +81,7 @@ def upload_package(
     version: str | None = Form(default=None),
     notes: str | None = Form(default=None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("upload")),
 ) -> PackageSummary:
     package = create_package_from_upload(db, upload=file, version=version, notes=notes, created_by=current_user)
     write_audit(
@@ -115,7 +115,7 @@ def assign_package(
     package_id: int,
     payload: PackageAssignRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("packages")),
 ) -> PackageAssignResponse:
     package = db.query(UpdatePackage).filter(UpdatePackage.id == package_id).first()
     if not package:
@@ -164,7 +164,7 @@ def assign_package(
 def retry_failed_targets(
     package_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("packages")),
 ) -> PackageAssignResponse:
     package = db.query(UpdatePackage).filter(UpdatePackage.id == package_id).first()
     if not package:

@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 import secrets
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -122,6 +123,31 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
     if current_user.role not in SYSTEM_ADMIN_ROLES:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return current_user
+
+
+def user_has_page(current_user: User, page_id: str) -> bool:
+    return current_user.role in SYSTEM_ADMIN_ROLES or page_id in (current_user.allowed_pages or [])
+
+
+def require_page(page_id: str) -> Callable[[User], User]:
+    def dependency(current_user: User = Depends(get_current_user)) -> User:
+        if not user_has_page(current_user, page_id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Page access required")
+        return current_user
+
+    return dependency
+
+
+def require_any_page(*page_ids: str) -> Callable[[User], User]:
+    def dependency(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role in SYSTEM_ADMIN_ROLES:
+            return current_user
+        allowed_pages = set(current_user.allowed_pages or [])
+        if not allowed_pages.intersection(page_ids):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Page access required")
+        return current_user
+
+    return dependency
 
 
 def get_agent_atm(

@@ -93,6 +93,16 @@ def test_logout_invalidates_current_session() -> None:
         assert after_logout.json()["detail"] == "Session expired"
 
 
+def test_login_rate_limit_after_repeated_failures() -> None:
+    with TestClient(app) as client:
+        for _ in range(5):
+            response = client.post("/api/auth/login", json={"username": "rate-limit-user", "password": "wrong-password"})
+            assert response.status_code == 401
+
+        blocked = client.post("/api/auth/login", json={"username": "rate-limit-user", "password": "wrong-password"})
+        assert blocked.status_code == 429
+
+
 def test_admin_can_download_agent_exe_when_available() -> None:
     exe_path = ROOT.parent / "agent" / "dist" / "atm-agent.exe"
     original = exe_path.read_bytes() if exe_path.exists() else None
@@ -289,6 +299,27 @@ def test_admin_can_manage_users_and_page_visibility() -> None:
 
         denied = client.get("/api/users", headers=operator_headers)
         assert denied.status_code == 403
+
+        denied_packages = client.get("/api/packages", headers=operator_headers)
+        assert denied_packages.status_code == 403
+
+        denied_notifications = client.get("/api/notifications/settings", headers=operator_headers)
+        assert denied_notifications.status_code == 403
+
+        atm_response = client.post(
+            "/api/atms",
+            json={
+                "atm_id": "ATM-CASH-PERM",
+                "name": "Cash Permission",
+                "vpn_ip": "10.10.0.59",
+                "branch": "HQ",
+                "cash_monitoring_enabled": True,
+            },
+            headers=headers,
+        )
+        assert atm_response.status_code == 201
+        denied_read_now = client.post("/api/cash/atms/ATM-CASH-PERM/read-now", headers=operator_headers)
+        assert denied_read_now.status_code == 403
 
         updated = client.put(
             f"/api/users/{created.json()['id']}",

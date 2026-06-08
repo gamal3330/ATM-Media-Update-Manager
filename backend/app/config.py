@@ -35,6 +35,29 @@ class Settings:
         for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
         if origin.strip()
     ]
+    allow_insecure_defaults: bool = os.getenv("ALLOW_INSECURE_DEFAULTS", "").lower() in {"1", "true", "yes"}
+
+    def validate_security(self) -> None:
+        issues: list[str] = []
+        weak_jwt_values = {
+            "change-this-local-secret",
+            "replace-this-jwt-secret-with-long-random-string",
+        }
+        weak_admin_passwords = {
+            "admin123!",
+            "replace-this-password",
+        }
+        if self.jwt_secret_key in weak_jwt_values:
+            issues.append("JWT_SECRET_KEY is using an insecure default value")
+        if self.admin_password in weak_admin_passwords:
+            issues.append("ADMIN_PASSWORD is using an insecure default value")
+        if "*" in self.cors_origins:
+            issues.append("CORS_ORIGINS must not contain '*' while credentials are enabled")
+        if issues and not self.allow_insecure_defaults:
+            raise RuntimeError(
+                "Unsafe configuration refused. Set secure environment values first: " + "; ".join(issues)
+            )
 
 
 settings = Settings()
+settings.validate_security()

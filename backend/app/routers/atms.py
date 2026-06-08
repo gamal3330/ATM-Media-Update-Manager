@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
-from ..auth import generate_api_key, get_current_user, hash_api_key
+from ..auth import generate_api_key, hash_api_key, require_any_page, require_page
 from ..cash_layout import normalized_cash_layout
 from ..database import get_db
 from ..models import (
@@ -101,7 +101,7 @@ def record_agent_config_snapshot(db: Session, atm: ATM, updated_by: str | None) 
 @router.get("", response_model=list[ATMRead])
 def list_atms(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_page("dashboard", "atms", "cash")),
 ) -> list[ATM]:
     return db.query(ATM).order_by(ATM.branch, ATM.atm_id).all()
 
@@ -110,7 +110,7 @@ def list_atms(
 def create_atm(
     payload: ATMCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("atms")),
 ) -> ATMCreateResponse:
     if db.query(ATM).filter(ATM.atm_id == payload.atm_id).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ATM ID already exists")
@@ -171,7 +171,7 @@ def create_atm(
 def get_atm(
     atm_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_page("dashboard", "atms", "cash")),
 ) -> ATM:
     atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
     if not atm:
@@ -183,7 +183,7 @@ def get_atm(
 def get_atm_diagnostics(
     atm_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("atms")),
 ) -> ATMDiagnostics:
     atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
     if not atm:
@@ -314,7 +314,7 @@ def list_atm_events(
     atm_id: str,
     limit: int = 80,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_page("atms", "logs")),
 ) -> list[AtmEventRead]:
     atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
     if not atm:
@@ -576,7 +576,7 @@ def list_atm_events(
 def regenerate_atm_api_key(
     atm_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("atms")),
 ) -> ATMCreateResponse:
     atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
     if not atm:
@@ -607,7 +607,7 @@ def update_atm(
     atm_id: str,
     payload: ATMUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("atms")),
 ) -> ATM:
     atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
     if not atm:
@@ -663,7 +663,7 @@ def request_switch_probe(
     atm_id: str,
     payload: SwitchProbeRequest | None = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_page("atms", "cash")),
 ) -> AtmSwitchProbe:
     atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
     if not atm:
@@ -735,7 +735,7 @@ def list_switch_probes(
     atm_id: str,
     limit: int = 10,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_any_page("atms", "cash")),
 ) -> list[AtmSwitchProbe]:
     atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
     if not atm:
@@ -755,7 +755,7 @@ def request_atm_reboot(
     payload: ATMRebootRequest,
     force: bool = False,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("atms")),
 ) -> AgentCommand:
     raise HTTPException(status_code=status.HTTP_410_GONE, detail="Remote ATM commands are disabled for QIB ATM Manager Agent")
     atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
@@ -825,7 +825,7 @@ def delete_atm(
     atm_id: str,
     force: bool = False,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("atms")),
 ) -> Response:
     atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
     if not atm:

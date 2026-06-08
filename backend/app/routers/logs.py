@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session, joinedload
 
-from ..auth import get_current_user
+from ..auth import require_page
 from ..database import get_db
 from ..models import AgentLog, AuditLog, User
 from ..schemas import AgentLogRead, AuditLogRead
@@ -14,7 +14,7 @@ def list_agent_logs(
     level: str | None = None,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("logs")),
 ) -> list[AgentLog]:
     query = db.query(AgentLog).options(joinedload(AgentLog.atm)).order_by(AgentLog.created_at.desc())
     if level:
@@ -26,7 +26,7 @@ def list_agent_logs(
 def list_audit_logs(
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("logs")),
 ) -> list[AuditLog]:
     return db.query(AuditLog).order_by(AuditLog.created_at.desc()).limit(min(limit, 500)).all()
 

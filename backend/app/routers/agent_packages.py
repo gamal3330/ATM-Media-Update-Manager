@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
-from ..auth import get_current_user
+from ..auth import require_page
 from ..database import get_db
 from ..models import ATM, AgentPackage, AgentUpdateTarget, User
 from ..schemas import (
@@ -34,7 +34,7 @@ def reset_agent_target_for_retry(target: AgentUpdateTarget) -> None:
 @router.get("", response_model=list[AgentPackageSummary])
 def list_agent_packages(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("agent-updates")),
 ) -> list[AgentPackageSummary]:
     packages = db.query(AgentPackage).order_by(AgentPackage.created_at.desc()).all()
     summaries: list[AgentPackageSummary] = []
@@ -71,7 +71,7 @@ def list_agent_packages(
 def get_agent_package(
     package_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("agent-updates")),
 ) -> AgentPackage:
     package = (
         db.query(AgentPackage)
@@ -91,7 +91,7 @@ def upload_agent_package(
     version: str = Form(...),
     notes: str | None = Form(default=None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("agent-updates")),
 ) -> AgentPackageSummary:
     package = create_agent_package_from_upload(
         db,
@@ -139,7 +139,7 @@ def assign_agent_package(
     package_id: int,
     payload: AgentPackageAssignRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("agent-updates")),
 ) -> AgentPackageAssignResponse:
     package = db.query(AgentPackage).filter(AgentPackage.id == package_id).first()
     if not package:
@@ -188,7 +188,7 @@ def assign_agent_package(
 def retry_failed_agent_targets(
     package_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("agent-updates")),
 ) -> AgentPackageAssignResponse:
     package = db.query(AgentPackage).filter(AgentPackage.id == package_id).first()
     if not package:

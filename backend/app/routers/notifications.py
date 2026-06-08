@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from ..auth import get_current_user
+from ..auth import require_page
 from ..database import get_db
 from ..models import ATM, NotificationDelivery, NotificationRecipient, NotificationSettings, User
 from ..page_permissions import SYSTEM_ADMIN_ROLES
@@ -35,7 +35,7 @@ def unique_values(values: list[str | None]) -> list[str]:
     return result
 
 
-def require_notification_manager(current_user: User = Depends(get_current_user)) -> User:
+def require_notification_manager(current_user: User = Depends(require_page("notifications"))) -> User:
     if current_user.role not in {*SYSTEM_ADMIN_ROLES, "cash_monitoring_admin"}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return current_user

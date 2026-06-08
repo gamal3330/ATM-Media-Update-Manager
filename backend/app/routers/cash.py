@@ -4,10 +4,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from ..auth import get_agent_atm, get_current_user
+from ..auth import get_agent_atm, require_page
 from ..cash_layout import normalized_cash_layout
 from ..database import get_db
 from ..models import ATM, AgentCommand, AgentLog, AtmCashAlert, AtmCashSnapshot, AtmCashThreshold, AtmCashUnit, AtmRejectRetractStatus, User
+from ..page_permissions import SYSTEM_ADMIN_ROLES
 from ..schemas import (
     AgentCommandRead,
     CashAlertRead,
@@ -50,6 +51,12 @@ LAYOUT_VERIFICATION_ISSUES = {
     "MISSING_READING",
     "UNCONFIGURED_CASSETTE",
 }
+
+
+def require_cash_manager(current_user: User = Depends(require_page("cash"))) -> User:
+    if current_user.role not in {*SYSTEM_ADMIN_ROLES, "cash_monitoring_admin"}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cash admin access required")
+    return current_user
 
 
 def utcnow() -> datetime:
@@ -872,7 +879,7 @@ def submit_cash_snapshot(
 @router.get("/api/cash/summary", response_model=CashSummary)
 def cash_summary(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("cash")),
 ) -> CashSummary:
     units = db.query(AtmCashUnit).order_by(AtmCashUnit.updated_at.desc()).all()
     atms_by_id = {atm.id: atm for atm in db.query(ATM).all()}
@@ -962,7 +969,7 @@ def cash_summary(
 def cash_atm_details(
     atm_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("cash")),
 ) -> CashAtmDetails:
     atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
     if not atm:
@@ -1009,7 +1016,7 @@ def cash_atm_details(
 def request_cash_read_now(
     atm_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_cash_manager),
 ) -> AgentCommand:
     atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
     if not atm:
@@ -1048,7 +1055,7 @@ def request_cash_read_now(
 @router.get("/api/cash/reports/overview", response_model=CashReportOverview)
 def cash_report_overview(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("cash")),
 ) -> CashReportOverview:
     now = utcnow()
     report_rows: list[CashAtmReportRead] = []
@@ -1103,7 +1110,7 @@ def cash_report_overview(
 def list_cash_alerts(
     status_filter: str = "open",
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_page("cash")),
 ) -> list[AtmCashAlert]:
     query = db.query(AtmCashAlert)
     if status_filter != "all":
@@ -1115,7 +1122,7 @@ def list_cash_alerts(
 def create_or_update_threshold(
     payload: CashThresholdCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_cash_manager),
 ) -> AtmCashThreshold:
     atm = db.query(ATM).filter(ATM.atm_id == payload.atm_id).first()
     if not atm:
@@ -1153,7 +1160,7 @@ def update_threshold(
     threshold_id: int,
     payload: CashThresholdUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_cash_manager),
 ) -> AtmCashThreshold:
     threshold = db.query(AtmCashThreshold).filter(AtmCashThreshold.id == threshold_id).first()
     if not threshold:

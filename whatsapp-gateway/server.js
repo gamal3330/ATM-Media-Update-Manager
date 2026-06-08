@@ -8,6 +8,7 @@ const TOKEN = process.env.WHATSAPP_GATEWAY_TOKEN || "";
 const AUTH_PATH = process.env.WHATSAPP_AUTH_PATH || ".wwebjs_auth";
 const CLIENT_ID = process.env.WHATSAPP_CLIENT_ID || "qib-atm-manager";
 const HEADLESS = String(process.env.WHATSAPP_HEADLESS || "true").toLowerCase() !== "false";
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
 let status = "starting";
 let ready = false;
@@ -37,7 +38,18 @@ function statusPayload() {
 }
 
 function requireToken(req, res, next) {
-  if (!TOKEN || req.path === "/health") {
+  if (req.path === "/health") {
+    next();
+    return;
+  }
+  if (!TOKEN && !LOOPBACK_HOSTS.has(HOST)) {
+    res.status(503).json({
+      ok: false,
+      error: "WHATSAPP_GATEWAY_TOKEN is required when the gateway listens outside localhost",
+    });
+    return;
+  }
+  if (!TOKEN) {
     next();
     return;
   }
@@ -206,6 +218,9 @@ app.post("/send", async (req, res) => {
 
 app.listen(PORT, HOST, () => {
   console.log(`QIB WhatsApp gateway listening on http://${HOST}:${PORT}`);
+  if (!TOKEN && LOOPBACK_HOSTS.has(HOST)) {
+    console.warn("WHATSAPP_GATEWAY_TOKEN is not set. Only use this on localhost.");
+  }
 });
 
 async function shutdown() {
