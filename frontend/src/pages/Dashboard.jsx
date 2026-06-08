@@ -10,10 +10,6 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { formatApiDate, formatLastSeenAge, isRecentlyOnline } from "../api/time";
 
-function getModuleStatus(atm, moduleName) {
-  return (atm.module_status_json && atm.module_status_json[moduleName]) || "-";
-}
-
 function isPendingConfig(atm) {
   return (atm.applied_config_version || 0) < (atm.config_version || 0);
 }
@@ -278,11 +274,6 @@ function AtmMonitorCard({ atm }) {
                 : "text-emerald-700"
           }
         />
-      </div>
-
-      <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2 py-1.5 text-xs font-semibold text-slate-600">
-        <span className="truncate">Cash: {getModuleStatus(atm, "cash_monitoring")}</span>
-        <span className="truncate">Media: {getModuleStatus(atm, "media_update")}</span>
       </div>
 
       {lastProblem && (
