@@ -118,6 +118,54 @@ function cashAlertSummary(action, details) {
   };
 }
 
+function agentEventSummary(context, fallbackMessage) {
+  if (!context || typeof context !== "object") return null;
+  const eventType = context.event_type || "";
+  const state = context.state && typeof context.state === "object" ? context.state : {};
+  const labels = {
+    CDM_SHUTTER_OPENED: "فتح Shutter",
+    CDM_SHUTTER_CLOSED: "إغلاق Shutter",
+    CDM_SHUTTER_JAMMED: "انحشار Shutter",
+    CDM_SAFE_DOOR_OPENED: "فتح باب الخزنة",
+    CDM_SAFE_DOOR_CLOSED: "إغلاق باب الخزنة",
+    CDM_DEVICE_ATTENTION: "حالة CDM تحتاج متابعة",
+    CDM_DEVICE_ONLINE: "CDM عاد Online",
+    CDM_STATUS_READ_FAILED: "تعذر قراءة حالة CDM",
+    CASH_CASSETTE_REMOVED: "تمت إزالة كاسيت",
+    CASH_CASSETTE_INSERTED: "تم تركيب كاسيت",
+    CASH_CASSETTE_STATUS_CHANGED: "تغيرت حالة كاسيت",
+  };
+  const title = labels[eventType];
+  if (!title) return null;
+
+  const cassetteNo = context.cassette_no ? `كاسيت ${context.cassette_no}` : "";
+  const current = context.state && typeof context.state === "string" ? context.state : "";
+  const previous = context.previous_state || "";
+  const subtitleParts = [];
+  if (cassetteNo) subtitleParts.push(cassetteNo);
+  if (previous || current) subtitleParts.push([previous, current].filter(Boolean).join(" → "));
+  if (state.shutter_status) subtitleParts.push(`Shutter: ${state.shutter_status}`);
+  if (state.safe_door_status) subtitleParts.push(`Safe door: ${state.safe_door_status}`);
+  if (state.device_status) subtitleParts.push(`Device: ${state.device_status}`);
+
+  const items = [
+    ["نوع الحدث", title],
+    previous ? ["الحالة السابقة", previous] : null,
+    current ? ["الحالة الحالية", current] : null,
+    state.device_status ? ["CDM", state.device_status] : null,
+    state.shutter_status ? ["Shutter", state.shutter_status] : null,
+    state.safe_door_status ? ["Safe door", state.safe_door_status] : null,
+    state.transport_status ? ["Transport", state.transport_status] : null,
+    context.cassette_no ? ["الكاسيت", context.cassette_no] : null,
+  ].filter(Boolean);
+
+  return {
+    title,
+    subtitle: subtitleParts.join(" · ") || fallbackMessage,
+    items,
+  };
+}
+
 function getAuditActionLabel(action, details) {
   const cashSummary = cashAlertSummary(action, details);
   if (cashSummary) return cashSummary.title;
@@ -145,6 +193,7 @@ function getAuditActionLabel(action, details) {
 function buildAgentRecord(log) {
   const atm = log.atm || {};
   const context = log.context && typeof log.context === "object" ? log.context : {};
+  const eventSummary = agentEventSummary(context, log.message);
   const atmId = atm.atm_id || context.atm_id || "-";
   const atmName = atm.name || "";
   const atmBranch = atm.branch || "";
@@ -157,11 +206,12 @@ function buildAgentRecord(log) {
     source: "agent",
     sourceLabel: "Agent",
     icon: TerminalSquare,
-    title,
-    subtitle: log.message,
+    title: eventSummary?.title || title,
+    subtitle: eventSummary?.subtitle || log.message,
     level: normalizeText(log.level) || "info",
     levelMeta,
     details: log.context,
+    detailItems: eventSummary?.items || [],
     atm: {
       id: atmId,
       name: atmName,
@@ -171,7 +221,7 @@ function buildAgentRecord(log) {
     },
     target: [atmBranch, atmIp].filter(Boolean).join(" · "),
     occurredAt: log.created_at,
-    searchText: [atmId, atmName, atmBranch, atmIp, log.level, log.message, stringifyDetails(log.context)].join(" "),
+    searchText: [atmId, atmName, atmBranch, atmIp, log.level, eventSummary?.title, log.message, stringifyDetails(log.context)].join(" "),
   };
 }
 

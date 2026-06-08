@@ -18,6 +18,7 @@ from backup_manager import create_backup, restore_backup
 from atm_agent import choose_run_mode, powershell_executable, scheduled_task_not_found, write_hidden_task_runner
 from checksum import sha256_file
 from cash_monitoring_module import CashMonitoringModule
+from cash_monitoring_module import DispenseCashUnit
 from config_manager import load_local_config, parse_remote_config
 from module_runner import ModuleRunner
 from network_probe import tcp_connect_probe
@@ -356,6 +357,7 @@ class FakeApi:
     def __init__(self):
         self.snapshots = []
         self.switch_snapshots = []
+        self.logs = []
 
     def check_update(self):
         return None
@@ -373,6 +375,9 @@ class FakeApi:
                 "port": port,
             }
         )
+
+    def log(self, level, message, details=None):
+        self.logs.append({"level": level, "message": message, "details": details})
 
 
 def remote_payload(media_enabled=True, cash_enabled=True):
@@ -752,6 +757,37 @@ def test_cash_monitoring_xfs_provider_normalizes_grg_cash_units(monkeypatch):
     assert snapshot["cash_units"][3]["reported_currency"] == "SAR"
     assert snapshot["reject_retract"]["reject_count"] == 1
     assert snapshot["reject_retract"]["retract_count"] == 0
+
+
+def test_cash_monitoring_reports_cassette_remove_and_insert_events():
+    api = FakeApi()
+    logger = __import__("logging").getLogger("test")
+    module = CashMonitoringModule(api, "ATM001", logger)
+    present = DispenseCashUnit(
+        cassette_no=1,
+        cassette_id="CST1",
+        cassette_name="Cash Bin 1",
+        reported_currency="YER",
+        reported_denomination=1000,
+        initial_count=1000,
+        current_count=900,
+        reject_count=0,
+        retract_count=0,
+        dispensed_count=100,
+        presented_count=100,
+        status="OK",
+        physical_status="PRESENT",
+    )
+    missing = DispenseCashUnit(**{**present.__dict__, "status": "MISSING", "physical_status": "MISSING"})
+
+    module._report_cassette_status_changes([present])
+    module._report_cassette_status_changes([missing])
+    module._report_cassette_status_changes([present])
+
+    assert [item["details"]["event_type"] for item in api.logs] == [
+        "CASH_CASSETTE_REMOVED",
+        "CASH_CASSETTE_INSERTED",
+    ]
 
 
 def test_xfs_cdm_diagnostics_detects_ncr_aptra_files(tmp_path):

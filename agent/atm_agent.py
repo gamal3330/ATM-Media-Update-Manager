@@ -24,9 +24,9 @@ from media_update_module import MediaUpdateModule
 from module_runner import ModuleRunner
 from network_probe import tcp_connect_probe
 from xfs_cdm_diagnostics import diagnose_xfs_cdm, format_diagnostics
-from xfs_cdm_reader import read_cash_units, format_read_result
+from xfs_cdm_reader import read_cash_units, read_cdm_status, format_read_result, format_status_result
 
-AGENT_VERSION = "2.0.12"
+AGENT_VERSION = "2.0.13"
 DEFAULT_INSTALL_DIR = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "QIB ATM Manager Agent"
 DEFAULT_CONFIG = DEFAULT_INSTALL_DIR / "config.json"
 SERVICE_NAME = "ATMUnifiedAgent"
@@ -466,6 +466,7 @@ class AtmAgent:
             last_cash_snapshot_at=self.cash_module.last_snapshot_at,
             last_cash_unit_count=self.cash_module.last_unit_count,
             last_cash_error=self.cash_module.last_error,
+            last_cdm_status=self.cash_module.last_cdm_status,
         )
 
     def handle_switch_probe(self) -> None:
@@ -814,6 +815,11 @@ def status_command(args: argparse.Namespace) -> None:
     print(f"Last Cash Unit Count: {state.get('last_cash_unit_count', '-')}")
     if state.get("last_cash_error"):
         print(f"Last Cash Error: {state['last_cash_error']}")
+    cdm_status = state.get("last_cdm_status")
+    if isinstance(cdm_status, dict):
+        print(f"Last CDM Device: {cdm_status.get('device_status', '-')}")
+        print(f"Last CDM Shutter: {cdm_status.get('shutter_status', '-')}")
+        print(f"Last CDM Safe Door: {cdm_status.get('safe_door_status', '-')}")
 
     session = requests.Session()
     session.headers.update({"X-ATM-ID": config.atm_id, "X-API-Key": config.api_key})
@@ -868,6 +874,19 @@ def xfs_cdm_read_command(args: argparse.Namespace) -> None:
         print(json.dumps(result.to_dict(), indent=2))
     else:
         print(format_read_result(result))
+
+
+def xfs_cdm_status_command(args: argparse.Namespace) -> None:
+    result = read_cdm_status(
+        args.logical_service,
+        msxfs_path=args.msxfs_path,
+        timeout_ms=args.timeout_ms,
+        version_range=int(str(args.version_range), 0),
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_status_result(result))
 
 
 def service_main(args: argparse.Namespace) -> None:
@@ -938,6 +957,14 @@ def main() -> None:
     read_parser.add_argument("--version-range", default="0x00031E03")
     read_parser.add_argument("--json", action="store_true")
     read_parser.set_defaults(func=xfs_cdm_read_command)
+
+    status_read_parser = sub.add_parser("xfs-cdm-status")
+    status_read_parser.add_argument("--logical-service", default="MediaDispenser1")
+    status_read_parser.add_argument("--msxfs-path")
+    status_read_parser.add_argument("--timeout-ms", type=int, default=20000)
+    status_read_parser.add_argument("--version-range", default="0x00031E03")
+    status_read_parser.add_argument("--json", action="store_true")
+    status_read_parser.set_defaults(func=xfs_cdm_status_command)
 
     run_parser = sub.add_parser("run")
     run_parser.add_argument("--config", default=str(DEFAULT_CONFIG))

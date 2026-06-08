@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from config_manager import CashLayoutItem, CashMonitoringConfig, RemoteConfig
 from xfs_cdm_reader import CashUnitRead as XfsCashUnitRead
-from xfs_cdm_reader import XfsCdmReadResult, read_cash_units
+from xfs_cdm_reader import XfsCdmReadResult, XfsCdmStatusResult, read_cash_units, read_cdm_status
 
 if TYPE_CHECKING:
     from api_client import ApiClient
@@ -101,6 +101,13 @@ class XfsCdmProvider:
             version_range=self.version_range,
         )
         return self.last_result
+
+    def get_cdm_status(self) -> XfsCdmStatusResult:
+        return read_cdm_status(
+            self.logical_service,
+            msxfs_path=self.msxfs_path,
+            version_range=self.version_range,
+        )
 
     @staticmethod
     def _layout_for(config: CashMonitoringConfig, cassette_no: int) -> CashLayoutItem:
@@ -231,6 +238,10 @@ class CashMonitoringModule:
         self.last_snapshot_at: str | None = None
         self.last_unit_count = 0
         self.last_error: str | None = None
+        self.last_cdm_status: dict | None = None
+        self._last_cdm_status_signature: dict[str, str] | None = None
+        self._last_cassette_states: dict[int, str] = {}
+        self._cdm_status_error_reported = False
 
     def configure(self, config: RemoteConfig) -> None:
         self.config = config.cash_monitoring
@@ -276,6 +287,8 @@ class CashMonitoringModule:
                 reject_retract=reject_retract,
             )
             self.api.cash_snapshot(snapshot.to_payload())
+            self._report_cdm_status_changes()
+            self._report_cassette_status_changes(cash_units)
         except Exception as exc:
             self.status = "error"
             self.last_error = str(exc)
@@ -311,3 +324,158 @@ class CashMonitoringModule:
             raise RuntimeError("Cash monitoring is disabled or not configured")
         self.last_read = 0.0
         self.tick(now)
+
+    @staticmethod
+    def _status_signature(status: XfsCdmStatusResult) -> dict[str, str]:
+        return {
+            "device": status.device_status,
+            "safe_door": status.safe_door_status,
+            "dispenser": status.dispenser_status,
+            "intermediate_stacker": status.intermediate_stacker_status,
+            "shutter": status.shutter_status,
+            "transport": status.transport_status,
+            "transport_position": status.transport_position_status,
+            "jammed_shutter_position": status.jammed_shutter_position,
+        }
+
+    @staticmethod
+    def _status_context(status: XfsCdmStatusResult, event_type: str, previous_state: str | None = None) -> dict:
+        payload = status.to_dict()
+        return {
+            "event_type": event_type,
+            "previous_state": previous_state,
+            "state": payload,
+        }
+
+    @staticmethod
+    def _shutter_event_type(value: str) -> tuple[str | None, str]:
+        status = value.upper()
+        if status == "OPEN":
+            return "CDM_SHUTTER_OPENED", "warning"
+        if status == "CLOSED":
+            return "CDM_SHUTTER_CLOSED", "info"
+        if status == "JAMMED":
+            return "CDM_SHUTTER_JAMMED", "error"
+        return None, "info"
+
+    @staticmethod
+    def _safe_door_event_type(value: str) -> tuple[str | None, str]:
+        status = value.upper()
+        if status == "OPEN":
+            return "CDM_SAFE_DOOR_OPENED", "warning"
+        if status == "CLOSED":
+            return "CDM_SAFE_DOOR_CLOSED", "info"
+        return None, "info"
+
+    @staticmethod
+    def _device_event_type(value: str) -> tuple[str | None, str]:
+        status = value.upper()
+        if status in {"HWERROR", "POWEROFF", "NODEVICE", "OFFLINE", "FRAUDATTEMPT", "POTENTIALFRAUD"}:
+            return "CDM_DEVICE_ATTENTION", "error" if status in {"HWERROR", "FRAUDATTEMPT", "POTENTIALFRAUD"} else "warning"
+        if status == "ONLINE":
+            return "CDM_DEVICE_ONLINE", "info"
+        return None, "info"
+
+    def _log_agent_event(self, level: str, message: str, context: dict) -> None:
+        try:
+            self.api.log(level, message, context)
+        except Exception:
+            self.logger.debug("Could not send agent event log: %s", message, exc_info=True)
+
+    def _report_cdm_status_changes(self) -> None:
+        if not hasattr(self.provider, "get_cdm_status"):
+            return
+        try:
+            status = self.provider.get_cdm_status()  # type: ignore[attr-defined]
+        except Exception as exc:
+            if not self._cdm_status_error_reported:
+                self._log_agent_event(
+                    "warning",
+                    "CDM status read failed",
+                    {
+                        "event_type": "CDM_STATUS_READ_FAILED",
+                        "error": str(exc),
+                        "provider": self.provider.source,
+                    },
+                )
+                self._cdm_status_error_reported = True
+            return
+
+        self._cdm_status_error_reported = False
+        self.last_cdm_status = status.to_dict()
+        signature = self._status_signature(status)
+        previous = self._last_cdm_status_signature
+        self._last_cdm_status_signature = signature
+
+        if previous is None:
+            initial_events = [
+                (*self._shutter_event_type(signature["shutter"]), "CDM shutter initial attention", signature["shutter"]),
+                (*self._safe_door_event_type(signature["safe_door"]), "CDM safe door initial attention", signature["safe_door"]),
+                (*self._device_event_type(signature["device"]), "CDM device initial attention", signature["device"]),
+            ]
+            for event_type, level, message, value in initial_events:
+                if event_type and level != "info":
+                    self._log_agent_event(level, message, self._status_context(status, event_type))
+            return
+
+        checks = [
+            ("shutter", self._shutter_event_type, "CDM shutter status changed"),
+            ("safe_door", self._safe_door_event_type, "CDM safe door status changed"),
+            ("device", self._device_event_type, "CDM device status changed"),
+        ]
+        for key, event_factory, message in checks:
+            if previous.get(key) == signature.get(key):
+                continue
+            event_type, level = event_factory(signature[key])
+            if event_type:
+                self._log_agent_event(level, message, self._status_context(status, event_type, previous.get(key)))
+
+    @staticmethod
+    def _cassette_state(unit: DispenseCashUnit) -> str:
+        physical = (unit.physical_status or "").upper()
+        status = (unit.status or "").upper()
+        if physical in {"MISSING", "INOPERATIVE", "INOP"}:
+            return physical
+        if status in {"MISSING", "INOPERATIVE", "INOP"}:
+            return status
+        return "PRESENT"
+
+    def _report_cassette_status_changes(self, cash_units: list[DispenseCashUnit]) -> None:
+        current_states = {unit.cassette_no: self._cassette_state(unit) for unit in cash_units}
+        if not self._last_cassette_states:
+            self._last_cassette_states = current_states
+            return
+
+        for unit in cash_units:
+            state = current_states[unit.cassette_no]
+            previous = self._last_cassette_states.get(unit.cassette_no)
+            if previous == state:
+                continue
+
+            event_type = "CASH_CASSETTE_STATUS_CHANGED"
+            level = "warning"
+            message = "Cash cassette status changed"
+            if state == "MISSING":
+                event_type = "CASH_CASSETTE_REMOVED"
+                message = "Cash cassette removed"
+            elif previous == "MISSING" and state == "PRESENT":
+                event_type = "CASH_CASSETTE_INSERTED"
+                level = "info"
+                message = "Cash cassette inserted"
+
+            self._log_agent_event(
+                level,
+                message,
+                {
+                    "event_type": event_type,
+                    "cassette_no": unit.cassette_no,
+                    "cassette_id": unit.cassette_id,
+                    "cassette_name": unit.cassette_name,
+                    "previous_state": previous,
+                    "state": state,
+                    "status": unit.status,
+                    "physical_status": unit.physical_status,
+                },
+            )
+
+        self._last_cassette_states = current_states

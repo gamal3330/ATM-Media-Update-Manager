@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 
+WFS_INF_CDM_STATUS = 301
 WFS_INF_CDM_CASH_UNIT_INFO = 303
 DEFAULT_TIMEOUT_MS = 20000
 DEFAULT_VERSION_RANGE = 0x00031E03  # 3.00 through 3.30
@@ -101,6 +102,73 @@ CU_STATUSES = {
     7: "NO_VALUE",
     8: "NO_REFERENCE",
     9: "MANIPULATED",
+}
+
+DEVICE_STATUSES = {
+    0: "ONLINE",
+    1: "OFFLINE",
+    2: "POWEROFF",
+    3: "NODEVICE",
+    4: "HWERROR",
+    5: "USERERROR",
+    6: "BUSY",
+    7: "FRAUDATTEMPT",
+    8: "POTENTIALFRAUD",
+}
+
+SAFE_DOOR_STATUSES = {
+    1: "NOTSUPPORTED",
+    2: "OPEN",
+    3: "CLOSED",
+    4: "UNKNOWN",
+}
+
+DISPENSER_STATUSES = {
+    0: "OK",
+    1: "CUSTATE",
+    2: "CUSTOP",
+    3: "CUUNKNOWN",
+}
+
+INTERMEDIATE_STACKER_STATUSES = {
+    0: "EMPTY",
+    1: "NOTEMPTY",
+    2: "NOTEMPTYCUST",
+    3: "NOTEMPTYUNKNOWN",
+    4: "UNKNOWN",
+    5: "NOTSUPPORTED",
+}
+
+SHUTTER_STATUSES = {
+    0: "CLOSED",
+    1: "OPEN",
+    2: "JAMMED",
+    3: "UNKNOWN",
+    4: "NOTSUPPORTED",
+}
+
+TRANSPORT_STATUSES = {
+    0: "OK",
+    1: "INOPERATIVE",
+    2: "UNKNOWN",
+    3: "NOTSUPPORTED",
+}
+
+TRANSPORT_POSITION_STATUSES = {
+    0: "EMPTY",
+    1: "NOTEMPTY",
+    2: "NOTEMPTYCUST",
+    3: "NOTEMPTYUNKNOWN",
+    4: "NOTSUPPORTED",
+}
+
+JAMMED_SHUTTER_POSITIONS = {
+    0: "NOTSUPPORTED",
+    1: "NOTJAMMED",
+    2: "OPEN",
+    3: "PARTIALLYOPEN",
+    4: "CLOSED",
+    5: "UNKNOWN",
 }
 
 
@@ -201,6 +269,21 @@ class WFSCDMCUINFO(ctypes.Structure):
     ]
 
 
+class WFSCDMSTATUS(ctypes.Structure):
+    _pack_ = 1
+    _fields_ = [
+        ("fwDevice", ctypes.c_ushort),
+        ("fwSafeDoor", ctypes.c_ushort),
+        ("fwDispenser", ctypes.c_ushort),
+        ("fwIntermediateStacker", ctypes.c_ushort),
+        ("fwShutter", ctypes.c_ushort),
+        ("fwTransport", ctypes.c_ushort),
+        ("fwTransportStatus", ctypes.c_ushort),
+        ("fwJammedShutterPosition", ctypes.c_ushort),
+        ("lpszExtra", ctypes.c_void_p),
+    ]
+
+
 @dataclass
 class PhysicalCashUnitRead:
     physical_position_name: str
@@ -258,6 +341,40 @@ class XfsCdmReadResult:
         return asdict(self)
 
 
+@dataclass
+class XfsCdmStatusResult:
+    read_only: bool
+    process_architecture: str
+    msxfs_path: str
+    logical_service: str
+    version_range: str
+    timeout_ms: int
+    xfs_manager_version: str
+    service_version: str
+    spi_version: str
+    device_code: int
+    device_status: str
+    safe_door_code: int
+    safe_door_status: str
+    dispenser_code: int
+    dispenser_status: str
+    intermediate_stacker_code: int
+    intermediate_stacker_status: str
+    shutter_code: int
+    shutter_status: str
+    transport_code: int
+    transport_status: str
+    transport_position_code: int
+    transport_position_status: str
+    jammed_shutter_position_code: int
+    jammed_shutter_position: str
+    extra: dict[str, str] = field(default_factory=dict)
+    notes: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 def process_architecture() -> str:
     return "64-bit" if sys.maxsize > 2**32 else "32-bit"
 
@@ -280,6 +397,10 @@ def hresult_name(value: int) -> str:
 
 def status_name(value: int) -> str:
     return CU_STATUSES.get(value, f"UNKNOWN_{value}")
+
+
+def lookup_status(mapping: dict[int, str], value: int) -> str:
+    return mapping.get(value, f"UNKNOWN_{value}")
 
 
 def type_name(value: int) -> str:
@@ -362,6 +483,35 @@ def configure_msxfs(msxfs: ctypes.WinDLL) -> None:
     msxfs.WFSFreeResult.restype = ctypes.c_long
 
 
+def decode_extra(pointer: int | None, max_bytes: int = 8192) -> dict[str, str]:
+    if not pointer:
+        return {}
+    raw = bytearray()
+    zero_run = 0
+    for offset in range(max_bytes):
+        chunk = ctypes.string_at(pointer + offset, 1)
+        byte = chunk[0]
+        raw.append(byte)
+        if byte == 0:
+            zero_run += 1
+            if zero_run >= 2:
+                break
+        else:
+            zero_run = 0
+    entries = bytes(raw).split(b"\x00")
+    result: dict[str, str] = {}
+    for entry in entries:
+        text = entry.decode("latin-1", errors="replace").strip()
+        if not text:
+            continue
+        if "=" in text:
+            key, value = text.split("=", 1)
+            result[key.strip()] = value.strip()
+        else:
+            result[text] = ""
+    return result
+
+
 def parse_cash_unit(unit: WFSCDMCASHUNIT) -> CashUnitRead:
     physical_units: list[PhysicalCashUnitRead] = []
     for index in range(int(unit.usNumPhysicalCUs)):
@@ -420,6 +570,126 @@ def parse_cash_units(buffer: int) -> list[CashUnitRead]:
             continue
         units.append(parse_cash_unit(unit_ptr.contents))
     return units
+
+
+def parse_cdm_status(buffer: int) -> dict[str, Any]:
+    status = ctypes.cast(buffer, ctypes.POINTER(WFSCDMSTATUS)).contents
+    device_code = int(status.fwDevice)
+    safe_door_code = int(status.fwSafeDoor)
+    dispenser_code = int(status.fwDispenser)
+    intermediate_stacker_code = int(status.fwIntermediateStacker)
+    shutter_code = int(status.fwShutter)
+    transport_code = int(status.fwTransport)
+    transport_position_code = int(status.fwTransportStatus)
+    jammed_shutter_position_code = int(status.fwJammedShutterPosition)
+    return {
+        "device_code": device_code,
+        "device_status": lookup_status(DEVICE_STATUSES, device_code),
+        "safe_door_code": safe_door_code,
+        "safe_door_status": lookup_status(SAFE_DOOR_STATUSES, safe_door_code),
+        "dispenser_code": dispenser_code,
+        "dispenser_status": lookup_status(DISPENSER_STATUSES, dispenser_code),
+        "intermediate_stacker_code": intermediate_stacker_code,
+        "intermediate_stacker_status": lookup_status(INTERMEDIATE_STACKER_STATUSES, intermediate_stacker_code),
+        "shutter_code": shutter_code,
+        "shutter_status": lookup_status(SHUTTER_STATUSES, shutter_code),
+        "transport_code": transport_code,
+        "transport_status": lookup_status(TRANSPORT_STATUSES, transport_code),
+        "transport_position_code": transport_position_code,
+        "transport_position_status": lookup_status(TRANSPORT_POSITION_STATUSES, transport_position_code),
+        "jammed_shutter_position_code": jammed_shutter_position_code,
+        "jammed_shutter_position": lookup_status(JAMMED_SHUTTER_POSITIONS, jammed_shutter_position_code),
+        "extra": decode_extra(int(status.lpszExtra) if status.lpszExtra else None),
+    }
+
+
+def read_cdm_status(
+    logical_service: str,
+    msxfs_path: str | None = None,
+    timeout_ms: int = DEFAULT_TIMEOUT_MS,
+    version_range: int = DEFAULT_VERSION_RANGE,
+) -> XfsCdmStatusResult:
+    if os.name != "nt":
+        raise RuntimeError("XFS CDM status read is only available on Windows.")
+    if process_architecture() != "32-bit":
+        raise RuntimeError("XFS CDM status read must use a 32-bit atm-agent.exe when the installed XFS Manager/provider is 32-bit.")
+    if not logical_service.strip():
+        raise RuntimeError("A logical service name is required, for example: MediaDispenser1")
+
+    resolved_msxfs = resolve_msxfs_path(msxfs_path)
+    msxfs = ctypes.WinDLL(str(resolved_msxfs))
+    configure_msxfs(msxfs)
+
+    manager_version = WFSVERSION()
+    service_version = WFSVERSION()
+    spi_version = WFSVERSION()
+    hservice = ctypes.c_ushort(0)
+    result_ptr: ctypes.POINTER(WFSRESULT) | None = None
+
+    started = False
+    opened = False
+    try:
+        rc = msxfs.WFSStartUp(version_range, ctypes.byref(manager_version))
+        if rc != WFS_SUCCESS:
+            raise RuntimeError(f"WFSStartUp failed: {hresult_name(rc)} ({rc})")
+        started = True
+
+        rc = msxfs.WFSOpen(
+            logical_service.encode("ascii"),
+            None,
+            b"ATMUnifiedAgent-CDM-Status-ReadOnly",
+            0,
+            timeout_ms,
+            version_range,
+            ctypes.byref(service_version),
+            ctypes.byref(spi_version),
+            ctypes.byref(hservice),
+        )
+        if rc != WFS_SUCCESS:
+            raise RuntimeError(f"WFSOpen({logical_service}) failed: {hresult_name(rc)} ({rc})")
+        opened = True
+
+        result_ptr = ctypes.POINTER(WFSRESULT)()
+        rc = msxfs.WFSGetInfo(
+            hservice,
+            WFS_INF_CDM_STATUS,
+            None,
+            timeout_ms,
+            ctypes.byref(result_ptr),
+        )
+        if rc != WFS_SUCCESS:
+            raise RuntimeError(f"WFSGetInfo(CDM_STATUS) failed: {hresult_name(rc)} ({rc})")
+        if not result_ptr:
+            raise RuntimeError("WFSGetInfo returned an empty result pointer.")
+
+        result = result_ptr.contents
+        if int(result.hResult) != WFS_SUCCESS:
+            raise RuntimeError(
+                f"WFSGetInfo(CDM_STATUS) result failed: {hresult_name(int(result.hResult))} ({int(result.hResult)})"
+            )
+        if not result.lpBuffer:
+            raise RuntimeError("WFSGetInfo(CDM_STATUS) returned an empty status buffer.")
+
+        status = parse_cdm_status(int(result.lpBuffer))
+        return XfsCdmStatusResult(
+            read_only=True,
+            process_architecture=process_architecture(),
+            msxfs_path=str(resolved_msxfs),
+            logical_service=logical_service,
+            version_range=f"0x{version_range:08X}",
+            timeout_ms=timeout_ms,
+            xfs_manager_version=version_to_text(int(manager_version.wVersion)),
+            service_version=version_to_text(int(service_version.wVersion)),
+            spi_version=version_to_text(int(spi_version.wVersion)),
+            **status,
+        )
+    finally:
+        if result_ptr:
+            msxfs.WFSFreeResult(result_ptr)
+        if opened:
+            msxfs.WFSClose(hservice)
+        if started:
+            msxfs.WFSCleanUp()
 
 
 def read_cash_units(
@@ -544,18 +814,51 @@ def format_read_result(result: XfsCdmReadResult) -> str:
     return "\n".join(lines)
 
 
+def format_status_result(result: XfsCdmStatusResult) -> str:
+    lines = [
+        "XFS CDM Status Read - READ ONLY",
+        f"Logical Service: {result.logical_service}",
+        f"Process Architecture: {result.process_architecture}",
+        f"msxfs.dll: {result.msxfs_path}",
+        f"XFS Manager Version: {result.xfs_manager_version}",
+        f"Service Version: {result.service_version}",
+        f"SPI Version: {result.spi_version}",
+        "",
+        "Status:",
+        f"  - Device: {result.device_status} ({result.device_code})",
+        f"  - Safe Door: {result.safe_door_status} ({result.safe_door_code})",
+        f"  - Dispenser: {result.dispenser_status} ({result.dispenser_code})",
+        f"  - Intermediate Stacker: {result.intermediate_stacker_status} ({result.intermediate_stacker_code})",
+        f"  - Shutter: {result.shutter_status} ({result.shutter_code})",
+        f"  - Transport: {result.transport_status} ({result.transport_code})",
+        f"  - Transport Position: {result.transport_position_status} ({result.transport_position_code})",
+        f"  - Jammed Shutter Position: {result.jammed_shutter_position} ({result.jammed_shutter_position_code})",
+    ]
+    if result.extra:
+        lines.append("")
+        lines.append("Extra:")
+        lines.extend(f"  - {key}={value}" for key, value in sorted(result.extra.items()))
+    if result.notes:
+        lines.append("")
+        lines.append("Notes:")
+        lines.extend(f"  - {note}" for note in result.notes)
+    return "\n".join(lines)
+
+
 def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Read-only XFS CDM cash unit read")
+    parser = argparse.ArgumentParser(description="Read-only XFS CDM cash unit/status read")
     parser.add_argument("--logical-service", default="MediaDispenser1")
     parser.add_argument("--msxfs-path")
     parser.add_argument("--timeout-ms", type=int, default=DEFAULT_TIMEOUT_MS)
     parser.add_argument("--version-range", default=f"0x{DEFAULT_VERSION_RANGE:08X}")
+    parser.add_argument("--status", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    result = read_cash_units(
+    reader = read_cdm_status if args.status else read_cash_units
+    result = reader(
         args.logical_service,
         msxfs_path=args.msxfs_path,
         timeout_ms=args.timeout_ms,
@@ -564,7 +867,7 @@ def main() -> None:
     if args.json:
         print(json.dumps(result.to_dict(), indent=2))
     else:
-        print(format_read_result(result))
+        print(format_status_result(result) if args.status else format_read_result(result))
 
 
 if __name__ == "__main__":
