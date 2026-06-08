@@ -122,6 +122,7 @@ function agentEventSummary(context, fallbackMessage) {
   if (!context || typeof context !== "object") return null;
   const eventType = context.event_type || "";
   const state = context.state && typeof context.state === "object" ? context.state : {};
+  const siu = context.siu && typeof context.siu === "object" ? context.siu : {};
   const labels = {
     CDM_SHUTTER_OPENED: "فتح Shutter",
     CDM_SHUTTER_CLOSED: "إغلاق Shutter",
@@ -134,6 +135,21 @@ function agentEventSummary(context, fallbackMessage) {
     CASH_CASSETTE_REMOVED: "تمت إزالة كاسيت",
     CASH_CASSETTE_INSERTED: "تم تركيب كاسيت",
     CASH_CASSETTE_STATUS_CHANGED: "تغيرت حالة كاسيت",
+    SIU_STATUS_READ_FAILED: "تعذر قراءة حساسات SIU",
+    SIU_CABINET_DOOR_OPENED: "فتح باب الصراف العلوي",
+    SIU_CABINET_DOOR_CLOSED: "إغلاق باب الصراف العلوي",
+    SIU_SAFE_DOOR_OPENED: "فتح باب الخزنة",
+    SIU_SAFE_DOOR_CLOSED: "إغلاق باب الخزنة",
+    SIU_VANDAL_SHIELD_OPENED: "فتح Vandal Shield",
+    SIU_VANDAL_SHIELD_CLOSED: "إغلاق Vandal Shield",
+    SIU_OPERATOR_SWITCH_CHANGED: "تغير وضع مفتاح التشغيل",
+    SIU_TAMPER_TRIGGERED: "حساس العبث يعمل",
+    SIU_INTERNAL_TAMPER_TRIGGERED: "حساس العبث الداخلي يعمل",
+    SIU_SEISMIC_TRIGGERED: "حساس الاهتزاز يعمل",
+    SIU_HEAT_TRIGGERED: "حساس الحرارة يعمل",
+    SIU_PROXIMITY_PRESENT: "تم رصد اقتراب",
+    SIU_DEVICE_ATTENTION: "حالة SIU تحتاج متابعة",
+    SIU_DEVICE_ONLINE: "SIU عاد Online",
   };
   const title = labels[eventType];
   if (!title) return null;
@@ -147,6 +163,7 @@ function agentEventSummary(context, fallbackMessage) {
   if (state.shutter_status) subtitleParts.push(`Shutter: ${state.shutter_status}`);
   if (state.safe_door_status) subtitleParts.push(`Safe door: ${state.safe_door_status}`);
   if (state.device_status) subtitleParts.push(`Device: ${state.device_status}`);
+  if (siu.device_status) subtitleParts.push(`SIU: ${siu.device_status}`);
 
   const items = [
     ["نوع الحدث", title],
@@ -156,6 +173,8 @@ function agentEventSummary(context, fallbackMessage) {
     state.shutter_status ? ["Shutter", state.shutter_status] : null,
     state.safe_door_status ? ["Safe door", state.safe_door_status] : null,
     state.transport_status ? ["Transport", state.transport_status] : null,
+    siu.device_status ? ["SIU", siu.device_status] : null,
+    context.port ? ["الحساس", context.port] : null,
     context.cassette_no ? ["الكاسيت", context.cassette_no] : null,
   ].filter(Boolean);
 

@@ -23,10 +23,12 @@ from logger import setup_logger
 from media_update_module import MediaUpdateModule
 from module_runner import ModuleRunner
 from network_probe import tcp_connect_probe
+from terminal_status_module import TerminalStatusModule
 from xfs_cdm_diagnostics import diagnose_xfs_cdm, format_diagnostics
 from xfs_cdm_reader import read_cash_units, read_cdm_status, format_read_result, format_status_result
+from xfs_siu_reader import read_siu_status, format_status_result as format_siu_status_result
 
-AGENT_VERSION = "2.0.13"
+AGENT_VERSION = "2.0.14"
 DEFAULT_INSTALL_DIR = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "QIB ATM Manager Agent"
 DEFAULT_CONFIG = DEFAULT_INSTALL_DIR / "config.json"
 SERVICE_NAME = "ATMUnifiedAgent"
@@ -449,9 +451,11 @@ class AtmAgent:
         )
         self.media_module = MediaUpdateModule(self.api, self.local_config, self.logger)
         self.cash_module = CashMonitoringModule(self.api, self.local_config.atm_id, self.logger)
+        self.terminal_status_module = TerminalStatusModule(self.api, self.logger)
         self.modules = ModuleRunner(self.logger)
         self.modules.register(self.media_module)
         self.modules.register(self.cash_module)
+        self.modules.register(self.terminal_status_module)
         self.stop_event = stop_event or threading.Event()
         self.remote_config: RemoteConfig | None = None
         self.applied_config_version = 0
@@ -467,6 +471,8 @@ class AtmAgent:
             last_cash_unit_count=self.cash_module.last_unit_count,
             last_cash_error=self.cash_module.last_error,
             last_cdm_status=self.cash_module.last_cdm_status,
+            last_siu_status=self.terminal_status_module.last_siu_status,
+            last_siu_error=self.terminal_status_module.last_error,
         )
 
     def handle_switch_probe(self) -> None:
@@ -820,6 +826,16 @@ def status_command(args: argparse.Namespace) -> None:
         print(f"Last CDM Device: {cdm_status.get('device_status', '-')}")
         print(f"Last CDM Shutter: {cdm_status.get('shutter_status', '-')}")
         print(f"Last CDM Safe Door: {cdm_status.get('safe_door_status', '-')}")
+    siu_status = state.get("last_siu_status")
+    if isinstance(siu_status, dict):
+        print(f"Last SIU Device: {siu_status.get('device_status', '-')}")
+        doors = siu_status.get("doors") or {}
+        cabinet = doors.get("cabinet") or {}
+        safe = doors.get("safe") or {}
+        print(f"Last SIU Cabinet Door: {'+'.join(cabinet.get('statuses') or []) or '-'}")
+        print(f"Last SIU Safe Door: {'+'.join(safe.get('statuses') or []) or '-'}")
+    if state.get("last_siu_error"):
+        print(f"Last SIU Error: {state['last_siu_error']}")
 
     session = requests.Session()
     session.headers.update({"X-ATM-ID": config.atm_id, "X-API-Key": config.api_key})
@@ -887,6 +903,19 @@ def xfs_cdm_status_command(args: argparse.Namespace) -> None:
         print(json.dumps(result.to_dict(), indent=2))
     else:
         print(format_status_result(result))
+
+
+def xfs_siu_status_command(args: argparse.Namespace) -> None:
+    result = read_siu_status(
+        args.logical_service,
+        msxfs_path=args.msxfs_path,
+        timeout_ms=args.timeout_ms,
+        version_range=int(str(args.version_range), 0),
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_siu_status_result(result))
 
 
 def service_main(args: argparse.Namespace) -> None:
@@ -965,6 +994,14 @@ def main() -> None:
     status_read_parser.add_argument("--version-range", default="0x00031E03")
     status_read_parser.add_argument("--json", action="store_true")
     status_read_parser.set_defaults(func=xfs_cdm_status_command)
+
+    siu_status_parser = sub.add_parser("xfs-siu-status")
+    siu_status_parser.add_argument("--logical-service", default="SIU")
+    siu_status_parser.add_argument("--msxfs-path")
+    siu_status_parser.add_argument("--timeout-ms", type=int, default=20000)
+    siu_status_parser.add_argument("--version-range", default="0x00031E03")
+    siu_status_parser.add_argument("--json", action="store_true")
+    siu_status_parser.set_defaults(func=xfs_siu_status_command)
 
     run_parser = sub.add_parser("run")
     run_parser.add_argument("--config", default=str(DEFAULT_CONFIG))

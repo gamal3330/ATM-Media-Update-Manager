@@ -24,7 +24,9 @@ from module_runner import ModuleRunner
 from network_probe import tcp_connect_probe
 from path_policy import validate_managed_path
 from safe_zip import extract_safe_zip
+from terminal_status_module import TerminalStatusModule
 from xfs_cdm_diagnostics import diagnose_xfs_cdm, format_diagnostics
+from xfs_siu_reader import decode_flags
 
 
 def make_zip(path, members):
@@ -788,6 +790,56 @@ def test_cash_monitoring_reports_cassette_remove_and_insert_events():
         "CASH_CASSETTE_REMOVED",
         "CASH_CASSETTE_INSERTED",
     ]
+
+
+def siu_result(cabinet="CLOSED", safe="CLOSED", tamper="OFF"):
+    data = {
+        "device_status": "ONLINE",
+        "doors": {
+            "cabinet": {"statuses": [cabinet]},
+            "safe": {"statuses": [safe]},
+            "vandal_shield": {"statuses": ["NOT_AVAILABLE"]},
+        },
+        "sensors": {
+            "operator_switch": {"statuses": ["RUN"]},
+            "tamper": {"statuses": [tamper]},
+            "internal_tamper": {"statuses": ["OFF"]},
+            "seismic": {"statuses": ["OFF"]},
+            "heat": {"statuses": ["OFF"]},
+            "proximity": {"statuses": ["NOT_PRESENT"]},
+        },
+    }
+    return SimpleNamespace(**data, to_dict=lambda: data)
+
+
+def test_terminal_status_reports_siu_door_changes(monkeypatch):
+    api = FakeApi()
+    logger = __import__("logging").getLogger("test")
+    module = TerminalStatusModule(api, logger)
+    module.configure(parse_remote_config(remote_payload(cash_enabled=True)))
+    reads = [
+        siu_result(cabinet="CLOSED", safe="CLOSED"),
+        siu_result(cabinet="OPEN", safe="CLOSED"),
+        siu_result(cabinet="OPEN", safe="OPEN"),
+        siu_result(cabinet="CLOSED", safe="OPEN"),
+    ]
+
+    monkeypatch.setattr("terminal_status_module.read_siu_status", lambda *args, **kwargs: reads.pop(0))
+
+    module.tick(1000.0)
+    module.tick(1031.0)
+    module.tick(1062.0)
+    module.tick(1093.0)
+
+    assert [item["details"]["event_type"] for item in api.logs] == [
+        "SIU_CABINET_DOOR_OPENED",
+        "SIU_SAFE_DOOR_OPENED",
+        "SIU_CABINET_DOOR_CLOSED",
+    ]
+
+
+def test_siu_decode_flags_combines_door_states():
+    assert decode_flags(0x0002 | 0x0040, {0x0001: "CLOSED", 0x0002: "OPEN", 0x0040: "AJAR"}) == ["OPEN", "AJAR"]
 
 
 def test_xfs_cdm_diagnostics_detects_ncr_aptra_files(tmp_path):
