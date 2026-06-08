@@ -242,6 +242,7 @@ class CashMonitoringModule:
         self._last_cdm_status_signature: dict[str, str] | None = None
         self._last_cassette_states: dict[int, str] = {}
         self._cdm_status_error_reported = False
+        self._cdm_busy_started_at: float | None = None
 
     def configure(self, config: RemoteConfig) -> None:
         self.config = config.cash_monitoring
@@ -287,7 +288,7 @@ class CashMonitoringModule:
                 reject_retract=reject_retract,
             )
             self.api.cash_snapshot(snapshot.to_payload())
-            self._report_cdm_status_changes()
+            self._report_cdm_status_changes(now)
             self._report_cassette_status_changes(cash_units)
         except Exception as exc:
             self.status = "error"
@@ -339,13 +340,21 @@ class CashMonitoringModule:
         }
 
     @staticmethod
-    def _status_context(status: XfsCdmStatusResult, event_type: str, previous_state: str | None = None) -> dict:
+    def _status_context(
+        status: XfsCdmStatusResult,
+        event_type: str,
+        previous_state: str | None = None,
+        busy_duration_seconds: int | None = None,
+    ) -> dict:
         payload = status.to_dict()
-        return {
+        context = {
             "event_type": event_type,
             "previous_state": previous_state,
             "state": payload,
         }
+        if busy_duration_seconds is not None:
+            context["busy_duration_seconds"] = busy_duration_seconds
+        return context
 
     @staticmethod
     def _shutter_event_type(value: str) -> tuple[str | None, str]:
@@ -382,7 +391,7 @@ class CashMonitoringModule:
         except Exception:
             self.logger.debug("Could not send agent event log: %s", message, exc_info=True)
 
-    def _report_cdm_status_changes(self) -> None:
+    def _report_cdm_status_changes(self, now: float) -> None:
         if not hasattr(self.provider, "get_cdm_status"):
             return
         try:
@@ -406,6 +415,16 @@ class CashMonitoringModule:
         signature = self._status_signature(status)
         previous = self._last_cdm_status_signature
         self._last_cdm_status_signature = signature
+        device_status = (signature.get("device") or "").upper()
+        previous_device_status = (previous or {}).get("device", "").upper()
+        busy_duration_seconds: int | None = None
+        if device_status == "BUSY" and self._cdm_busy_started_at is None:
+            self._cdm_busy_started_at = now
+        elif device_status == "ONLINE" and self._cdm_busy_started_at is not None:
+            busy_duration_seconds = max(0, int(now - self._cdm_busy_started_at))
+            self._cdm_busy_started_at = None
+        elif device_status not in {"BUSY", "ONLINE"}:
+            self._cdm_busy_started_at = None
 
         if previous is None:
             initial_events = [
@@ -428,7 +447,12 @@ class CashMonitoringModule:
                 continue
             event_type, level = event_factory(signature[key])
             if event_type:
-                self._log_agent_event(level, message, self._status_context(status, event_type, previous.get(key)))
+                duration = busy_duration_seconds if key == "device" and previous_device_status == "BUSY" else None
+                self._log_agent_event(
+                    level,
+                    message,
+                    self._status_context(status, event_type, previous.get(key), duration),
+                )
 
     @staticmethod
     def _cassette_state(unit: DispenseCashUnit) -> str:

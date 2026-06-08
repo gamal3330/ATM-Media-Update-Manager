@@ -118,6 +118,45 @@ function cashAlertSummary(action, details) {
   };
 }
 
+const cdmStatusLabels = {
+  ONLINE: "جاهز",
+  BUSY: "مشغول مؤقتًا",
+  OFFLINE: "غير متصل",
+  POWEROFF: "مطفأ",
+  NODEVICE: "غير متاح",
+  HWERROR: "خطأ عتادي",
+  FRAUDATTEMPT: "محاولة عبث",
+  POTENTIALFRAUD: "اشتباه عبث",
+  OPEN: "مفتوح",
+  CLOSED: "مغلق",
+  JAMMED: "منحشر",
+};
+
+function isUnknownXfsStatus(value) {
+  return typeof value === "string" && value.startsWith("UNKNOWN_");
+}
+
+function friendlyStatus(value) {
+  if (!value) return "";
+  const normalized = String(value).toUpperCase();
+  if (cdmStatusLabels[normalized]) return cdmStatusLabels[normalized];
+  if (isUnknownXfsStatus(normalized)) return "غير معروف من مزود XFS";
+  return value;
+}
+
+function statusDetail(value) {
+  if (!value) return "";
+  const friendly = friendlyStatus(value);
+  return isUnknownXfsStatus(String(value).toUpperCase()) ? `${friendly} (${value})` : friendly;
+}
+
+function formatDuration(seconds) {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value < 0) return "";
+  if (value < 60) return `${Math.round(value)} ثانية`;
+  return `${Math.floor(value / 60)} دقيقة ${Math.round(value % 60)} ثانية`;
+}
+
 function agentEventSummary(context, fallbackMessage) {
   if (!context || typeof context !== "object") return null;
   const eventType = context.event_type || "";
@@ -129,8 +168,8 @@ function agentEventSummary(context, fallbackMessage) {
     CDM_SHUTTER_JAMMED: "انحشار Shutter",
     CDM_SAFE_DOOR_OPENED: "فتح باب الخزنة",
     CDM_SAFE_DOOR_CLOSED: "إغلاق باب الخزنة",
-    CDM_DEVICE_ATTENTION: "حالة CDM تحتاج متابعة",
-    CDM_DEVICE_ONLINE: "CDM عاد Online",
+    CDM_DEVICE_ATTENTION: "حالة وحدة النقد تحتاج متابعة",
+    CDM_DEVICE_ONLINE: "وحدة النقد جاهزة",
     CDM_STATUS_READ_FAILED: "تعذر قراءة حالة CDM",
     CASH_CASSETTE_REMOVED: "تمت إزالة كاسيت",
     CASH_CASSETTE_INSERTED: "تم تركيب كاسيت",
@@ -157,29 +196,38 @@ function agentEventSummary(context, fallbackMessage) {
   const cassetteNo = context.cassette_no ? `كاسيت ${context.cassette_no}` : "";
   const current = context.state && typeof context.state === "string" ? context.state : "";
   const previous = context.previous_state || "";
+  const busyDuration = formatDuration(context.busy_duration_seconds);
+  const displayTitle =
+    eventType === "CDM_DEVICE_ONLINE" && String(previous).toUpperCase() === "BUSY"
+      ? "وحدة النقد عادت جاهزة بعد انشغال مؤقت"
+      : title;
   const subtitleParts = [];
   if (cassetteNo) subtitleParts.push(cassetteNo);
-  if (previous || current) subtitleParts.push([previous, current].filter(Boolean).join(" → "));
-  if (state.shutter_status) subtitleParts.push(`Shutter: ${state.shutter_status}`);
-  if (state.safe_door_status) subtitleParts.push(`Safe door: ${state.safe_door_status}`);
-  if (state.device_status) subtitleParts.push(`Device: ${state.device_status}`);
-  if (siu.device_status) subtitleParts.push(`SIU: ${siu.device_status}`);
+  if (previous || current) subtitleParts.push([friendlyStatus(previous), friendlyStatus(current)].filter(Boolean).join(" → "));
+  if (busyDuration) subtitleParts.push(`استمر ${busyDuration}`);
+  if (state.device_status) subtitleParts.push(`CDM: ${friendlyStatus(state.device_status)}`);
+  if (state.safe_door_status) subtitleParts.push(`باب الخزنة: ${friendlyStatus(state.safe_door_status)}`);
+  if (state.shutter_status && !isUnknownXfsStatus(String(state.shutter_status).toUpperCase())) {
+    subtitleParts.push(`Shutter: ${friendlyStatus(state.shutter_status)}`);
+  }
+  if (siu.device_status) subtitleParts.push(`SIU: ${friendlyStatus(siu.device_status)}`);
 
   const items = [
-    ["نوع الحدث", title],
-    previous ? ["الحالة السابقة", previous] : null,
-    current ? ["الحالة الحالية", current] : null,
-    state.device_status ? ["CDM", state.device_status] : null,
-    state.shutter_status ? ["Shutter", state.shutter_status] : null,
-    state.safe_door_status ? ["Safe door", state.safe_door_status] : null,
-    state.transport_status ? ["Transport", state.transport_status] : null,
-    siu.device_status ? ["SIU", siu.device_status] : null,
+    ["نوع الحدث", displayTitle],
+    previous ? ["الحالة السابقة", statusDetail(previous)] : null,
+    current ? ["الحالة الحالية", statusDetail(current)] : null,
+    busyDuration ? ["مدة الانشغال", busyDuration] : null,
+    state.device_status ? ["CDM", statusDetail(state.device_status)] : null,
+    state.shutter_status ? ["Shutter", statusDetail(state.shutter_status)] : null,
+    state.safe_door_status ? ["Safe door", statusDetail(state.safe_door_status)] : null,
+    state.transport_status ? ["Transport", statusDetail(state.transport_status)] : null,
+    siu.device_status ? ["SIU", statusDetail(siu.device_status)] : null,
     context.port ? ["الحساس", context.port] : null,
     context.cassette_no ? ["الكاسيت", context.cassette_no] : null,
   ].filter(Boolean);
 
   return {
-    title,
+    title: displayTitle,
     subtitle: subtitleParts.join(" · ") || fallbackMessage,
     items,
   };

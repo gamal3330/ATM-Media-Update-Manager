@@ -792,6 +792,37 @@ def test_cash_monitoring_reports_cassette_remove_and_insert_events():
     ]
 
 
+def cdm_status(device="ONLINE", shutter="CLOSED", safe_door="CLOSED", transport="OK"):
+    data = {
+        "device_status": device,
+        "safe_door_status": safe_door,
+        "dispenser_status": "OK",
+        "intermediate_stacker_status": "EMPTY",
+        "shutter_status": shutter,
+        "transport_status": transport,
+        "transport_position_status": "EMPTY",
+        "jammed_shutter_position": "NOTJAMMED",
+    }
+    return SimpleNamespace(**data, to_dict=lambda: data)
+
+
+def test_cash_monitoring_reports_cdm_busy_duration_when_device_returns_online():
+    api = FakeApi()
+    logger = __import__("logging").getLogger("test")
+    module = CashMonitoringModule(api, "ATM001", logger)
+    reads = [cdm_status("ONLINE"), cdm_status("BUSY"), cdm_status("ONLINE")]
+    module.provider = SimpleNamespace(source="xfs_cdm", get_cdm_status=lambda: reads.pop(0))
+
+    module._report_cdm_status_changes(1000.0)
+    module._report_cdm_status_changes(1010.0)
+    module._report_cdm_status_changes(1025.0)
+
+    assert len(api.logs) == 1
+    assert api.logs[0]["details"]["event_type"] == "CDM_DEVICE_ONLINE"
+    assert api.logs[0]["details"]["previous_state"] == "BUSY"
+    assert api.logs[0]["details"]["busy_duration_seconds"] == 15
+
+
 def siu_result(cabinet="CLOSED", safe="CLOSED", tamper="OFF"):
     data = {
         "device_status": "ONLINE",
