@@ -304,9 +304,13 @@ async function downloadBlob(path) {
 
 function buildLogQuery(params = {}, fallbackLimit = 200) {
   const query = new URLSearchParams();
-  query.set("limit", String(params.limit || fallbackLimit));
+  const pageSize = params.pageSize || params.page_size || params.limit || fallbackLimit;
+  query.set("limit", String(pageSize));
+  query.set("page", String(params.page || 1));
+  query.set("page_size", String(pageSize));
   if (params.atmId) query.set("atm_id", params.atmId);
   if (params.eventType) query.set("event_type", params.eventType);
+  if (params.level) query.set("level", params.level);
   if (params.fromAt) query.set("from_at", params.fromAt);
   if (params.toAt) query.set("to_at", params.toAt);
   return query.toString();
@@ -339,7 +343,8 @@ export const api = {
   listSwitchProbes: (atmId) => request(`/api/atms/${encodeURIComponent(atmId)}/switch-probes`),
   deleteAtm: (atmId, force = false) =>
     request(`/api/atms/${encodeURIComponent(atmId)}${force ? "?force=true" : ""}`, { method: "DELETE" }),
-  getCashSummary: () => request("/api/cash/summary"),
+  getCashSummary: ({ includeDetails = true } = {}) =>
+    request(`/api/cash/summary${includeDetails ? "" : "?include_details=false"}`),
   getCashAtm: (atmId) => request(`/api/cash/atms/${encodeURIComponent(atmId)}`),
   requestCashReadNow: (atmId) => request(`/api/cash/atms/${encodeURIComponent(atmId)}/read-now`, { method: "POST" }),
   getCashReport: () => request("/api/cash/reports/overview"),

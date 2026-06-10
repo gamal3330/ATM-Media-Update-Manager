@@ -6,6 +6,10 @@ from pathlib import Path
 from typing import Any
 
 
+GRG_JOURNAL_GLOB = r"D:\Program Files\DTATMW\Bin\ATMAPP\Log\EJ*.log"
+NCR_JOURNAL_GLOB = r"C:\Program Files (x86)\NCR APTRA\Advance NDC\Data\EJDATA.LOG"
+
+
 @dataclass
 class LocalConfig:
     server_url: str
@@ -165,7 +169,9 @@ def parse_remote_config(payload: dict[str, Any]) -> RemoteConfig:
     if xfs_profile not in {"ncr_aptra", "grg", "custom"}:
         xfs_profile = "custom"
     default_logical_service = "CDM" if xfs_profile == "grg" else "MediaDispenser1"
-    journal_enabled_default = xfs_profile == "grg"
+    journal_enabled_default = xfs_profile in {"grg", "ncr_aptra"}
+    default_journal_provider = "ncr_ej" if xfs_profile == "ncr_aptra" else "grg_ej"
+    default_journal_glob = NCR_JOURNAL_GLOB if xfs_profile == "ncr_aptra" else GRG_JOURNAL_GLOB
     return RemoteConfig(
         atm_id=str(payload["atm_id"]),
         config_version=int(payload["config_version"]),
@@ -197,10 +203,11 @@ def parse_remote_config(payload: dict[str, Any]) -> RemoteConfig:
         ),
         journal_reader=JournalReaderConfig(
             enabled=bool(journal_payload.get("enabled", journal_enabled_default)),
-            provider=str(journal_payload.get("provider") or "grg_ej").strip().lower() or "grg_ej",
+            provider=str(journal_payload.get("provider") or default_journal_provider).strip().lower()
+            or default_journal_provider,
             log_glob=str(
                 journal_payload.get("log_glob")
-                or r"D:\Program Files\DTATMW\Bin\ATMAPP\Log\EJ*.log"
+                or default_journal_glob
             ),
             read_interval_seconds=int(journal_payload.get("read_interval_seconds") or 60),
         ),

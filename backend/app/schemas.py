@@ -752,7 +752,7 @@ class CashMonitoringRemoteConfig(BaseModel):
 
 class JournalReaderRemoteConfig(BaseModel):
     enabled: bool
-    provider: Literal["grg_ej"] = "grg_ej"
+    provider: Literal["grg_ej", "ncr_ej"] = "grg_ej"
     log_glob: str = r"D:\Program Files\DTATMW\Bin\ATMAPP\Log\EJ*.log"
     read_interval_seconds: int = Field(default=60, ge=10, le=86400)
 

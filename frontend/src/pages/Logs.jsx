@@ -14,7 +14,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { formatApiDate, parseApiDate } from "../api/time";
 
-const LOG_FETCH_LIMIT = 100;
+const LOG_FETCH_LIMIT = 50;
 const INITIAL_RENDER_LIMIT = 60;
 const RENDER_INCREMENT = 60;
 
@@ -525,7 +525,7 @@ function LogTimeline({ records }) {
   );
 }
 
-export default function Logs({ logs, auditLogs, atms, loading = false, onRefresh }) {
+export default function Logs({ logs, auditLogs, atms, loading = false, hasMore = false, onRefresh, onLoadMore }) {
   const [query, setQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState("agent");
   const [levelFilter, setLevelFilter] = useState("all");
@@ -578,7 +578,8 @@ export default function Logs({ logs, auditLogs, atms, loading = false, onRefresh
       fromAt,
       toAt,
       source: sourceFilter,
-      limit: LOG_FETCH_LIMIT,
+      level: levelFilter,
+      pageSize: LOG_FETCH_LIMIT,
     };
   }
 
@@ -588,10 +589,11 @@ export default function Logs({ logs, auditLogs, atms, loading = false, onRefresh
 
   function clearServerFilters() {
     setSourceFilter("agent");
+    setLevelFilter("all");
     setAtmFilter("");
     setFromAt("");
     setToAt("");
-    onRefresh({ source: "agent", limit: LOG_FETCH_LIMIT });
+    onRefresh({ source: "agent", pageSize: LOG_FETCH_LIMIT });
   }
 
   return (
@@ -745,6 +747,20 @@ export default function Logs({ logs, auditLogs, atms, loading = false, onRefresh
             className="focus-ring inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             عرض المزيد ({filteredRecords.length - visibleRecords.length})
+          </button>
+        </div>
+      )}
+
+      {!hasMoreRecords && hasMore && (
+        <div className="mt-4 flex justify-center">
+          <button
+            type="button"
+            onClick={() => onLoadMore?.(currentServerFilters())}
+            disabled={loading}
+            className="focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+            <span>{loading ? "جاري التحميل" : "تحميل المزيد"}</span>
           </button>
         </div>
       )}

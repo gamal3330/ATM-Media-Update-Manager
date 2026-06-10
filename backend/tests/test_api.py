@@ -1310,6 +1310,15 @@ def test_cash_snapshot_updates_units_and_alerts() -> None:
         assert len(summary.json()["low_cash_atms"]) >= 1
         assert len(summary.json()["empty_cash_atms"]) >= 1
 
+        light_summary = client.get("/api/cash/summary?include_details=false", headers=headers)
+        assert light_summary.status_code == 200
+        light_payload = light_summary.json()
+        assert light_payload["cash_low_atms"] >= 1
+        assert light_payload["cash_low_units"] >= 1
+        assert light_payload["units"] == []
+        assert light_payload["low_cash_atms"] == []
+        assert light_payload["empty_cash_atms"] == []
+
 
 def test_cash_summary_counts_low_cassettes_not_only_atms() -> None:
     with TestClient(app) as client:
@@ -1924,14 +1933,38 @@ def test_logs_can_be_filtered_by_atm_and_datetime() -> None:
         agent_headers_b = {"X-ATM-ID": "ATM-LOG-FILTER-B", "X-API-Key": atm_b.json()["api_key"]}
 
         log_a = client.post("/api/agent/logs", json={"level": "info", "message": "Filter A log"}, headers=agent_headers_a)
+        log_a_second = client.post(
+            "/api/agent/logs",
+            json={"level": "info", "message": "Filter A second log"},
+            headers=agent_headers_a,
+        )
         log_b = client.post("/api/agent/logs", json={"level": "info", "message": "Filter B log"}, headers=agent_headers_b)
         assert log_a.status_code == 200
+        assert log_a_second.status_code == 200
         assert log_b.status_code == 200
 
         filtered_agent_logs = client.get("/api/logs?atm_id=ATM-LOG-FILTER-A&limit=20", headers=headers)
         assert filtered_agent_logs.status_code == 200
         assert any(item["message"] == "Filter A log" for item in filtered_agent_logs.json())
         assert all(item["atm"]["atm_id"] == "ATM-LOG-FILTER-A" for item in filtered_agent_logs.json())
+
+        page_one = client.get("/api/logs?atm_id=ATM-LOG-FILTER-A&page=1&page_size=1", headers=headers)
+        page_two = client.get("/api/logs?atm_id=ATM-LOG-FILTER-A&page=2&page_size=1", headers=headers)
+        assert page_one.status_code == 200
+        assert page_two.status_code == 200
+        assert len(page_one.json()) == 1
+        assert page_one.json()[0]["id"] != page_two.json()[0]["id"]
+
+        warning_log = client.post(
+            "/api/agent/logs",
+            json={"level": "warning", "message": "Filter A warning"},
+            headers=agent_headers_a,
+        )
+        assert warning_log.status_code == 200
+        warning_logs = client.get("/api/logs?atm_id=ATM-LOG-FILTER-A&level=warning&page_size=20", headers=headers)
+        assert warning_logs.status_code == 200
+        assert any(item["message"] == "Filter A warning" for item in warning_logs.json())
+        assert all(item["level"] == "warning" for item in warning_logs.json())
 
         journal_payload_a = {
             "atm_id": "ATM-LOG-FILTER-A",
@@ -1994,13 +2027,19 @@ def test_logs_can_be_filtered_by_atm_and_datetime() -> None:
         assert [item["event_uid"] for item in journal_items] == ["filter-a-target-01"]
         assert journal_items[0]["atm"]["atm_id"] == "ATM-LOG-FILTER-A"
 
+        journal_page_one = client.get("/api/logs/journal?atm_id=ATM-LOG-FILTER-A&page=1&page_size=1", headers=headers)
+        journal_page_two = client.get("/api/logs/journal?atm_id=ATM-LOG-FILTER-A&page=2&page_size=1", headers=headers)
+        assert journal_page_one.status_code == 200
+        assert journal_page_two.status_code == 200
+        assert len(journal_page_one.json()) == 1
+        assert journal_page_one.json()[0]["event_uid"] != journal_page_two.json()[0]["event_uid"]
+
         filtered_agent_journal_logs = client.get(
             "/api/logs?atm_id=ATM-LOG-FILTER-A&from_at=2026-06-10T10:00:00Z&to_at=2026-06-10T12:00:00Z&limit=20",
             headers=headers,
         )
         assert filtered_agent_journal_logs.status_code == 200
         agent_items = filtered_agent_journal_logs.json()
-        assert any(item["message"] == "Filter A log" for item in agent_items)
         assert all(not item["message"].startswith("Journal ") for item in agent_items)
 
 

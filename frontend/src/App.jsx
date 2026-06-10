@@ -16,6 +16,7 @@ import UploadPackage from "./pages/UploadPackage";
 import UserManagement from "./pages/UserManagement";
 
 const fallbackPages = ["dashboard"];
+const LOG_PAGE_SIZE = 50;
 
 function AuthLoading() {
   return (
@@ -59,11 +60,15 @@ export default function App() {
   const [activePage, setActivePage] = useState("dashboard");
   const [atms, setAtms] = useState([]);
   const [packages, setPackages] = useState([]);
+  const [packagesLoaded, setPackagesLoaded] = useState(false);
+  const [packagesLoading, setPackagesLoading] = useState(false);
   const [cashSummary, setCashSummary] = useState(null);
   const [logs, setLogs] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [logsLoaded, setLogsLoaded] = useState(false);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [logsPage, setLogsPage] = useState(1);
+  const [logsHasMore, setLogsHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [initialDataLoading, setInitialDataLoading] = useState(false);
   const [globalError, setGlobalError] = useState("");
@@ -72,13 +77,11 @@ export default function App() {
     setLoading(true);
     setGlobalError("");
     try {
-      const [atmData, packageData, cashData] = await Promise.all([
+      const [atmData, cashData] = await Promise.all([
         api.listAtms(),
-        api.listPackages(),
-        api.getCashSummary(),
+        api.getCashSummary({ includeDetails: false }),
       ]);
       setAtms(atmData);
-      setPackages(packageData);
       setCashSummary(cashData);
     } catch (err) {
       setGlobalError(err.message || "تعذر تحميل البيانات");
@@ -91,7 +94,7 @@ export default function App() {
     }
   }, []);
 
-  const refreshLogs = useCallback(async (filters = {}) => {
+  const refreshLogsLegacy = useCallback(async (filters = {}) => {
     setLogsLoading(true);
     setGlobalError("");
     try {
@@ -112,18 +115,82 @@ export default function App() {
     }
   }, []);
 
+  const refreshLogs = useCallback(async (filters = {}, options = {}) => {
+    setLogsLoading(true);
+    setGlobalError("");
+    try {
+      const source = filters.source || "all";
+      const pageSize = filters.pageSize || filters.limit || LOG_PAGE_SIZE;
+      const page = options.page || filters.page || 1;
+      const requestFilters = {
+        ...filters,
+        page,
+        pageSize,
+        limit: pageSize,
+        level: filters.level === "all" ? "" : filters.level,
+      };
+      const append = Boolean(options.append);
+      const shouldLoadAgent = source === "all" || source === "agent";
+      const shouldLoadAudit = (source === "all" || source === "audit") && !requestFilters.level;
+      const [agentLogData, auditLogData] = await Promise.all([
+        shouldLoadAgent ? api.listLogs(requestFilters) : Promise.resolve([]),
+        shouldLoadAudit ? api.listAuditLogs(requestFilters) : Promise.resolve([]),
+      ]);
+
+      setLogs((current) => {
+        if (!shouldLoadAgent) return [];
+        return append ? [...current, ...agentLogData] : agentLogData;
+      });
+      setAuditLogs((current) => {
+        if (!shouldLoadAudit) return [];
+        return append ? [...current, ...auditLogData] : auditLogData;
+      });
+      setLogsPage(page);
+      setLogsHasMore((shouldLoadAgent && agentLogData.length >= pageSize) || (shouldLoadAudit && auditLogData.length >= pageSize));
+      setLogsLoaded(true);
+    } catch (err) {
+      setGlobalError(err.message || "تعذر تحميل السجلات");
+    } finally {
+      setLogsLoading(false);
+    }
+  }, []);
+
+  const loadMoreLogs = useCallback(
+    (filters = {}) => {
+      if (logsLoading || !logsHasMore) return;
+      refreshLogs(filters, { append: true, page: logsPage + 1 });
+    },
+    [logsHasMore, logsLoading, logsPage, refreshLogs],
+  );
+
+  const refreshPackages = useCallback(async () => {
+    setPackagesLoading(true);
+    setGlobalError("");
+    try {
+      const packageData = await api.listPackages();
+      setPackages(packageData);
+      setPackagesLoaded(true);
+    } catch (err) {
+      setGlobalError(err.message || "تعذر تحميل الحزم");
+      if (err.status === 401) {
+        clearAuthToken();
+        setUser(null);
+      }
+    } finally {
+      setPackagesLoading(false);
+    }
+  }, []);
+
   const loadInitialData = useCallback(async () => {
     setLoading(true);
     setInitialDataLoading(true);
     setGlobalError("");
     try {
-      const [atmData, packageData, cashData] = await Promise.all([
+      const [atmData, cashData] = await Promise.all([
         api.listAtms(),
-        api.listPackages(),
-        api.getCashSummary(),
+        api.getCashSummary({ includeDetails: false }),
       ]);
       setAtms(atmData);
-      setPackages(packageData);
       setCashSummary(cashData);
 
     } catch (err) {
@@ -191,9 +258,15 @@ export default function App() {
 
   useEffect(() => {
     if (user && visiblePage === "logs" && !logsLoaded) {
-      refreshLogs({ source: "agent", limit: 100 });
+      refreshLogs({ source: "agent", pageSize: LOG_PAGE_SIZE });
     }
   }, [logsLoaded, refreshLogs, user, visiblePage]);
+
+  useEffect(() => {
+    if (user && visiblePage === "packages" && !packagesLoaded && !packagesLoading) {
+      refreshPackages();
+    }
+  }, [packagesLoaded, packagesLoading, refreshPackages, user, visiblePage]);
 
   async function logout() {
     try {
@@ -225,16 +298,36 @@ export default function App() {
   }
 
   let page = null;
-  if (visiblePage === "dashboard") page = <Dashboard atms={atms} packages={packages} cashSummary={cashSummary} loading={loading} onRefresh={refreshCore} />;
+  if (visiblePage === "dashboard") page = <Dashboard atms={atms} cashSummary={cashSummary} loading={loading} onRefresh={refreshCore} />;
   if (visiblePage === "atms") page = <Atms atms={atms} onChanged={refreshCore} />;
-  if (visiblePage === "upload") page = <UploadPackage onUploaded={refreshCore} onOpenPackages={() => setActivePage("packages")} />;
-  if (visiblePage === "packages") page = <Packages packages={packages} atms={atms} onChanged={refreshCore} />;
+  if (visiblePage === "upload") {
+    page = (
+      <UploadPackage
+        onUploaded={() => {
+          setPackagesLoaded(false);
+          refreshPackages();
+        }}
+        onOpenPackages={() => setActivePage("packages")}
+      />
+    );
+  }
+  if (visiblePage === "packages") page = <Packages packages={packages} atms={atms} onChanged={refreshPackages} />;
   if (visiblePage === "agent-updates") page = <AgentUpdates atms={atms} />;
   if (visiblePage === "cash") page = <CashMonitoring atms={atms} />;
   if (visiblePage === "notifications") page = <NotificationCenter />;
   if (visiblePage === "agent-downloads") page = <AgentDownloads />;
   if (visiblePage === "logs") {
-    page = <Logs logs={logs} auditLogs={auditLogs} atms={atms} loading={logsLoading} onRefresh={refreshLogs} />;
+    page = (
+      <Logs
+        logs={logs}
+        auditLogs={auditLogs}
+        atms={atms}
+        loading={logsLoading}
+        hasMore={logsHasMore}
+        onRefresh={refreshLogs}
+        onLoadMore={loadMoreLogs}
+      />
+    );
   }
   if (visiblePage === "journal") page = <Journal atms={atms} />;
   if (visiblePage === "settings") {

@@ -55,12 +55,31 @@ from ..services.package_service import ALLOWED_IMAGE_EXTENSIONS
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 AGENT_UPDATE_ACTIVE_WINDOW = timedelta(minutes=30)
+GRG_JOURNAL_GLOB = r"D:\Program Files\DTATMW\Bin\ATMAPP\Log\EJ*.log"
+NCR_JOURNAL_GLOB = r"C:\Program Files (x86)\NCR APTRA\Advance NDC\Data\EJDATA.LOG"
 
 
 def effective_cash_provider(atm: ATM) -> str:
     if atm.cash_provider in {"mock", "vendor_cdm"}:
         return "xfs_cdm"
     return atm.cash_provider
+
+
+def effective_journal_provider(atm: ATM) -> str:
+    if (atm.xfs_profile or "").lower() == "ncr_aptra":
+        return "ncr_ej"
+    return "grg_ej"
+
+
+def effective_journal_log_glob(atm: ATM) -> str:
+    configured = (atm.journal_log_glob or "").strip()
+    if effective_journal_provider(atm) == "ncr_ej" and (not configured or configured == GRG_JOURNAL_GLOB):
+        return NCR_JOURNAL_GLOB
+    return configured or GRG_JOURNAL_GLOB
+
+
+def journal_reader_is_enabled(atm: ATM) -> bool:
+    return bool(atm.journal_reader_enabled or (atm.xfs_profile or "").lower() in {"grg", "ncr_aptra"})
 
 
 def has_recent_cash_snapshot(db: Session, atm: ATM, now: datetime) -> bool:
@@ -166,9 +185,9 @@ def get_agent_config(atm: ATM = Depends(get_agent_atm)) -> AgentConfigResponse:
                 stale_after_minutes=atm.cash_stale_after_minutes,
             ),
             journal_reader=JournalReaderRemoteConfig(
-                enabled=bool(atm.journal_reader_enabled or atm.xfs_profile == "grg"),
-                provider="grg_ej",
-                log_glob=atm.journal_log_glob,
+                enabled=journal_reader_is_enabled(atm),
+                provider=effective_journal_provider(atm),
+                log_glob=effective_journal_log_glob(atm),
                 read_interval_seconds=atm.journal_read_interval_seconds,
             ),
         ),

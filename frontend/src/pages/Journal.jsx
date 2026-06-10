@@ -31,7 +31,7 @@ const eventTypeOptions = [
   ["PRINTER_EVENT", "الطابعة"],
 ];
 
-const limitOptions = [100, 200, 300];
+const limitOptions = [50, 100, 200];
 
 const eventLabels = {
   TRANSACTION_START: "بداية عملية",
@@ -308,6 +308,8 @@ export default function Journal({ atms }) {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
   const [loadedAtm, setLoadedAtm] = useState("");
   const [loadedFilterKey, setLoadedFilterKey] = useState("");
 
@@ -315,9 +317,11 @@ export default function Journal({ atms }) {
   const currentFilterKey = useMemo(() => JSON.stringify({ atmId, eventType, fromAt, toAt, limit }), [atmId, eventType, fromAt, limit, toAt]);
   const hasLoadedCurrentFilters = Boolean(loadedAtm && loadedFilterKey === currentFilterKey);
 
-  async function loadJournal() {
+  async function loadJournal({ append = false, nextPage = 1 } = {}) {
     if (!atmId) {
       setEvents([]);
+      setPage(1);
+      setHasMore(false);
       setLoadedAtm("");
       setLoadedFilterKey("");
       return;
@@ -325,8 +329,19 @@ export default function Journal({ atms }) {
     setLoading(true);
     setError("");
     try {
-      const data = await api.listJournalLogs({ atmId, eventType: eventType === "all" ? "" : eventType, fromAt, toAt, limit });
-      setEvents(Array.isArray(data) ? data : []);
+      const data = await api.listJournalLogs({
+        atmId,
+        eventType: eventType === "all" ? "" : eventType,
+        fromAt,
+        toAt,
+        page: nextPage,
+        pageSize: limit,
+        limit,
+      });
+      const items = Array.isArray(data) ? data : [];
+      setEvents((current) => (append ? [...current, ...items] : items));
+      setPage(nextPage);
+      setHasMore(items.length >= limit);
       setLoadedAtm(atmId);
       setLoadedFilterKey(currentFilterKey);
     } catch (err) {
@@ -398,6 +413,8 @@ export default function Journal({ atms }) {
               onChange={(event) => {
                 setAtmId(event.target.value);
                 setEvents([]);
+                setPage(1);
+                setHasMore(false);
                 setLoadedAtm("");
                 setLoadedFilterKey("");
                 setError("");
@@ -449,7 +466,14 @@ export default function Journal({ atms }) {
 
           <select
             value={limit}
-            onChange={(event) => setLimit(Number(event.target.value))}
+            onChange={(event) => {
+              setLimit(Number(event.target.value));
+              setEvents([]);
+              setPage(1);
+              setHasMore(false);
+              setLoadedAtm("");
+              setLoadedFilterKey("");
+            }}
             className="focus-ring min-h-11 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
           >
             {limitOptions.map((value) => (
@@ -504,6 +528,20 @@ export default function Journal({ atms }) {
       )}
 
       {hasLoadedCurrentFilters && showingTransactionsOnly && visibleTransactions.length === 0 && <EmptyState hasAtm />}
+
+      {hasLoadedCurrentFilters && hasMore && (
+        <div className="mt-4 flex justify-center">
+          <button
+            type="button"
+            onClick={() => loadJournal({ append: true, nextPage: page + 1 })}
+            disabled={loading}
+            className="focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+            <span>{loading ? "جاري التحميل" : "تحميل المزيد"}</span>
+          </button>
+        </div>
+      )}
     </section>
   );
 }

@@ -393,13 +393,26 @@ def create_log_indexes(connection, table_names: list[str]) -> None:
         "agent_logs": [
             "CREATE INDEX IF NOT EXISTS ix_agent_logs_atm_created_at ON agent_logs (atm_id, created_at)",
             "CREATE INDEX IF NOT EXISTS ix_agent_logs_created_at ON agent_logs (created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_agent_logs_atm_created_at_desc ON agent_logs (atm_id, created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_agent_logs_level_created_at_desc ON agent_logs (level, created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_agent_logs_created_at_desc ON agent_logs (created_at DESC)",
         ],
         "audit_logs": [
             "CREATE INDEX IF NOT EXISTS ix_audit_logs_created_at ON audit_logs (created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_audit_logs_created_at_desc ON audit_logs (created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_audit_logs_entity_created_at_desc ON audit_logs (entity_type, entity_id, created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_audit_logs_action_created_at_desc ON audit_logs (action, created_at DESC)",
         ],
         "atm_journal_events": [
             "CREATE INDEX IF NOT EXISTS ix_journal_events_atm_occurred_at ON atm_journal_events (atm_id, occurred_at)",
             "CREATE INDEX IF NOT EXISTS ix_journal_events_received_at ON atm_journal_events (received_at)",
+            "CREATE INDEX IF NOT EXISTS ix_journal_events_atm_occurred_at_desc ON atm_journal_events (atm_id, occurred_at DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_journal_events_event_type_occurred_at_desc ON atm_journal_events (event_type, occurred_at DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_journal_events_atm_event_type_occurred_at_desc ON atm_journal_events (atm_id, event_type, occurred_at DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_journal_events_received_at_desc ON atm_journal_events (received_at DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_journal_events_rrn ON atm_journal_events (rrn)",
+            "CREATE INDEX IF NOT EXISTS ix_journal_events_stan ON atm_journal_events (stan)",
+            "CREATE INDEX IF NOT EXISTS ix_journal_events_transaction_serial ON atm_journal_events (transaction_serial)",
         ],
     }
     for table_name, statements in indexes.items():

@@ -15,6 +15,9 @@ CASSETTE_OUT_RE = re.compile(
     r"\[CAS\s+(?P<cassette>\d+)\]\s+OUT:\s*(?P<out>\d+),\s*REJECT:\s*(?P<reject>\d+),\s*DENO:\s*(?P<denomination>\d+)",
     re.IGNORECASE,
 )
+NCR_HEADER_RE = re.compile(r"^\*(?P<sequence>\d+)\*(?P<date>\d{2}/\d{2}/\d{4})\*(?P<time>\d{2}:\d{2})\*")
+NCR_TIME_RE = re.compile(r"^\s*(?P<time>\d{2}:\d{2}:\d{2})\s+(?P<message>.*)$")
+NCR_NOTES_PRESENTED_RE = re.compile(r"NOTES PRESENTED\s+(?P<counts>[\d,\s]+)", re.IGNORECASE)
 
 
 EVENT_MESSAGES: tuple[tuple[str, str], ...] = (
@@ -85,6 +88,7 @@ class TransactionContext:
     response: str | None = None
     wording: str | None = None
     cassette_outputs: list[dict[str, int]] = field(default_factory=list)
+    notes_presented: list[int] = field(default_factory=list)
     dispense_success: bool = False
     present_success: bool = False
     card_taken: bool = False
@@ -94,6 +98,19 @@ class TransactionContext:
 
 def parse_timestamp(value: str) -> str:
     return datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f").isoformat(timespec="milliseconds")
+
+
+def parse_ncr_datetime(date_value: str, time_value: str) -> str:
+    normalized_time = time_value.strip()
+    if len(normalized_time) == 5:
+        normalized_time = f"{normalized_time}:00"
+    value = f"{date_value.strip()} {normalized_time}"
+    for date_format in ("%m/%d/%Y %H:%M:%S", "%d/%m/%Y %H:%M:%S"):
+        try:
+            return datetime.strptime(value, date_format).isoformat(timespec="seconds")
+        except ValueError:
+            continue
+    raise ValueError(f"Unsupported NCR journal timestamp: {value}")
 
 
 def mask_card(value: str | None) -> str | None:
@@ -119,6 +136,29 @@ def parse_int(value: str | None) -> int | None:
         return None
 
 
+def apply_receipt_field_to_tx(tx: TransactionContext, key: str, value: str) -> None:
+    if key == "TRANSACTION TYPE":
+        tx.transaction_type = value or None
+    elif key == "DATE":
+        tx.receipt_date = value or None
+    elif key == "WORDING":
+        tx.wording = value or None
+    elif key == "CURRENCY":
+        tx.currency = value or None
+    elif key == "AMOUNT":
+        tx.amount = parse_int(value)
+    elif key == "RRN":
+        tx.rrn = value or None
+    elif key == "STAN":
+        tx.stan = value or None
+    elif key == "AUTH CODE":
+        tx.auth_code = value or None
+    elif key == "CARD":
+        tx.card_masked = mask_card(value)
+    elif key == "RESPONSE":
+        tx.response = value or None
+
+
 def event_uid(file_path: str, line_number: int, occurred_at: str, event_type: str, message: str) -> str:
     raw = f"{file_path}|{line_number}|{occurred_at}|{event_type}|{message}".encode("utf-8", errors="replace")
     return hashlib.sha256(raw).hexdigest()
@@ -132,12 +172,13 @@ def make_event(
     event_type: str,
     message: str,
     severity: str = "info",
+    source: str = "grg_ej",
     tx: TransactionContext | None = None,
     details: dict[str, Any] | None = None,
 ) -> JournalEvent:
     return JournalEvent(
         event_uid=event_uid(file_path, line_number, occurred_at, event_type, message),
-        source="grg_ej",
+        source=source,
         event_type=event_type,
         occurred_at=occurred_at,
         severity=severity,
@@ -351,8 +392,247 @@ class GrgJournalParser:
             tx.response = value or None
 
 
+class NcrJournalParser:
+    def __init__(self, file_path: str) -> None:
+        self.file_path = file_path
+        self.current_tx: TransactionContext | None = None
+        self.current_date: str | None = None
+        self.current_header_at: str | None = None
+
+    def parse_lines(self, lines: Iterable[str], start_line: int = 1) -> list[JournalEvent]:
+        events: list[JournalEvent] = []
+        for offset, raw_line in enumerate(lines):
+            line_number = start_line + offset
+            line = raw_line.rstrip("\r\n")
+            events.extend(self.parse_line(line, line_number))
+        return events
+
+    def parse_line(self, line: str, line_number: int) -> list[JournalEvent]:
+        stripped = line.strip()
+        header = NCR_HEADER_RE.match(stripped)
+        if header:
+            self.current_date = header.group("date")
+            self.current_header_at = parse_ncr_datetime(self.current_date, header.group("time"))
+            return []
+
+        if "*TRANSACTION START*" in stripped.upper():
+            occurred_at = self.current_header_at
+            if not occurred_at:
+                return []
+            self.current_tx = TransactionContext(occurred_at, line_number, self.file_path)
+            return [
+                make_event(
+                    file_path=self.file_path,
+                    line_number=line_number,
+                    occurred_at=occurred_at,
+                    event_type="TRANSACTION_START",
+                    message="TRANSACTION START",
+                    source="ncr_ej",
+                    tx=self.current_tx,
+                )
+            ]
+
+        timed = NCR_TIME_RE.match(line)
+        if timed and self.current_date:
+            occurred_at = parse_ncr_datetime(self.current_date, timed.group("time"))
+            message = timed.group("message").strip()
+            return self._parse_timestamped_line(occurred_at, message, line_number)
+
+        if self.current_tx:
+            self._parse_receipt_field(line)
+        return []
+
+    def _parse_timestamped_line(self, occurred_at: str, message: str, line_number: int) -> list[JournalEvent]:
+        upper = message.upper()
+        events: list[JournalEvent] = []
+
+        if "TRANSACTION END" in upper:
+            tx = self.current_tx or TransactionContext(occurred_at, line_number, self.file_path)
+            completed = bool((tx.dispense_success or tx.present_success) and tx.money_taken)
+            severity = "warning" if tx.take_cash_timeout else "info"
+            details = {
+                "completed": completed,
+                "withdrawal": tx.transaction_type == "WID",
+                "dispense_success": tx.dispense_success,
+                "present_success": tx.present_success,
+                "card_taken": tx.card_taken,
+                "take_cash_timeout": tx.take_cash_timeout,
+                "money_taken": tx.money_taken,
+                "notes_presented": tx.notes_presented,
+                "response": tx.response,
+                "wording": tx.wording,
+            }
+            events.append(
+                make_event(
+                    file_path=self.file_path,
+                    line_number=line_number,
+                    occurred_at=occurred_at,
+                    event_type="TRANSACTION_END",
+                    message=message,
+                    severity=severity,
+                    source="ncr_ej",
+                    tx=tx,
+                    details=details,
+                )
+            )
+            self.current_tx = None
+            return events
+
+        if "OPCODE =" in upper and self.current_tx is None:
+            self.current_tx = TransactionContext(occurred_at, line_number, self.file_path)
+            events.append(
+                make_event(
+                    file_path=self.file_path,
+                    line_number=line_number,
+                    occurred_at=occurred_at,
+                    event_type="TRANSACTION_START",
+                    message=message,
+                    source="ncr_ej",
+                    tx=self.current_tx,
+                    details={"opcode": message},
+                )
+            )
+
+        tx = self.current_tx
+
+        if "NOTES STACKED" in upper:
+            if tx:
+                tx.dispense_success = True
+            events.append(
+                make_event(
+                    file_path=self.file_path,
+                    line_number=line_number,
+                    occurred_at=occurred_at,
+                    event_type="DISPENSE_SUCCESS",
+                    message=message,
+                    source="ncr_ej",
+                    tx=tx,
+                )
+            )
+            return events
+
+        notes_presented = NCR_NOTES_PRESENTED_RE.search(message)
+        if notes_presented:
+            counts = [int(part.strip()) for part in notes_presented.group("counts").split(",") if part.strip()]
+            if tx:
+                tx.present_success = True
+                tx.notes_presented = counts
+            events.append(
+                make_event(
+                    file_path=self.file_path,
+                    line_number=line_number,
+                    occurred_at=occurred_at,
+                    event_type="PRESENT_SUCCESS",
+                    message=message,
+                    source="ncr_ej",
+                    tx=tx,
+                    details={"notes_presented": counts},
+                )
+            )
+            return events
+
+        if "NOTES TAKEN" in upper:
+            if tx:
+                tx.money_taken = True
+            events.append(
+                make_event(
+                    file_path=self.file_path,
+                    line_number=line_number,
+                    occurred_at=occurred_at,
+                    event_type="MONEY_TAKEN",
+                    message=message,
+                    source="ncr_ej",
+                    tx=tx,
+                )
+            )
+            return events
+
+        if "CARD TAKEN" in upper:
+            if tx:
+                tx.card_taken = True
+            events.append(
+                make_event(
+                    file_path=self.file_path,
+                    line_number=line_number,
+                    occurred_at=occurred_at,
+                    event_type="CARD_TAKEN",
+                    message=message,
+                    source="ncr_ej",
+                    tx=tx,
+                )
+            )
+            return events
+
+        if "TAKE CASH TIMEOUT" in upper or "CASH TIMEOUT" in upper:
+            if tx:
+                tx.take_cash_timeout = True
+            events.append(
+                make_event(
+                    file_path=self.file_path,
+                    line_number=line_number,
+                    occurred_at=occurred_at,
+                    event_type="TAKE_CASH_TIMEOUT",
+                    message=message,
+                    severity="warning",
+                    source="ncr_ej",
+                    tx=tx,
+                )
+            )
+            return events
+
+        for needle, event_type in EVENT_MESSAGES:
+            if needle in upper:
+                events.append(
+                    make_event(
+                        file_path=self.file_path,
+                        line_number=line_number,
+                        occurred_at=occurred_at,
+                        event_type=event_type,
+                        message=message,
+                        severity="warning"
+                        if event_type in {"LINE_DOWN", "ENTER_OFFLINE_MODE", "ENTER_OUTOFSERVICE_MODE"}
+                        else "info",
+                        source="ncr_ej",
+                        tx=tx,
+                    )
+                )
+                return events
+
+        if any(keyword in upper for keyword in PRINTER_KEYWORDS):
+            events.append(
+                make_event(
+                    file_path=self.file_path,
+                    line_number=line_number,
+                    occurred_at=occurred_at,
+                    event_type="PRINTER_EVENT",
+                    message=message,
+                    severity="warning" if any(word in upper for word in ("ERROR", "FAULT", "JAM", "OUT")) else "info",
+                    source="ncr_ej",
+                    tx=tx,
+                )
+            )
+
+        return events
+
+    def _parse_receipt_field(self, line: str) -> None:
+        tx = self.current_tx
+        if tx is None:
+            return
+        matched = RECEIPT_FIELD_RE.match(line.strip())
+        if not matched:
+            return
+        key = normalize_receipt_key(matched.group("key"))
+        value = matched.group("value").strip()
+        apply_receipt_field_to_tx(tx, key, value)
+
+
 def parse_grg_journal_text(text: str, file_path: str = "<memory>") -> list[JournalEvent]:
     parser = GrgJournalParser(file_path)
+    return parser.parse_lines(text.splitlines())
+
+
+def parse_ncr_journal_text(text: str, file_path: str = "<memory>") -> list[JournalEvent]:
+    parser = NcrJournalParser(file_path)
     return parser.parse_lines(text.splitlines())
 
 

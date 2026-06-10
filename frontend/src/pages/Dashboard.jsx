@@ -292,7 +292,7 @@ function AtmMonitorCard({ atm }) {
   );
 }
 
-export default function Dashboard({ atms, packages, cashSummary, loading, onRefresh }) {
+export default function Dashboard({ atms, cashSummary, loading, onRefresh }) {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [lastUpdatedAt, setLastUpdatedAt] = useState(new Date());
 
@@ -322,7 +322,7 @@ export default function Dashboard({ atms, packages, cashSummary, loading, onRefr
 
   useEffect(() => {
     setLastUpdatedAt(new Date());
-  }, [atms, packages, cashSummary]);
+  }, [atms, cashSummary]);
 
   useEffect(() => {
     if (!autoRefresh) return undefined;

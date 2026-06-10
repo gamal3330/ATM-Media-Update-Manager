@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from config_manager import JournalReaderConfig, LocalConfig, RemoteConfig
-from journal_reader import GrgJournalParser, read_new_text
+from journal_reader import GrgJournalParser, NcrJournalParser, read_new_text
 
 if TYPE_CHECKING:
     from api_client import ApiClient
@@ -30,7 +30,7 @@ class JournalReaderModule:
         self.last_event_count = 0
         self.last_error: str | None = None
         self.state_file = Path(local_config.local_log_path) / "journal-reader-state.json"
-        self.parsers: dict[str, GrgJournalParser] = {}
+        self.parsers: dict[str, GrgJournalParser | NcrJournalParser] = {}
 
     def configure(self, config: RemoteConfig) -> None:
         self.config = config.journal_reader
@@ -61,6 +61,7 @@ class JournalReaderModule:
         if config is None:
             return 0
 
+        provider = (config.provider or "grg_ej").strip().lower()
         state = self._load_state()
         files_state = state.setdefault("files", {})
         paths = sorted(Path(path) for path in glob.glob(config.log_glob))
@@ -81,6 +82,7 @@ class JournalReaderModule:
             if not text:
                 files_state[file_key] = {
                     "path": str(path),
+                    "provider": provider,
                     "offset": new_offset,
                     "line_number": line_number,
                     "size": current_size,
@@ -88,10 +90,11 @@ class JournalReaderModule:
                 continue
 
             lines = text.splitlines()
-            parser = self.parsers.setdefault(file_key, GrgJournalParser(str(path)))
+            parser_key = f"{provider}:{file_key}"
+            parser = self.parsers.setdefault(parser_key, self._new_parser(provider, str(path)))
             if offset == 0:
-                parser = GrgJournalParser(str(path))
-                self.parsers[file_key] = parser
+                parser = self._new_parser(provider, str(path))
+                self.parsers[parser_key] = parser
             events = parser.parse_lines(lines, start_line=line_number)
             for event in events:
                 batch.append(event.to_payload())
@@ -102,6 +105,7 @@ class JournalReaderModule:
 
             files_state[file_key] = {
                 "path": str(path),
+                "provider": provider,
                 "offset": new_offset,
                 "line_number": line_number + len(lines),
                 "size": current_size,
@@ -115,6 +119,11 @@ class JournalReaderModule:
         if total_sent:
             self.logger.info("Journal events sent: %s", total_sent)
         return total_sent
+
+    def _new_parser(self, provider: str, file_path: str) -> GrgJournalParser | NcrJournalParser:
+        if provider == "ncr_ej":
+            return NcrJournalParser(file_path)
+        return GrgJournalParser(file_path)
 
     def _load_state(self) -> dict[str, Any]:
         if not self.state_file.exists():

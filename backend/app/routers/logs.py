@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session, joinedload
 
 from ..auth import require_page
@@ -17,6 +17,13 @@ def get_atm_primary_key(db: Session, atm_id: str | None) -> int | None:
     return db.query(ATM.id).filter(ATM.atm_id == atm_id).scalar()
 
 
+def resolve_page_window(limit: int, page: int, page_size: int | None, maximum: int) -> tuple[int, int]:
+    size = page_size if page_size is not None else limit
+    size = max(1, min(size, maximum))
+    offset = (max(1, page) - 1) * size
+    return offset, size
+
+
 @router.get("", response_model=list[AgentLogRead])
 def list_agent_logs(
     level: str | None = None,
@@ -25,6 +32,8 @@ def list_agent_logs(
     to_at: datetime | None = None,
     include_journal: bool = False,
     limit: int = 100,
+    page: int = Query(default=1, ge=1),
+    page_size: int | None = Query(default=None, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_page("logs")),
 ) -> list[AgentLog]:
@@ -42,23 +51,30 @@ def list_agent_logs(
         query = query.filter(AgentLog.created_at >= from_at)
     if to_at:
         query = query.filter(AgentLog.created_at <= to_at)
-    return query.limit(min(limit, 500)).all()
+    offset, size = resolve_page_window(limit, page, page_size, 500)
+    return query.offset(offset).limit(size).all()
 
 
 @router.get("/audit", response_model=list[AuditLogRead])
 def list_audit_logs(
+    atm_id: str | None = None,
     from_at: datetime | None = None,
     to_at: datetime | None = None,
     limit: int = 100,
+    page: int = Query(default=1, ge=1),
+    page_size: int | None = Query(default=None, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_page("logs")),
 ) -> list[AuditLog]:
     query = db.query(AuditLog).order_by(AuditLog.created_at.desc())
+    if atm_id:
+        query = query.filter(AuditLog.entity_type == "atm", AuditLog.entity_id == atm_id)
     if from_at:
         query = query.filter(AuditLog.created_at >= from_at)
     if to_at:
         query = query.filter(AuditLog.created_at <= to_at)
-    return query.limit(min(limit, 500)).all()
+    offset, size = resolve_page_window(limit, page, page_size, 500)
+    return query.offset(offset).limit(size).all()
 
 
 @router.get("/journal", response_model=list[JournalEventRead])
@@ -68,6 +84,8 @@ def list_journal_events(
     from_at: datetime | None = None,
     to_at: datetime | None = None,
     limit: int = 100,
+    page: int = Query(default=1, ge=1),
+    page_size: int | None = Query(default=None, ge=1, le=300),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_page("journal")),
 ) -> list[AtmJournalEvent]:
@@ -87,5 +105,6 @@ def list_journal_events(
         query = query.order_by(AtmJournalEvent.occurred_at.desc())
     else:
         query = query.order_by(AtmJournalEvent.received_at.desc(), AtmJournalEvent.occurred_at.desc())
-    return query.limit(min(limit, 300)).all()
+    offset, size = resolve_page_window(limit, page, page_size, 300)
+    return query.offset(offset).limit(size).all()
 
