@@ -118,13 +118,13 @@ export default function App() {
     }
   }, []);
 
-  const refreshLogs = useCallback(async () => {
+  const refreshLogs = useCallback(async (filters = {}) => {
     setGlobalError("");
     try {
       const [agentLogData, auditLogData, journalLogData] = await Promise.all([
-        api.listLogs(),
-        api.listAuditLogs(),
-        api.listJournalLogs(),
+        api.listLogs(filters),
+        api.listAuditLogs(filters),
+        api.listJournalLogs(filters),
       ]);
       setLogs(agentLogData);
       setAuditLogs(auditLogData);
@@ -267,7 +267,7 @@ export default function App() {
   if (visiblePage === "notifications") page = <NotificationCenter />;
   if (visiblePage === "agent-downloads") page = <AgentDownloads />;
   if (visiblePage === "logs") {
-    page = <Logs logs={logs} auditLogs={auditLogs} journalLogs={journalLogs} onRefresh={refreshLogs} />;
+    page = <Logs logs={logs} auditLogs={auditLogs} journalLogs={journalLogs} atms={atms} onRefresh={refreshLogs} />;
   }
   if (visiblePage === "settings") {
     page = <Settings atms={atms} onChanged={refreshCore} onOpenAgentDownloads={() => setActivePage("agent-downloads")} />;

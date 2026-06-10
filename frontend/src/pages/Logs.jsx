@@ -1,6 +1,7 @@
 import {
   Activity,
   AlertTriangle,
+  CalendarDays,
   CheckCircle2,
   ClipboardList,
   Filter,
@@ -608,10 +609,13 @@ function LogTimeline({ records }) {
   );
 }
 
-export default function Logs({ logs, auditLogs, journalLogs, onRefresh }) {
+export default function Logs({ logs, auditLogs, journalLogs, atms, onRefresh }) {
   const [query, setQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [levelFilter, setLevelFilter] = useState("all");
+  const [atmFilter, setAtmFilter] = useState("");
+  const [fromAt, setFromAt] = useState("");
+  const [toAt, setToAt] = useState("");
 
   const records = useMemo(() => {
     const agentRecords = (Array.isArray(logs) ? logs : []).map(buildAgentRecord);
@@ -646,6 +650,25 @@ export default function Logs({ logs, auditLogs, journalLogs, onRefresh }) {
     });
   }, [levelFilter, query, records, sourceFilter]);
 
+  function currentServerFilters() {
+    return {
+      atmId: atmFilter,
+      fromAt,
+      toAt,
+    };
+  }
+
+  function applyServerFilters() {
+    onRefresh(currentServerFilters());
+  }
+
+  function clearServerFilters() {
+    setAtmFilter("");
+    setFromAt("");
+    setToAt("");
+    onRefresh({});
+  }
+
   return (
     <section>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -653,7 +676,7 @@ export default function Logs({ logs, auditLogs, journalLogs, onRefresh }) {
           <h1 className="text-2xl font-semibold text-slate-950 sm:text-3xl">السجلات</h1>
         </div>
         <button
-          onClick={onRefresh}
+          onClick={() => onRefresh(currentServerFilters())}
           className="focus-ring inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-50"
           title="تحديث السجلات"
         >
@@ -715,6 +738,65 @@ export default function Logs({ logs, auditLogs, journalLogs, onRefresh }) {
               ))}
             </select>
           </label>
+        </div>
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(220px,1.2fr)_minmax(180px,1fr)_minmax(180px,1fr)_auto_auto]">
+          <label className="relative block">
+            <TerminalSquare className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+            <select
+              value={atmFilter}
+              onChange={(event) => setAtmFilter(event.target.value)}
+              className="focus-ring min-h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
+              title="ATM"
+            >
+              <option value="">كل الصرافات</option>
+              {(Array.isArray(atms) ? atms : []).map((atm) => (
+                <option key={atm.atm_id} value={atm.atm_id}>
+                  {atm.name ? `${atm.name} - ATM ${atm.atm_id}` : `ATM ${atm.atm_id}`}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="relative block">
+            <CalendarDays className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+            <input
+              type="datetime-local"
+              value={fromAt}
+              onChange={(event) => setFromAt(event.target.value)}
+              className="focus-ring min-h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
+              title="From"
+            />
+          </label>
+
+          <label className="relative block">
+            <CalendarDays className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+            <input
+              type="datetime-local"
+              value={toAt}
+              onChange={(event) => setToAt(event.target.value)}
+              className="focus-ring min-h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
+              title="To"
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={applyServerFilters}
+            className="focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800"
+          >
+            <Search size={17} />
+            <span>بحث</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={clearServerFilters}
+            className="focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            <XCircle size={17} />
+            <span>مسح</span>
+          </button>
         </div>
       </div>
 

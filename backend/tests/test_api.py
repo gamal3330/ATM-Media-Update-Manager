@@ -1802,6 +1802,103 @@ def test_atm_read_includes_last_agent_error() -> None:
         assert atm.json()["last_agent_error"] == "Copy failed"
 
 
+def test_logs_can_be_filtered_by_atm_and_datetime() -> None:
+    with TestClient(app) as client:
+        headers = login(client)
+        atm_a = client.post(
+            "/api/atms",
+            json={"atm_id": "ATM-LOG-FILTER-A", "name": "Log Filter A", "vpn_ip": "10.10.0.61", "branch": "HQ"},
+            headers=headers,
+        )
+        atm_b = client.post(
+            "/api/atms",
+            json={"atm_id": "ATM-LOG-FILTER-B", "name": "Log Filter B", "vpn_ip": "10.10.0.62", "branch": "HQ"},
+            headers=headers,
+        )
+        assert atm_a.status_code == 201
+        assert atm_b.status_code == 201
+        agent_headers_a = {"X-ATM-ID": "ATM-LOG-FILTER-A", "X-API-Key": atm_a.json()["api_key"]}
+        agent_headers_b = {"X-ATM-ID": "ATM-LOG-FILTER-B", "X-API-Key": atm_b.json()["api_key"]}
+
+        log_a = client.post("/api/agent/logs", json={"level": "info", "message": "Filter A log"}, headers=agent_headers_a)
+        log_b = client.post("/api/agent/logs", json={"level": "info", "message": "Filter B log"}, headers=agent_headers_b)
+        assert log_a.status_code == 200
+        assert log_b.status_code == 200
+
+        filtered_agent_logs = client.get("/api/logs?atm_id=ATM-LOG-FILTER-A&limit=20", headers=headers)
+        assert filtered_agent_logs.status_code == 200
+        assert any(item["message"] == "Filter A log" for item in filtered_agent_logs.json())
+        assert all(item["atm"]["atm_id"] == "ATM-LOG-FILTER-A" for item in filtered_agent_logs.json())
+
+        journal_payload_a = {
+            "atm_id": "ATM-LOG-FILTER-A",
+            "events": [
+                {
+                    "event_uid": "filter-a-old-0001",
+                    "event_type": "MONEY_TAKEN",
+                    "occurred_at": "2026-06-09T09:00:00Z",
+                    "severity": "info",
+                    "message": "Old money taken",
+                    "file_path": r"D:\Program Files\DTATMW\Bin\ATMAPP\Log\EJ260609.log",
+                    "line_number": 10,
+                    "transaction_type": "WID",
+                    "amount": 1000,
+                    "currency": "YER",
+                    "details": {"completed": True},
+                },
+                {
+                    "event_uid": "filter-a-target-01",
+                    "event_type": "MONEY_TAKEN",
+                    "occurred_at": "2026-06-10T11:30:00Z",
+                    "severity": "info",
+                    "message": "Target money taken",
+                    "file_path": r"D:\Program Files\DTATMW\Bin\ATMAPP\Log\EJ260610.log",
+                    "line_number": 20,
+                    "transaction_type": "WID",
+                    "amount": 2000,
+                    "currency": "YER",
+                    "details": {"completed": True},
+                },
+            ],
+        }
+        journal_payload_b = {
+            "atm_id": "ATM-LOG-FILTER-B",
+            "events": [
+                {
+                    "event_uid": "filter-b-target-01",
+                    "event_type": "MONEY_TAKEN",
+                    "occurred_at": "2026-06-10T11:30:00Z",
+                    "severity": "info",
+                    "message": "Other ATM money taken",
+                    "file_path": r"D:\Program Files\DTATMW\Bin\ATMAPP\Log\EJ260610.log",
+                    "line_number": 30,
+                    "transaction_type": "WID",
+                    "amount": 3000,
+                    "currency": "YER",
+                    "details": {"completed": True},
+                }
+            ],
+        }
+        assert client.post("/api/agent/journal-events", json=journal_payload_a, headers=agent_headers_a).status_code == 200
+        assert client.post("/api/agent/journal-events", json=journal_payload_b, headers=agent_headers_b).status_code == 200
+
+        filtered_journal = client.get(
+            "/api/logs/journal?atm_id=ATM-LOG-FILTER-A&from_at=2026-06-10T10:00:00Z&to_at=2026-06-10T12:00:00Z&limit=20",
+            headers=headers,
+        )
+        assert filtered_journal.status_code == 200
+        journal_items = filtered_journal.json()
+        assert [item["event_uid"] for item in journal_items] == ["filter-a-target-01"]
+        assert journal_items[0]["atm"]["atm_id"] == "ATM-LOG-FILTER-A"
+
+        filtered_agent_journal_logs = client.get(
+            "/api/logs?atm_id=ATM-LOG-FILTER-A&from_at=2026-06-10T10:00:00Z&to_at=2026-06-10T12:00:00Z&limit=20",
+            headers=headers,
+        )
+        assert filtered_agent_journal_logs.status_code == 200
+        assert [item["context"]["journal_event_type"] for item in filtered_agent_journal_logs.json()] == ["MONEY_TAKEN"]
+
+
 def test_upload_rejects_path_traversal() -> None:
     with TestClient(app) as client:
         headers = login(client)

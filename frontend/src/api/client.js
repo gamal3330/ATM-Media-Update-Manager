@@ -302,6 +302,15 @@ async function downloadBlob(path) {
   return response.blob();
 }
 
+function buildLogQuery(params = {}, fallbackLimit = 200) {
+  const query = new URLSearchParams();
+  query.set("limit", String(params.limit || fallbackLimit));
+  if (params.atmId) query.set("atm_id", params.atmId);
+  if (params.fromAt) query.set("from_at", params.fromAt);
+  if (params.toAt) query.set("to_at", params.toAt);
+  return query.toString();
+}
+
 export const api = {
   login: (payload) => request("/api/auth/login", { method: "POST", body: JSON.stringify(payload) }),
   logout: () => request("/api/auth/logout", { method: "POST" }),
@@ -362,7 +371,7 @@ export const api = {
   retryFailedAgentPackage: (id) => request(`/api/agent-packages/${id}/retry-failed`, { method: "POST" }),
   downloadAgentSource: () => downloadBlob("/api/agent-downloads/source"),
   downloadAgentExe: () => downloadBlob("/api/agent-downloads/exe"),
-  listLogs: () => request("/api/logs?limit=200"),
-  listAuditLogs: () => request("/api/logs/audit?limit=200"),
-  listJournalLogs: () => request("/api/logs/journal?limit=300"),
+  listLogs: (params = {}) => request(`/api/logs?${buildLogQuery(params, 300)}`),
+  listAuditLogs: (params = {}) => request(`/api/logs/audit?${buildLogQuery(params, 300)}`),
+  listJournalLogs: (params = {}) => request(`/api/logs/journal?${buildLogQuery(params, 500)}`),
 };
