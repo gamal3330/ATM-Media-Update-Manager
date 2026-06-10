@@ -64,6 +64,7 @@ def list_audit_logs(
 @router.get("/journal", response_model=list[JournalEventRead])
 def list_journal_events(
     atm_id: str | None = None,
+    event_type: str | None = None,
     from_at: datetime | None = None,
     to_at: datetime | None = None,
     limit: int = 100,
@@ -76,6 +77,8 @@ def list_journal_events(
         if atm_pk is None:
             return []
         query = query.filter(AtmJournalEvent.atm_id == atm_pk)
+    if event_type:
+        query = query.filter(AtmJournalEvent.event_type == event_type)
     if from_at:
         query = query.filter(AtmJournalEvent.occurred_at >= from_at)
     if to_at:

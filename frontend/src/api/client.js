@@ -306,6 +306,7 @@ function buildLogQuery(params = {}, fallbackLimit = 200) {
   const query = new URLSearchParams();
   query.set("limit", String(params.limit || fallbackLimit));
   if (params.atmId) query.set("atm_id", params.atmId);
+  if (params.eventType) query.set("event_type", params.eventType);
   if (params.fromAt) query.set("from_at", params.fromAt);
   if (params.toAt) query.set("to_at", params.toAt);
   return query.toString();

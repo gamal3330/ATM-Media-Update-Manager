@@ -16,20 +16,46 @@ import { api } from "../api/client";
 import { formatApiDate, formatLocalWallDate } from "../api/time";
 
 const eventTypeOptions = [
-  ["all", "كل الأحداث"],
-  ["TRANSACTION_END", "عمليات"],
-  ["DISPENSE_SUCCESS", "Dispense"],
-  ["MONEY_TAKEN", "Money taken"],
-  ["TAKE_CASH_TIMEOUT", "Timeout"],
-  ["CASSETTE_OUT", "Cassette"],
-  ["ENTER_OUTOFSERVICE_MODE", "Out of service"],
-  ["ENTER_INSERVICE_MODE", "In service"],
-  ["LINE_DOWN", "Line down"],
-  ["LINE_UP", "Line up"],
-  ["PRINTER_EVENT", "Printer"],
+  ["TRANSACTION_END", "عمليات السحب"],
+  ["all", "كل أحداث الجورنال"],
+  ["TRANSACTION_SERIAL_NUMBER", "أرقام العمليات"],
+  ["DISPENSE_SUCCESS", "صرف النقد"],
+  ["PRESENT_SUCCESS", "تقديم النقد"],
+  ["MONEY_TAKEN", "أخذ النقد"],
+  ["TAKE_CASH_TIMEOUT", "تحذير Timeout"],
+  ["CASSETTE_OUT", "خروج أوراق من كاسيت"],
+  ["ENTER_OUTOFSERVICE_MODE", "خارج الخدمة"],
+  ["ENTER_INSERVICE_MODE", "داخل الخدمة"],
+  ["LINE_DOWN", "انقطاع الخط"],
+  ["LINE_UP", "عودة الخط"],
+  ["PRINTER_EVENT", "الطابعة"],
 ];
 
 const limitOptions = [100, 200, 300];
+
+const eventLabels = {
+  TRANSACTION_START: "بداية عملية",
+  TRANSACTION_END: "نهاية عملية",
+  TRANSACTION_SERIAL_NUMBER: "رقم عملية",
+  DISPENSE_SUCCESS: "تم صرف النقد",
+  PRESENT_SUCCESS: "تم تقديم النقد",
+  CARD_TAKEN: "تم أخذ البطاقة",
+  TAKE_CASH_TIMEOUT: "تحذير انتظار أخذ النقد",
+  MONEY_TAKEN: "تم أخذ النقد",
+  CASSETTE_OUT: "خروج أوراق من الكاسيت",
+  LINE_DOWN: "انقطاع الخط",
+  LINE_UP: "عودة الخط",
+  ENTER_OFFLINE_MODE: "دخول Offline",
+  EXIT_OFFLINE_MODE: "خروج Offline",
+  ENTER_OUTOFSERVICE_MODE: "دخول خارج الخدمة",
+  ENTER_INSERVICE_MODE: "دخول داخل الخدمة",
+  ATM_POWER_UP: "تشغيل الصراف",
+  PRINTER_EVENT: "حدث طابعة",
+};
+
+const transactionTypeLabels = {
+  WID: "عملية سحب",
+};
 
 function normalizeText(value) {
   return String(value || "").toLowerCase().trim();
@@ -41,7 +67,27 @@ function compactAmount(event) {
 }
 
 function eventTitle(eventType) {
-  return String(eventType || "Journal event").replaceAll("_", " ").toLowerCase();
+  return eventLabels[eventType] || String(eventType || "Journal event").replaceAll("_", " ").toLowerCase();
+}
+
+function transactionTitle(event) {
+  const type = String(event?.transaction_type || "").toUpperCase();
+  return transactionTypeLabels[type] || (type ? `عملية ${type}` : "عملية");
+}
+
+function operationNumber(event) {
+  return event?.transaction_serial || event?.rrn || event?.stan || "-";
+}
+
+function completedLabel(event) {
+  const details = event?.details_json || {};
+  if (details.completed === true) return "مكتملة";
+  if (details.dispense_success && !details.money_taken) return "النقد لم يؤخذ";
+  return "غير مكتملة";
+}
+
+function yesNo(value) {
+  return value ? "نعم" : "لا";
 }
 
 function eventTone(event) {
@@ -122,19 +168,21 @@ function TransactionCard({ event }) {
   const completed = details.completed === true;
   const timeout = details.take_cash_timeout === true;
   const cassettes = cassetteText(event.cassette_outputs_json);
+  const statusTone = completed ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800";
 
   return (
     <article className={`rounded-lg border p-4 shadow-sm ${completed ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-white"}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold text-slate-950">{event.transaction_type || "Transaction"}</span>
-            {completed && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
-                <CheckCircle2 size={12} />
-                مكتملة
-              </span>
-            )}
+            <span className="text-lg font-semibold text-slate-950">{transactionTitle(event)}</span>
+            <span className="rounded-full bg-white px-2 py-0.5 font-mono text-xs font-semibold text-slate-700">
+              رقم العملية {operationNumber(event)}
+            </span>
+            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${statusTone}`}>
+              {completed ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
+              {completedLabel(event)}
+            </span>
             {timeout && (
               <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
                 <AlertTriangle size={12} />
@@ -144,17 +192,39 @@ function TransactionCard({ event }) {
           </div>
           <div className="mt-1 text-sm text-slate-600">{formatLocalWallDate(event.occurred_at)}</div>
         </div>
-        {amount && <div className="text-left text-lg font-semibold text-slate-950">{amount}</div>}
+        {amount && (
+          <div className="rounded-lg bg-white px-4 py-2 text-left shadow-sm">
+            <div className="text-xs text-slate-500">المبلغ</div>
+            <div className="text-xl font-semibold text-slate-950">{amount}</div>
+          </div>
+        )}
       </div>
 
       <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 xl:grid-cols-4">
-        {event.rrn && <Info label="RRN" value={event.rrn} />}
+        {event.transaction_serial && <Info label="رقم العملية" value={event.transaction_serial} />}
+        {event.rrn && <Info label="RRN / رقم المرجع" value={event.rrn} />}
         {event.stan && <Info label="STAN" value={event.stan} />}
-        {event.auth_code && <Info label="Auth" value={event.auth_code} />}
-        {event.card_masked && <Info label="Card" value={event.card_masked} />}
+        {event.auth_code && <Info label="رمز التفويض" value={event.auth_code} />}
+        {event.card_masked && <Info label="البطاقة" value={event.card_masked} />}
+        {details.response && <Info label="استجابة المضيف" value={details.response} />}
+        {details.wording && <Info label="وصف الإيصال" value={details.wording} />}
+        {event.receipt_date && <Info label="وقت الإيصال" value={event.receipt_date} />}
       </div>
 
-      {cassettes && <div className="mt-3 rounded-lg bg-white px-3 py-2 text-xs text-slate-600">{cassettes}</div>}
+      <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-5">
+        <Info label="صرف النقد" value={yesNo(details.dispense_success)} />
+        <Info label="تقديم النقد" value={yesNo(details.present_success)} />
+        <Info label="أخذ النقد" value={yesNo(details.money_taken)} />
+        <Info label="أخذ البطاقة" value={yesNo(details.card_taken)} />
+        <Info label="انتهاء مهلة النقد" value={yesNo(details.take_cash_timeout)} />
+      </div>
+
+      {cassettes && (
+        <div className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
+          <span className="font-semibold">الأوراق الخارجة: </span>
+          {cassettes}
+        </div>
+      )}
     </article>
   );
 }
@@ -172,34 +242,43 @@ function EventRow({ event }) {
   const amount = compactAmount(event);
   const details = event.details_json || {};
   const cassettes = cassetteText(event.cassette_outputs_json);
+  const cassette = details.cassette_no ? `كاسيت ${details.cassette_no}` : "";
+  const eventDisplayTitle =
+    event.event_type === "TRANSACTION_END"
+      ? `${transactionTitle(event)} - رقم العملية ${operationNumber(event)}`
+      : event.event_type === "CASSETTE_OUT" && cassette
+        ? `${eventTitle(event.event_type)} - ${cassette}`
+        : eventTitle(event.event_type);
 
   return (
     <article className={`rounded-lg border px-4 py-3 shadow-sm ${eventTone(event)}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold text-slate-950">{eventTitle(event.event_type)}</span>
+            <span className="font-semibold text-slate-950">{eventDisplayTitle}</span>
             {event.transaction_serial && (
-              <span className="rounded-full bg-white px-2 py-0.5 font-mono text-xs text-slate-600">SN {event.transaction_serial}</span>
+              <span className="rounded-full bg-white px-2 py-0.5 font-mono text-xs text-slate-600">رقم العملية {event.transaction_serial}</span>
             )}
             {details.completed === true && (
-              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">completed</span>
+              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">مكتملة</span>
             )}
           </div>
-          <div className="mt-1 text-sm text-slate-700">{event.message}</div>
+          {event.message && <div className="mt-1 text-sm text-slate-700">{event.message}</div>}
         </div>
         <div className="text-xs text-slate-500 md:text-left">
           <div>{formatLocalWallDate(event.occurred_at)}</div>
-          <div className="mt-1">{event.severity}</div>
+          <div className="mt-1">{event.severity === "warning" ? "تحذير" : "معلومة"}</div>
         </div>
       </div>
 
       <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
         {amount && <span className="rounded-full bg-white px-2 py-1">{amount}</span>}
-        {event.rrn && <span className="rounded-full bg-white px-2 py-1">RRN {event.rrn}</span>}
+        {event.rrn && <span className="rounded-full bg-white px-2 py-1">RRN / رقم المرجع {event.rrn}</span>}
         {event.stan && <span className="rounded-full bg-white px-2 py-1">STAN {event.stan}</span>}
+        {event.auth_code && <span className="rounded-full bg-white px-2 py-1">رمز التفويض {event.auth_code}</span>}
         {event.card_masked && <span className="rounded-full bg-white px-2 py-1">{event.card_masked}</span>}
-        {event.receipt_date && <span className="rounded-full bg-white px-2 py-1">Receipt {event.receipt_date}</span>}
+        {event.receipt_date && <span className="rounded-full bg-white px-2 py-1">الإيصال {event.receipt_date}</span>}
+        {details.response && <span className="rounded-full bg-white px-2 py-1">{details.response}</span>}
       </div>
 
       {(cassettes || event.file_path) && (
@@ -223,7 +302,7 @@ export default function Journal({ atms }) {
   const [atmId, setAtmId] = useState("");
   const [fromAt, setFromAt] = useState("");
   const [toAt, setToAt] = useState("");
-  const [eventType, setEventType] = useState("all");
+  const [eventType, setEventType] = useState("TRANSACTION_END");
   const [query, setQuery] = useState("");
   const [limit, setLimit] = useState(200);
   const [events, setEvents] = useState([]);
@@ -233,7 +312,7 @@ export default function Journal({ atms }) {
   const [loadedFilterKey, setLoadedFilterKey] = useState("");
 
   const selectedAtm = useMemo(() => (Array.isArray(atms) ? atms.find((atm) => atm.atm_id === atmId) : null), [atms, atmId]);
-  const currentFilterKey = useMemo(() => JSON.stringify({ atmId, fromAt, toAt, limit }), [atmId, fromAt, limit, toAt]);
+  const currentFilterKey = useMemo(() => JSON.stringify({ atmId, eventType, fromAt, toAt, limit }), [atmId, eventType, fromAt, limit, toAt]);
   const hasLoadedCurrentFilters = Boolean(loadedAtm && loadedFilterKey === currentFilterKey);
 
   async function loadJournal() {
@@ -246,7 +325,7 @@ export default function Journal({ atms }) {
     setLoading(true);
     setError("");
     try {
-      const data = await api.listJournalLogs({ atmId, fromAt, toAt, limit });
+      const data = await api.listJournalLogs({ atmId, eventType: eventType === "all" ? "" : eventType, fromAt, toAt, limit });
       setEvents(Array.isArray(data) ? data : []);
       setLoadedAtm(atmId);
       setLoadedFilterKey(currentFilterKey);
@@ -281,10 +360,12 @@ export default function Journal({ atms }) {
     };
   }, [filteredEvents]);
 
-  const transactions = useMemo(
-    () => filteredEvents.filter((event) => event.event_type === "TRANSACTION_END").slice(0, 20),
+  const transactionEvents = useMemo(
+    () => filteredEvents.filter((event) => event.event_type === "TRANSACTION_END"),
     [filteredEvents],
   );
+  const showingTransactionsOnly = eventType === "TRANSACTION_END";
+  const visibleTransactions = showingTransactionsOnly ? transactionEvents : transactionEvents.slice(0, 20);
 
   return (
     <section>
@@ -402,25 +483,27 @@ export default function Journal({ atms }) {
 
       {!hasLoadedCurrentFilters && <EmptyState hasAtm={Boolean(atmId)} waitingForLoad={Boolean(atmId)} />}
 
-      {hasLoadedCurrentFilters && transactions.length > 0 && (
+      {hasLoadedCurrentFilters && visibleTransactions.length > 0 && (
         <div className="mb-5">
           <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
             <CreditCard size={18} />
-            <span>آخر العمليات</span>
+            <span>{showingTransactionsOnly ? "عمليات السحب" : "آخر عمليات السحب"}</span>
           </div>
           <div className="grid gap-3 xl:grid-cols-2">
-            {transactions.map((event) => (
+            {visibleTransactions.map((event) => (
               <TransactionCard key={event.id} event={event} />
             ))}
           </div>
         </div>
       )}
 
-      {hasLoadedCurrentFilters && (
+      {hasLoadedCurrentFilters && !showingTransactionsOnly && (
         <div className="grid gap-3">
           {filteredEvents.length === 0 ? <EmptyState hasAtm /> : filteredEvents.map((event) => <EventRow key={event.id} event={event} />)}
         </div>
       )}
+
+      {hasLoadedCurrentFilters && showingTransactionsOnly && visibleTransactions.length === 0 && <EmptyState hasAtm />}
     </section>
   );
 }
