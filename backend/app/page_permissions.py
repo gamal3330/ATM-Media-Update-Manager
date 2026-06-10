@@ -8,6 +8,7 @@ ALL_PAGE_IDS = [
     "notifications",
     "agent-downloads",
     "logs",
+    "journal",
     "settings",
     "users",
 ]
@@ -16,9 +17,9 @@ DEFAULT_OPERATOR_PAGES = ["dashboard"]
 SYSTEM_ADMIN_ROLES = {"admin", "system_admin"}
 ROLE_DEFAULT_PAGES = {
     "operator": ["dashboard"],
-    "media_admin": ["dashboard", "atms", "upload", "packages", "agent-updates", "logs"],
+    "media_admin": ["dashboard", "atms", "upload", "packages", "agent-updates", "logs", "journal"],
     "cash_monitoring_viewer": ["dashboard", "cash"],
-    "cash_monitoring_admin": ["dashboard", "cash", "notifications", "atms", "logs"],
+    "cash_monitoring_admin": ["dashboard", "cash", "notifications", "atms", "logs", "journal"],
 }
 
 

@@ -37,7 +37,7 @@ const roles = [
 const pageGroups = [
   { title: "العمليات", ids: ["dashboard", "atms", "cash", "notifications"] },
   { title: "التحديثات", ids: ["upload", "packages", "agent-updates", "agent-downloads"] },
-  { title: "الإدارة", ids: ["logs", "settings", "users"] },
+  { title: "الإدارة", ids: ["logs", "journal", "settings", "users"] },
 ];
 
 function isAdminRole(role) {

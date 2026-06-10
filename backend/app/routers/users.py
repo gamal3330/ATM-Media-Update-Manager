@@ -20,6 +20,7 @@ PAGE_LABELS = {
     "notifications": "مركز التنبيهات",
     "agent-downloads": "Agent Downloads",
     "logs": "السجلات",
+    "journal": "Journal",
     "settings": "الإعدادات",
     "users": "إدارة المستخدمين",
 }

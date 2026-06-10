@@ -276,6 +276,7 @@ def test_admin_can_manage_users_and_page_visibility() -> None:
         assert page_map["agent-updates"] == "تحديثات Agent"
         assert page_map["agent-downloads"] == "Agent Downloads"
         assert page_map["logs"] == "السجلات"
+        assert page_map["journal"] == "Journal"
         assert page_map["settings"] == "الإعدادات"
         assert page_map["users"] == "إدارة المستخدمين"
 
@@ -285,19 +286,22 @@ def test_admin_can_manage_users_and_page_visibility() -> None:
                 "username": "operator1",
                 "password": "operator123",
                 "role": "operator",
-                "allowed_pages": ["dashboard", "atms", "cash", "notifications", "logs"],
+                "allowed_pages": ["dashboard", "atms", "cash", "notifications", "logs", "journal"],
                 "is_active": True,
             },
             headers=headers,
         )
         assert created.status_code == 201
-        assert created.json()["allowed_pages"] == ["dashboard", "atms", "cash", "notifications", "logs"]
+        assert created.json()["allowed_pages"] == ["dashboard", "atms", "cash", "notifications", "logs", "journal"]
 
         operator_login = client.post("/api/auth/login", json={"username": "operator1", "password": "operator123"})
         assert operator_login.status_code == 200
         operator_payload = operator_login.json()
-        assert operator_payload["user"]["allowed_pages"] == ["dashboard", "atms", "cash", "notifications", "logs"]
+        assert operator_payload["user"]["allowed_pages"] == ["dashboard", "atms", "cash", "notifications", "logs", "journal"]
         operator_headers = {"Authorization": f"Bearer {operator_payload['access_token']}"}
+
+        journal_response = client.get("/api/logs/journal", headers=operator_headers)
+        assert journal_response.status_code == 200
 
         denied = client.get("/api/users", headers=operator_headers)
         assert denied.status_code == 403

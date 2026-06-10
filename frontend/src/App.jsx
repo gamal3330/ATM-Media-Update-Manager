@@ -49,9 +49,8 @@ function BackgroundLoadingNotice() {
 function getAllowedPages(user) {
   const pageIds = nav.map((item) => item.id);
   const pages = Array.isArray(user?.allowed_pages) ? user.allowed_pages : fallbackPages;
-  const expanded = new Set(pages);
-  if (expanded.has("logs")) expanded.add("journal");
-  return pageIds.filter((page) => expanded.has(page));
+  const allowed = new Set(pages);
+  return pageIds.filter((page) => allowed.has(page));
 }
 
 export default function App() {

@@ -69,7 +69,7 @@ def list_journal_events(
     to_at: datetime | None = None,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_page("logs")),
+    current_user: User = Depends(require_page("journal")),
 ) -> list[AtmJournalEvent]:
     query = db.query(AtmJournalEvent).options(joinedload(AtmJournalEvent.atm))
     if atm_id:
