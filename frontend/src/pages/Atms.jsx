@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { api, apiBaseUrl } from "../api/client";
-import { formatApiDate, formatLastSeenAge, isRecentlyOnline } from "../api/time";
+import { formatApiDate, formatLastSeenAge, formatLocalWallDate, isRecentlyOnline } from "../api/time";
 
 const currencyDefaults = {
   YER: { label: "يمني", denomination: 1000, low_threshold: 300, critical_threshold: 100 },
@@ -349,6 +349,10 @@ function formatEventSource(source) {
   return labels[source] || source || "-";
 }
 
+function formatEventDate(event) {
+  return event?.source === "journal" ? formatLocalWallDate(event.occurred_at) : formatApiDate(event?.occurred_at);
+}
+
 function formatEventStatus(status) {
   const labels = {
     acknowledged: "تم الاستلام",
@@ -526,7 +530,7 @@ function AtmEventTimeline({ events, loading, onRefresh }) {
                     )}
                   </div>
                   <div className="text-xs text-slate-500 sm:text-left">
-                    <div>{formatApiDate(event.occurred_at)}</div>
+                    <div>{formatEventDate(event)}</div>
                     <div className="mt-1 font-medium text-slate-600">{formatEventSource(event.source)}</div>
                     {event.actor && <div className="mt-1 truncate" title={event.actor}>{event.actor}</div>}
                   </div>

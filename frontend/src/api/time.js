@@ -33,6 +33,47 @@ export function parseApiDate(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+const LOCAL_WALL_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/;
+
+function hasExplicitTimezone(value) {
+  return /(?:Z|[+-]\d{2}:?\d{2})$/.test(String(value || ""));
+}
+
+function pad2(value) {
+  return String(value).padStart(2, "0");
+}
+
+function formatWallDateParts(year, month, day, hour, minute, second = "00") {
+  const hour24 = Number(hour);
+  const hour12 = hour24 % 12 || 12;
+  const period = hour24 >= 12 ? "م" : "ص";
+  return `${numericText(year)}/${numericText(month)}/${numericText(day)} ${period} ${hour12}:${pad2(minute)}:${pad2(second)}`;
+}
+
+export function parseLocalWallDate(value) {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (hasExplicitTimezone(value)) return parseApiDate(value);
+
+  const match = LOCAL_WALL_DATE_RE.exec(String(value));
+  if (!match) return parseApiDate(value);
+
+  const [, year, month, day, hour, minute, second = "00"] = match;
+  const parsed = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function formatLocalWallDate(value) {
+  if (!value) return "-";
+  if (value instanceof Date || hasExplicitTimezone(value)) return formatApiDate(value);
+
+  const match = LOCAL_WALL_DATE_RE.exec(String(value));
+  if (!match) return formatApiDate(value);
+
+  const [, year, month, day, hour, minute, second = "00"] = match;
+  return formatWallDateParts(year, month, day, hour, minute, second);
+}
+
 export function isRecentlyOnline(atm, thresholdMs = ONLINE_THRESHOLD_MS) {
   if (typeof atm?.is_online === "boolean") return atm.is_online;
   const lastSeen = parseApiDate(atm?.last_seen);

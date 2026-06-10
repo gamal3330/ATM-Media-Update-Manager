@@ -12,7 +12,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { formatApiDate, parseApiDate } from "../api/time";
+import { formatApiDate, formatLocalWallDate, parseApiDate, parseLocalWallDate } from "../api/time";
 
 const sourceOptions = [
   ["all", "الكل"],
@@ -375,6 +375,14 @@ function journalEventTitle(eventType) {
   return value ? `Journal ${value}` : "Journal event";
 }
 
+function formatRecordDate(record) {
+  return record.source === "journal" ? formatLocalWallDate(record.occurredAt) : formatApiDate(record.occurredAt);
+}
+
+function parseRecordDate(record) {
+  return record.source === "journal" ? parseLocalWallDate(record.occurredAt) : parseApiDate(record.occurredAt);
+}
+
 function buildJournalRecord(event) {
   const atm = event.atm || {};
   const details = event.details_json && typeof event.details_json === "object" ? event.details_json : {};
@@ -397,9 +405,11 @@ function buildJournalRecord(event) {
   const atmBranch = atm.branch || "";
   const atmIp = atm.vpn_ip || "";
   const levelMeta = getLevelMeta(event.severity);
+  const journalOccurredAt = event.occurred_at || event.received_at;
   const detailItems = [
     ["Event", event.event_type],
-    ["Occurred at", formatApiDate(event.occurred_at)],
+    ["وقت الجورنال", formatLocalWallDate(journalOccurredAt)],
+    event.received_at ? ["وقت وصول النظام", formatApiDate(event.received_at)] : null,
     event.transaction_serial ? ["Serial", event.transaction_serial] : null,
     event.transaction_type ? ["Transaction type", event.transaction_type] : null,
     amount ? ["Amount", amount] : null,
@@ -450,7 +460,7 @@ function buildJournalRecord(event) {
       known: atmId !== "-",
     },
     target: [atmBranch, atmIp].filter(Boolean).join(" Â· "),
-    occurredAt: event.received_at || event.occurred_at,
+    occurredAt: journalOccurredAt,
     searchText: [
       "journal",
       atmId,
@@ -571,7 +581,7 @@ function LogTimeline({ records }) {
 
                 <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
                   {record.target && <span className="rounded-full bg-slate-50 px-2 py-1">{record.target}</span>}
-                  <span>{formatApiDate(record.occurredAt)}</span>
+                  <span>{formatRecordDate(record)}</span>
                 </div>
 
                 {hasDetails && (
@@ -598,7 +608,7 @@ function LogTimeline({ records }) {
               </div>
 
               <div className="text-xs text-slate-500 md:text-left">
-                <div>{formatApiDate(record.occurredAt)}</div>
+                <div>{formatRecordDate(record)}</div>
                 <div className="mt-1 font-medium text-slate-600">{record.sourceLabel}</div>
               </div>
             </article>
@@ -623,8 +633,8 @@ export default function Logs({ logs, auditLogs, journalLogs, atms, onRefresh }) 
     const auditRecords = (Array.isArray(auditLogs) ? auditLogs : []).map(buildAuditRecord);
     const journalRecords = (Array.isArray(journalLogs) ? journalLogs : []).map(buildJournalRecord);
     return [...agentRecords, ...journalRecords, ...auditRecords].sort((first, second) => {
-      const firstDate = parseApiDate(first.occurredAt)?.getTime() || 0;
-      const secondDate = parseApiDate(second.occurredAt)?.getTime() || 0;
+      const firstDate = parseRecordDate(first)?.getTime() || 0;
+      const secondDate = parseRecordDate(second)?.getTime() || 0;
       return secondDate - firstDate;
     });
   }, [logs, auditLogs, journalLogs]);
