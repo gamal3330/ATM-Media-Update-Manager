@@ -28,6 +28,23 @@ function AuthLoading() {
   );
 }
 
+function BackgroundLoadingNotice() {
+  return (
+    <div className="mb-4 overflow-hidden rounded-lg border border-teal-100 bg-teal-50 text-sm text-teal-800 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2">
+        <div className="flex items-center gap-2">
+          <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-teal-200 border-t-teal-700" />
+          <span className="font-medium">جاري تحميل بيانات اللوحة</span>
+        </div>
+        <span className="text-xs text-teal-700">يمكنك استخدام النظام أثناء التحميل</span>
+      </div>
+      <div className="h-1 bg-teal-100">
+        <div className="h-full w-full animate-pulse bg-teal-600" />
+      </div>
+    </div>
+  );
+}
+
 function getAllowedPages(user) {
   const pageIds = nav.map((item) => item.id);
   const pages = Array.isArray(user?.allowed_pages) ? user.allowed_pages : fallbackPages;
@@ -46,6 +63,7 @@ export default function App() {
   const [journalLogs, setJournalLogs] = useState([]);
   const [logsLoaded, setLogsLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [initialDataLoading, setInitialDataLoading] = useState(false);
   const [globalError, setGlobalError] = useState("");
 
   const refreshCore = useCallback(async () => {
@@ -94,6 +112,7 @@ export default function App() {
 
   const loadInitialData = useCallback(async () => {
     setLoading(true);
+    setInitialDataLoading(true);
     setGlobalError("");
     try {
       const [atmData, packageData, cashData] = await Promise.all([
@@ -113,6 +132,7 @@ export default function App() {
       }
     } finally {
       setLoading(false);
+      setInitialDataLoading(false);
     }
   }, []);
 
@@ -221,6 +241,7 @@ export default function App() {
 
   return (
     <Layout activePage={visiblePage} setActivePage={setActivePage} onLogout={logout} allowedPages={allowedPages}>
+      {initialDataLoading && <BackgroundLoadingNotice />}
       {globalError && (
         <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
           {globalError}
