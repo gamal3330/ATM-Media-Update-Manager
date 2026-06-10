@@ -109,13 +109,18 @@ function SummaryTile({ label, value, note = "", tone = "slate", icon: Icon, chil
   };
 
   return (
-    <div className={`group relative rounded-lg border px-4 py-3 shadow-sm ${tones[tone]}`} tabIndex={children ? 0 : undefined}>
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-sm font-medium text-slate-600">{label}</div>
-        {Icon && <Icon size={19} className="text-current opacity-75" />}
+    <div
+      className={`group relative min-h-12 min-w-[8.5rem] rounded-lg border px-3 py-2 shadow-sm ${tones[tone]}`}
+      tabIndex={children ? 0 : undefined}
+    >
+      <div className="flex items-center gap-2">
+        {Icon && <Icon size={17} className="shrink-0 text-current opacity-75" />}
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[11px] font-medium text-slate-600">{label}</div>
+          {note && <div className="truncate text-[10px] font-medium text-slate-500">{note}</div>}
+        </div>
+        <div className="shrink-0 text-2xl font-semibold leading-none tracking-normal">{value}</div>
       </div>
-      <div className="mt-2 text-3xl font-semibold leading-none tracking-normal sm:text-4xl">{value}</div>
-      {note && <div className="mt-1 truncate text-xs font-medium text-slate-500">{note}</div>}
       {children && (
         <div className="absolute right-0 top-full z-30 mt-2 hidden w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-slate-200 bg-white p-3 text-slate-900 shadow-xl group-hover:block group-focus:block">
           {children}
@@ -330,8 +335,42 @@ export default function Dashboard({ atms, packages, cashSummary, loading, onRefr
   return (
     <section>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
+        <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold text-slate-950 sm:text-3xl">لوحة المراقبة</h1>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <SummaryTile label="Online" value={online} tone="emerald" icon={Wifi} />
+            <SummaryTile label="Offline" value={offline} tone={offline ? "rose" : "emerald"} icon={WifiOff} />
+            <SummaryTile
+              label="Cash Low"
+              value={cashLow}
+              note={cashLowAtms ? `${cashLowAtms} صرافات` : ""}
+              tone={cashLow ? "amber" : "emerald"}
+              icon={Gauge}
+            >
+              <CashRiskDetails
+                items={cashLowDetails}
+                count={cashLow}
+                title={`صناديق منخفضة${cashLowAtms ? ` في ${cashLowAtms} صرافات` : ""}`}
+              />
+            </SummaryTile>
+            <SummaryTile
+              label="Cash Empty"
+              value={cashEmpty}
+              note={cashEmptyAtms ? `${cashEmptyAtms} صرافات` : ""}
+              tone={cashEmpty ? "rose" : "emerald"}
+              icon={ShieldAlert}
+            >
+              <CashRiskDetails
+                items={cashEmptyDetails}
+                count={cashEmpty}
+                title={`صناديق نفد منها النقد${cashEmptyAtms ? ` في ${cashEmptyAtms} صرافات` : ""}`}
+                emptyText="لا توجد صرافات فارغة النقد حالياً."
+                pendingText="توجد صرافات فارغة، لكن تفاصيلها لم تصل بعد. حدّث البيانات أو أعد تشغيل backend."
+                tone="rose"
+              />
+            </SummaryTile>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -359,41 +398,7 @@ export default function Dashboard({ atms, packages, cashSummary, loading, onRefr
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryTile label="Online" value={online} tone="emerald" icon={Wifi} />
-        <SummaryTile label="Offline" value={offline} tone={offline ? "rose" : "emerald"} icon={WifiOff} />
-        <SummaryTile
-          label="Cash Low"
-          value={cashLow}
-          note={cashLowAtms ? `${cashLowAtms} صرافات` : ""}
-          tone={cashLow ? "amber" : "emerald"}
-          icon={Gauge}
-        >
-          <CashRiskDetails
-            items={cashLowDetails}
-            count={cashLow}
-            title={`صناديق منخفضة${cashLowAtms ? ` في ${cashLowAtms} صرافات` : ""}`}
-          />
-        </SummaryTile>
-        <SummaryTile
-          label="Cash Empty"
-          value={cashEmpty}
-          note={cashEmptyAtms ? `${cashEmptyAtms} صرافات` : ""}
-          tone={cashEmpty ? "rose" : "emerald"}
-          icon={ShieldAlert}
-        >
-          <CashRiskDetails
-            items={cashEmptyDetails}
-            count={cashEmpty}
-            title={`صناديق نفد منها النقد${cashEmptyAtms ? ` في ${cashEmptyAtms} صرافات` : ""}`}
-            emptyText="لا توجد صرافات فارغة النقد حالياً."
-            pendingText="توجد صرافات فارغة، لكن تفاصيلها لم تصل بعد. حدّث البيانات أو أعد تشغيل backend."
-            tone="rose"
-          />
-        </SummaryTile>
-      </div>
-
-      <div className="mt-6 flex items-center justify-between gap-3">
+      <div className="mt-4 flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-slate-950">الصرافات</h2>
       </div>
 
