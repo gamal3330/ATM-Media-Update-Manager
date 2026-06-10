@@ -69,27 +69,54 @@ def migrate_existing_schema() -> None:
                 '["dashboard","atms","upload","packages","agent-updates","cash","notifications","agent-downloads","logs","settings","users"]'
             )
             default_pages_json = '["dashboard"]'
-            connection.execute(
-                text(
-                    """
-                    UPDATE users
-                    SET allowed_pages = :all_pages
-                    WHERE role IN ('admin', 'system_admin')
-                        AND (allowed_pages IS NULL OR allowed_pages = '[]' OR allowed_pages NOT LIKE '%"agent-updates"%')
-                    """
-                ),
-                {"all_pages": all_pages_json},
-            )
-            connection.execute(
-                text(
-                    """
-                    UPDATE users
-                    SET allowed_pages = :default_pages
-                    WHERE role != 'admin' AND (allowed_pages IS NULL OR allowed_pages = '[]')
-                    """
-                ),
-                {"default_pages": default_pages_json},
-            )
+            if connection.dialect.name == "postgresql":
+                connection.execute(
+                    text(
+                        """
+                        UPDATE users
+                        SET allowed_pages = CAST(:all_pages AS JSONB)
+                        WHERE role IN ('admin', 'system_admin')
+                            AND (
+                                allowed_pages IS NULL
+                                OR allowed_pages::text = '[]'
+                                OR allowed_pages::text NOT LIKE '%"agent-updates"%'
+                            )
+                        """
+                    ),
+                    {"all_pages": all_pages_json},
+                )
+                connection.execute(
+                    text(
+                        """
+                        UPDATE users
+                        SET allowed_pages = CAST(:default_pages AS JSONB)
+                        WHERE role != 'admin' AND (allowed_pages IS NULL OR allowed_pages::text = '[]')
+                        """
+                    ),
+                    {"default_pages": default_pages_json},
+                )
+            else:
+                connection.execute(
+                    text(
+                        """
+                        UPDATE users
+                        SET allowed_pages = :all_pages
+                        WHERE role IN ('admin', 'system_admin')
+                            AND (allowed_pages IS NULL OR allowed_pages = '[]' OR allowed_pages NOT LIKE '%"agent-updates"%')
+                        """
+                    ),
+                    {"all_pages": all_pages_json},
+                )
+                connection.execute(
+                    text(
+                        """
+                        UPDATE users
+                        SET allowed_pages = :default_pages
+                        WHERE role != 'admin' AND (allowed_pages IS NULL OR allowed_pages = '[]')
+                        """
+                    ),
+                    {"default_pages": default_pages_json},
+                )
 
         if "atms" in table_names:
             existing_columns = {column["name"] for column in inspector.get_columns("atms")}
