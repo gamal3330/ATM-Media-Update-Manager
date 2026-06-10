@@ -15,7 +15,6 @@ import UploadPackage from "./pages/UploadPackage";
 import UserManagement from "./pages/UserManagement";
 
 const fallbackPages = ["dashboard"];
-const appLoadSteps = ["تحميل بيانات اللوحة", "فتح النظام"];
 
 function AuthLoading() {
   return (
@@ -24,51 +23,6 @@ function AuthLoading() {
         <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-teal-100 border-t-teal-700" />
         <div className="font-semibold text-slate-950">جاري التحقق من الجلسة</div>
         <div className="mt-1 text-sm text-slate-500">لن يتم فتح لوحة التحكم قبل التأكد من تسجيل الدخول.</div>
-      </div>
-    </div>
-  );
-}
-
-function InitialDataLoading({ step = 0 }) {
-  const currentStep = Math.max(0, Math.min(appLoadSteps.length - 1, step));
-  const percent = Math.round(((currentStep + 1) / appLoadSteps.length) * 100);
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4" dir="rtl">
-      <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-lg font-semibold text-slate-950">جاري تحميل النظام</div>
-            <div className="mt-1 text-sm text-slate-500">نجهّز البيانات الأساسية قبل فتح لوحة التحكم.</div>
-          </div>
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-700">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-teal-100 border-t-teal-700" />
-          </div>
-        </div>
-
-        <div className="mt-5">
-          <div className="mb-2 flex items-center justify-between text-xs font-medium text-slate-500">
-            <span>{appLoadSteps[currentStep]}</span>
-            <span dir="ltr">{percent}%</span>
-          </div>
-          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-            <div className="h-full rounded-full bg-teal-700 transition-all duration-300" style={{ width: `${percent}%` }} />
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-2">
-          {appLoadSteps.map((label, index) => (
-            <div
-              key={label}
-              className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${
-                index <= currentStep ? "border-teal-100 bg-teal-50 text-teal-800" : "border-slate-200 bg-slate-50 text-slate-500"
-              }`}
-            >
-              <span>{label}</span>
-              <span className="text-xs font-semibold">{index < currentStep ? "تم" : index === currentStep ? "جاري" : "ينتظر"}</span>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );
@@ -92,8 +46,6 @@ export default function App() {
   const [journalLogs, setJournalLogs] = useState([]);
   const [logsLoaded, setLogsLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [initializingApp, setInitializingApp] = useState(false);
-  const [initialLoadStep, setInitialLoadStep] = useState(0);
   const [globalError, setGlobalError] = useState("");
 
   const refreshCore = useCallback(async () => {
@@ -141,10 +93,8 @@ export default function App() {
   }, []);
 
   const loadInitialData = useCallback(async () => {
-    setInitializingApp(true);
     setLoading(true);
     setGlobalError("");
-    setInitialLoadStep(0);
     try {
       const [atmData, packageData, cashData] = await Promise.all([
         api.listAtms(),
@@ -155,7 +105,6 @@ export default function App() {
       setPackages(packageData);
       setCashSummary(cashData);
 
-      setInitialLoadStep(1);
     } catch (err) {
       setGlobalError(err.message || "تعذر تحميل البيانات");
       if (err.status === 401) {
@@ -164,7 +113,6 @@ export default function App() {
       }
     } finally {
       setLoading(false);
-      setInitializingApp(false);
     }
   }, []);
 
@@ -182,9 +130,8 @@ export default function App() {
       .then((currentUser) => {
         if (!active) return;
         setUser(currentUser);
-        const initialLoad = loadInitialData();
         setCheckingAuth(false);
-        return initialLoad;
+        loadInitialData();
       })
       .catch(() => {
         if (!active) return;
@@ -207,7 +154,6 @@ export default function App() {
     function handleAuthExpired(event) {
       setUser(null);
       setCheckingAuth(false);
-      setInitializingApp(false);
       setGlobalError(event.detail?.message || "انتهت الجلسة. سجّل الدخول مرة أخرى.");
     }
 
@@ -254,10 +200,6 @@ export default function App() {
         }}
       />
     );
-  }
-
-  if (initializingApp) {
-    return <InitialDataLoading step={initialLoadStep} />;
   }
 
   let page = null;
