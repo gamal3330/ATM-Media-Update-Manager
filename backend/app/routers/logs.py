@@ -17,11 +17,14 @@ def list_agent_logs(
     atm_id: str | None = None,
     from_at: datetime | None = None,
     to_at: datetime | None = None,
+    include_journal: bool = False,
     limit: int = 100,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_page("logs")),
 ) -> list[AgentLog]:
     query = db.query(AgentLog).options(joinedload(AgentLog.atm)).order_by(AgentLog.created_at.desc())
+    if not include_journal:
+        query = query.filter(~AgentLog.message.like("Journal %"))
     if level:
         query = query.filter(AgentLog.level == level)
     if atm_id:

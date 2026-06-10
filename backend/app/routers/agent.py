@@ -852,33 +852,6 @@ def submit_journal_events(
             occurred_at=item.occurred_at,
         )
         db.add(event)
-        db.add(
-            AgentLog(
-                atm_id=atm.id,
-                level=item.severity,
-                message=journal_log_message(item.event_type, item),
-                context={
-                    "event_type": f"JOURNAL_{item.event_type}",
-                    "journal_event_type": item.event_type,
-                    "source": item.source,
-                    "occurred_at": item.occurred_at.isoformat(),
-                    "file_path": item.file_path,
-                    "line_number": item.line_number,
-                    "transaction_serial": item.transaction_serial,
-                    "transaction_type": item.transaction_type,
-                    "amount": item.amount,
-                    "currency": item.currency,
-                    "rrn": item.rrn,
-                    "stan": item.stan,
-                    "auth_code": item.auth_code,
-                    "card_masked": item.card_masked,
-                    "receipt_date": item.receipt_date,
-                    "cassette_outputs": item.cassette_outputs,
-                    "details": item.details,
-                },
-                created_at=item.occurred_at,
-            )
-        )
         inserted += 1
 
     if inserted:

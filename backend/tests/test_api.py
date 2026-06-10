@@ -1896,7 +1896,9 @@ def test_logs_can_be_filtered_by_atm_and_datetime() -> None:
             headers=headers,
         )
         assert filtered_agent_journal_logs.status_code == 200
-        assert [item["context"]["journal_event_type"] for item in filtered_agent_journal_logs.json()] == ["MONEY_TAKEN"]
+        agent_items = filtered_agent_journal_logs.json()
+        assert any(item["message"] == "Filter A log" for item in agent_items)
+        assert all(not item["message"].startswith("Journal ") for item in agent_items)
 
 
 def test_upload_rejects_path_traversal() -> None:
