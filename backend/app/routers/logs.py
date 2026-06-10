@@ -68,5 +68,9 @@ def list_journal_events(
         query = query.filter(AtmJournalEvent.occurred_at >= from_at)
     if to_at:
         query = query.filter(AtmJournalEvent.occurred_at <= to_at)
-    return query.order_by(AtmJournalEvent.received_at.desc(), AtmJournalEvent.occurred_at.desc()).limit(min(limit, 500)).all()
+    if atm_id or from_at or to_at:
+        query = query.order_by(AtmJournalEvent.occurred_at.desc())
+    else:
+        query = query.order_by(AtmJournalEvent.received_at.desc(), AtmJournalEvent.occurred_at.desc())
+    return query.limit(min(limit, 300)).all()
 

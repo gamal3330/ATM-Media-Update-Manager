@@ -373,5 +373,5 @@ export const api = {
   downloadAgentExe: () => downloadBlob("/api/agent-downloads/exe"),
   listLogs: (params = {}) => request(`/api/logs?${buildLogQuery(params, 300)}`),
   listAuditLogs: (params = {}) => request(`/api/logs/audit?${buildLogQuery(params, 300)}`),
-  listJournalLogs: (params = {}) => request(`/api/logs/journal?${buildLogQuery(params, 500)}`),
+  listJournalLogs: (params = {}) => request(`/api/logs/journal?${buildLogQuery(params, 150)}`),
 };
