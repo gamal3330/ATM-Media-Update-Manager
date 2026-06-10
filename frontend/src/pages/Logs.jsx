@@ -12,7 +12,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { formatApiDate, formatLocalWallDate, parseApiDate, parseLocalWallDate } from "../api/time";
+import { formatApiDate, parseApiDate } from "../api/time";
 
 const LOG_FETCH_LIMIT = 100;
 const INITIAL_RENDER_LIMIT = 60;
@@ -21,7 +21,6 @@ const RENDER_INCREMENT = 60;
 const sourceOptions = [
   ["all", "الكل"],
   ["agent", "Agent"],
-  ["journal", "Journal"],
   ["audit", "Audit"],
 ];
 
@@ -181,45 +180,6 @@ function formatDuration(seconds) {
 function agentEventSummary(context, fallbackMessage) {
   if (!context || typeof context !== "object") return null;
   const eventType = context.event_type || "";
-  if (eventType.startsWith("JOURNAL_")) {
-    const title = context.journal_event_type
-      ? `Journal ${String(context.journal_event_type).replaceAll("_", " ").toLowerCase()}`
-      : "Journal event";
-    const details = context.details && typeof context.details === "object" ? context.details : {};
-    const amount = context.amount ? `${context.amount} ${context.currency || ""}`.trim() : "";
-    const cassetteOutputs = Array.isArray(context.cassette_outputs)
-      ? context.cassette_outputs
-          .map((item) => `CAS ${item.cassette_no}: out ${item.out}, reject ${item.reject}, deno ${item.denomination}`)
-          .join(" | ")
-      : "";
-    const subtitleParts = [
-      context.transaction_type,
-      amount,
-      context.rrn ? `RRN ${context.rrn}` : "",
-      details.completed === true ? "completed" : "",
-      details.take_cash_timeout ? "cash timeout warning" : "",
-    ].filter(Boolean);
-    const items = [
-      ["Event", context.journal_event_type || eventType],
-      context.occurred_at ? ["Occurred at", formatApiDate(context.occurred_at)] : null,
-      context.transaction_serial ? ["Serial", context.transaction_serial] : null,
-      context.transaction_type ? ["Transaction type", context.transaction_type] : null,
-      amount ? ["Amount", amount] : null,
-      context.rrn ? ["RRN", context.rrn] : null,
-      context.stan ? ["STAN", context.stan] : null,
-      context.auth_code ? ["Auth code", context.auth_code] : null,
-      context.card_masked ? ["Card", context.card_masked] : null,
-      context.receipt_date ? ["Receipt date", context.receipt_date] : null,
-      cassetteOutputs ? ["Cassette outputs", cassetteOutputs] : null,
-      context.file_path ? ["File", context.file_path] : null,
-      context.line_number ? ["Line", context.line_number] : null,
-    ].filter(Boolean);
-    return {
-      title,
-      subtitle: subtitleParts.join(" | ") || fallbackMessage,
-      items,
-    };
-  }
   const state = context.state && typeof context.state === "object" ? context.state : {};
   const siu = context.siu && typeof context.siu === "object" ? context.siu : {};
   const labels = {
@@ -389,116 +349,12 @@ function buildAuditRecord(log) {
   };
 }
 
-function journalEventTitle(eventType) {
-  const value = String(eventType || "").replaceAll("_", " ").toLowerCase();
-  return value ? `Journal ${value}` : "Journal event";
-}
-
 function formatRecordDate(record) {
-  return record.source === "journal" ? formatLocalWallDate(record.occurredAt) : formatApiDate(record.occurredAt);
+  return formatApiDate(record.occurredAt);
 }
 
 function parseRecordDate(record) {
-  return record.source === "journal" ? parseLocalWallDate(record.occurredAt) : parseApiDate(record.occurredAt);
-}
-
-function buildJournalRecord(event) {
-  const atm = event.atm || {};
-  const details = event.details_json && typeof event.details_json === "object" ? event.details_json : {};
-  const cassetteOutputs = Array.isArray(event.cassette_outputs_json)
-    ? event.cassette_outputs_json
-        .map((item) => `CAS ${item.cassette_no}: out ${item.out}, reject ${item.reject}, deno ${item.denomination}`)
-        .join(" | ")
-    : "";
-  const amount = event.amount ? `${event.amount} ${event.currency || ""}`.trim() : "";
-  const title = journalEventTitle(event.event_type);
-  const subtitleParts = [
-    event.transaction_type,
-    amount,
-    event.rrn ? `RRN ${event.rrn}` : "",
-    details.completed === true ? "completed" : "",
-    details.take_cash_timeout ? "cash timeout warning" : "",
-  ].filter(Boolean);
-  const atmId = atm.atm_id || "-";
-  const atmName = atm.name || "";
-  const atmBranch = atm.branch || "";
-  const atmIp = atm.vpn_ip || "";
-  const levelMeta = getLevelMeta(event.severity);
-  const journalOccurredAt = event.occurred_at || event.received_at;
-  const detailItems = [
-    ["Event", event.event_type],
-    ["وقت الجورنال", formatLocalWallDate(journalOccurredAt)],
-    event.received_at ? ["وقت وصول النظام", formatApiDate(event.received_at)] : null,
-    event.transaction_serial ? ["Serial", event.transaction_serial] : null,
-    event.transaction_type ? ["Transaction type", event.transaction_type] : null,
-    amount ? ["Amount", amount] : null,
-    event.rrn ? ["RRN", event.rrn] : null,
-    event.stan ? ["STAN", event.stan] : null,
-    event.auth_code ? ["Auth code", event.auth_code] : null,
-    event.card_masked ? ["Card", event.card_masked] : null,
-    event.receipt_date ? ["Receipt date", event.receipt_date] : null,
-    cassetteOutputs ? ["Cassette outputs", cassetteOutputs] : null,
-    event.file_path ? ["File", event.file_path] : null,
-    event.line_number ? ["Line", event.line_number] : null,
-  ].filter(Boolean);
-
-  return {
-    id: `journal-${event.id}`,
-    source: "journal",
-    sourceLabel: "Journal",
-    icon: ClipboardList,
-    title,
-    subtitle: subtitleParts.join(" | ") || event.message,
-    level: normalizeText(event.severity) || "info",
-    levelMeta,
-    details: {
-      event_type: event.event_type,
-      source: event.source,
-      occurred_at: event.occurred_at,
-      received_at: event.received_at,
-      transaction_serial: event.transaction_serial,
-      transaction_type: event.transaction_type,
-      amount: event.amount,
-      currency: event.currency,
-      rrn: event.rrn,
-      stan: event.stan,
-      auth_code: event.auth_code,
-      card_masked: event.card_masked,
-      receipt_date: event.receipt_date,
-      cassette_outputs: event.cassette_outputs_json,
-      details,
-      file_path: event.file_path,
-      line_number: event.line_number,
-    },
-    detailItems,
-    atm: {
-      id: atmId,
-      name: atmName,
-      branch: atmBranch,
-      ip: atmIp,
-      known: atmId !== "-",
-    },
-    target: [atmBranch, atmIp].filter(Boolean).join(" Â· "),
-    occurredAt: journalOccurredAt,
-    searchText: [
-      "journal",
-      atmId,
-      atmName,
-      atmBranch,
-      atmIp,
-      event.event_type,
-      event.transaction_serial,
-      event.transaction_type,
-      event.amount,
-      event.currency,
-      event.rrn,
-      event.stan,
-      event.auth_code,
-      event.card_masked,
-      event.file_path,
-      compactSearchDetails(details),
-    ].join(" "),
-  };
+  return parseApiDate(record.occurredAt);
 }
 
 function StatPill({ label, value, icon: Icon, tone = "slate" }) {
@@ -595,7 +451,7 @@ function LogTimeline({ records }) {
                   </span>
                 </div>
 
-                {(record.source === "agent" || record.source === "journal") && (
+                {record.source === "agent" && (
                   <div
                     className={`mt-3 rounded-lg border px-3 py-2 text-sm ${
                       record.atm?.known
@@ -669,7 +525,7 @@ function LogTimeline({ records }) {
   );
 }
 
-export default function Logs({ logs, auditLogs, journalLogs, atms, loading = false, onRefresh }) {
+export default function Logs({ logs, auditLogs, atms, loading = false, onRefresh }) {
   const [query, setQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState("agent");
   const [levelFilter, setLevelFilter] = useState("all");
@@ -677,18 +533,16 @@ export default function Logs({ logs, auditLogs, journalLogs, atms, loading = fal
   const [fromAt, setFromAt] = useState("");
   const [toAt, setToAt] = useState("");
   const [visibleCount, setVisibleCount] = useState(INITIAL_RENDER_LIMIT);
-  const journalCanLoad = Boolean(atmFilter);
 
   const records = useMemo(() => {
     const agentRecords = (Array.isArray(logs) ? logs : []).map(buildAgentRecord);
     const auditRecords = (Array.isArray(auditLogs) ? auditLogs : []).map(buildAuditRecord);
-    const journalRecords = (Array.isArray(journalLogs) ? journalLogs : []).map(buildJournalRecord);
-    return [...agentRecords, ...journalRecords, ...auditRecords].sort((first, second) => {
+    return [...agentRecords, ...auditRecords].sort((first, second) => {
       const firstDate = parseRecordDate(first)?.getTime() || 0;
       const secondDate = parseRecordDate(second)?.getTime() || 0;
       return secondDate - firstDate;
     });
-  }, [logs, auditLogs, journalLogs]);
+  }, [logs, auditLogs]);
 
   const stats = useMemo(() => {
     const agentLogs = Array.isArray(logs) ? logs : [];
@@ -697,9 +551,8 @@ export default function Logs({ logs, auditLogs, journalLogs, atms, loading = fal
       errors: agentLogs.filter((log) => normalizeText(log.level) === "error").length,
       warnings: agentLogs.filter((log) => normalizeText(log.level) === "warning").length,
       audit: Array.isArray(auditLogs) ? auditLogs.length : 0,
-      journal: Array.isArray(journalLogs) ? journalLogs.length : 0,
     };
-  }, [logs, auditLogs, journalLogs, records.length]);
+  }, [logs, auditLogs, records.length]);
 
   const filteredRecords = useMemo(() => {
     const needle = normalizeText(query);
@@ -714,7 +567,7 @@ export default function Logs({ logs, auditLogs, journalLogs, atms, loading = fal
 
   useEffect(() => {
     setVisibleCount(INITIAL_RENDER_LIMIT);
-  }, [atmFilter, auditLogs, fromAt, journalLogs, levelFilter, logs, query, sourceFilter, toAt]);
+  }, [atmFilter, auditLogs, fromAt, levelFilter, logs, query, sourceFilter, toAt]);
 
   const visibleRecords = filteredRecords.slice(0, visibleCount);
   const hasMoreRecords = filteredRecords.length > visibleRecords.length;
@@ -758,11 +611,10 @@ export default function Logs({ logs, auditLogs, journalLogs, atms, loading = fal
         </button>
       </div>
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatPill label="كل السجلات" value={stats.total} icon={Activity} />
         <StatPill label="أخطاء Agent" value={stats.errors} icon={XCircle} tone={stats.errors ? "rose" : "emerald"} />
         <StatPill label="تحذيرات Agent" value={stats.warnings} icon={AlertTriangle} tone={stats.warnings ? "amber" : "emerald"} />
-        <StatPill label="Journal" value={stats.journal} icon={ClipboardList} tone="sky" />
         <StatPill label="Audit" value={stats.audit} icon={ShieldCheck} tone="sky" />
       </div>
 
@@ -874,11 +726,6 @@ export default function Logs({ logs, auditLogs, journalLogs, atms, loading = fal
           </button>
         </div>
 
-        {(sourceFilter === "journal" || sourceFilter === "all") && !journalCanLoad && (
-          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            اختر صرافًا ثم اضغط بحث لتحميل سجلات Journal الخاصة به فقط.
-          </div>
-        )}
       </div>
 
       {loading && (

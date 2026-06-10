@@ -63,7 +63,6 @@ export default function App() {
   const [cashSummary, setCashSummary] = useState(null);
   const [logs, setLogs] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
-  const [journalLogs, setJournalLogs] = useState([]);
   const [logsLoaded, setLogsLoaded] = useState(false);
   const [logsLoading, setLogsLoading] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -100,15 +99,12 @@ export default function App() {
       const source = filters.source || "all";
       const shouldLoadAgent = source === "all" || source === "agent";
       const shouldLoadAudit = source === "all" || source === "audit";
-      const shouldLoadJournal = Boolean(filters.atmId) && (source === "all" || source === "journal");
-      const [agentLogData, auditLogData, journalLogData] = await Promise.all([
+      const [agentLogData, auditLogData] = await Promise.all([
         shouldLoadAgent ? api.listLogs(filters) : Promise.resolve([]),
         shouldLoadAudit ? api.listAuditLogs(filters) : Promise.resolve([]),
-        shouldLoadJournal ? api.listJournalLogs(filters) : Promise.resolve([]),
       ]);
       setLogs(agentLogData);
       setAuditLogs(auditLogData);
-      setJournalLogs(journalLogData);
       setLogsLoaded(true);
     } catch (err) {
       setGlobalError(err.message || "تعذر تحميل السجلات");
@@ -239,7 +235,7 @@ export default function App() {
   if (visiblePage === "notifications") page = <NotificationCenter />;
   if (visiblePage === "agent-downloads") page = <AgentDownloads />;
   if (visiblePage === "logs") {
-    page = <Logs logs={logs} auditLogs={auditLogs} journalLogs={journalLogs} atms={atms} loading={logsLoading} onRefresh={refreshLogs} />;
+    page = <Logs logs={logs} auditLogs={auditLogs} atms={atms} loading={logsLoading} onRefresh={refreshLogs} />;
   }
   if (visiblePage === "journal") page = <Journal atms={atms} />;
   if (visiblePage === "settings") {
