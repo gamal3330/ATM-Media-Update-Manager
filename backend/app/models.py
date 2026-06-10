@@ -129,9 +129,17 @@ class ATM(Base):
     def active_update_count(self) -> int:
         return sum(1 for target in self.targets if target.status in {"pending", "downloading"})
 
+    def _is_agent_problem_log(self, log: "AgentLog") -> bool:
+        if log.level not in {"error", "warning"}:
+            return False
+        message = log.message or ""
+        if message.startswith("Journal ") and message != "Journal reader failed":
+            return False
+        return True
+
     @property
     def last_agent_error(self) -> str | None:
-        errors = [log for log in self.logs if log.level in {"error", "warning"}]
+        errors = [log for log in self.logs if self._is_agent_problem_log(log)]
         if not errors:
             return None
         latest = max(errors, key=lambda log: log.created_at)
@@ -139,7 +147,7 @@ class ATM(Base):
 
     @property
     def last_agent_error_at(self) -> datetime | None:
-        errors = [log for log in self.logs if log.level in {"error", "warning"}]
+        errors = [log for log in self.logs if self._is_agent_problem_log(log)]
         if not errors:
             return None
         latest = max(errors, key=lambda log: log.created_at)
