@@ -89,6 +89,7 @@ export default function App() {
   const [cashSummary, setCashSummary] = useState(null);
   const [logs, setLogs] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
+  const [journalLogs, setJournalLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [initializingApp, setInitializingApp] = useState(false);
   const [initialLoadStep, setInitialLoadStep] = useState(0);
@@ -120,9 +121,14 @@ export default function App() {
   const refreshLogs = useCallback(async () => {
     setGlobalError("");
     try {
-      const [agentLogData, auditLogData] = await Promise.all([api.listLogs(), api.listAuditLogs()]);
+      const [agentLogData, auditLogData, journalLogData] = await Promise.all([
+        api.listLogs(),
+        api.listAuditLogs(),
+        api.listJournalLogs(),
+      ]);
       setLogs(agentLogData);
       setAuditLogs(auditLogData);
+      setJournalLogs(journalLogData);
     } catch (err) {
       setGlobalError(err.message || "تعذر تحميل السجلات");
     }
@@ -144,9 +150,14 @@ export default function App() {
       setCashSummary(cashData);
 
       setInitialLoadStep(1);
-      const [agentLogData, auditLogData] = await Promise.all([api.listLogs(), api.listAuditLogs()]);
+      const [agentLogData, auditLogData, journalLogData] = await Promise.all([
+        api.listLogs(),
+        api.listAuditLogs(),
+        api.listJournalLogs(),
+      ]);
       setLogs(agentLogData);
       setAuditLogs(auditLogData);
+      setJournalLogs(journalLogData);
       setInitialLoadStep(2);
     } catch (err) {
       setGlobalError(err.message || "تعذر تحميل البيانات");
@@ -255,7 +266,9 @@ export default function App() {
   if (visiblePage === "cash") page = <CashMonitoring atms={atms} />;
   if (visiblePage === "notifications") page = <NotificationCenter />;
   if (visiblePage === "agent-downloads") page = <AgentDownloads />;
-  if (visiblePage === "logs") page = <Logs logs={logs} auditLogs={auditLogs} onRefresh={refreshLogs} />;
+  if (visiblePage === "logs") {
+    page = <Logs logs={logs} auditLogs={auditLogs} journalLogs={journalLogs} onRefresh={refreshLogs} />;
+  }
   if (visiblePage === "settings") {
     page = <Settings atms={atms} onChanged={refreshCore} onOpenAgentDownloads={() => setActivePage("agent-downloads")} />;
   }

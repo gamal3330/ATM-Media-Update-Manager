@@ -364,4 +364,5 @@ export const api = {
   downloadAgentExe: () => downloadBlob("/api/agent-downloads/exe"),
   listLogs: () => request("/api/logs?limit=200"),
   listAuditLogs: () => request("/api/logs/audit?limit=200"),
+  listJournalLogs: () => request("/api/logs/journal?limit=300"),
 };

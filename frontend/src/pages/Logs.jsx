@@ -16,6 +16,7 @@ import { formatApiDate, parseApiDate } from "../api/time";
 const sourceOptions = [
   ["all", "الكل"],
   ["agent", "Agent"],
+  ["journal", "Journal"],
   ["audit", "Audit"],
 ];
 
@@ -368,6 +369,108 @@ function buildAuditRecord(log) {
   };
 }
 
+function journalEventTitle(eventType) {
+  const value = String(eventType || "").replaceAll("_", " ").toLowerCase();
+  return value ? `Journal ${value}` : "Journal event";
+}
+
+function buildJournalRecord(event) {
+  const atm = event.atm || {};
+  const details = event.details_json && typeof event.details_json === "object" ? event.details_json : {};
+  const cassetteOutputs = Array.isArray(event.cassette_outputs_json)
+    ? event.cassette_outputs_json
+        .map((item) => `CAS ${item.cassette_no}: out ${item.out}, reject ${item.reject}, deno ${item.denomination}`)
+        .join(" | ")
+    : "";
+  const amount = event.amount ? `${event.amount} ${event.currency || ""}`.trim() : "";
+  const title = journalEventTitle(event.event_type);
+  const subtitleParts = [
+    event.transaction_type,
+    amount,
+    event.rrn ? `RRN ${event.rrn}` : "",
+    details.completed === true ? "completed" : "",
+    details.take_cash_timeout ? "cash timeout warning" : "",
+  ].filter(Boolean);
+  const atmId = atm.atm_id || "-";
+  const atmName = atm.name || "";
+  const atmBranch = atm.branch || "";
+  const atmIp = atm.vpn_ip || "";
+  const levelMeta = getLevelMeta(event.severity);
+  const detailItems = [
+    ["Event", event.event_type],
+    ["Occurred at", formatApiDate(event.occurred_at)],
+    event.transaction_serial ? ["Serial", event.transaction_serial] : null,
+    event.transaction_type ? ["Transaction type", event.transaction_type] : null,
+    amount ? ["Amount", amount] : null,
+    event.rrn ? ["RRN", event.rrn] : null,
+    event.stan ? ["STAN", event.stan] : null,
+    event.auth_code ? ["Auth code", event.auth_code] : null,
+    event.card_masked ? ["Card", event.card_masked] : null,
+    event.receipt_date ? ["Receipt date", event.receipt_date] : null,
+    cassetteOutputs ? ["Cassette outputs", cassetteOutputs] : null,
+    event.file_path ? ["File", event.file_path] : null,
+    event.line_number ? ["Line", event.line_number] : null,
+  ].filter(Boolean);
+
+  return {
+    id: `journal-${event.id}`,
+    source: "journal",
+    sourceLabel: "Journal",
+    icon: ClipboardList,
+    title,
+    subtitle: subtitleParts.join(" | ") || event.message,
+    level: normalizeText(event.severity) || "info",
+    levelMeta,
+    details: {
+      event_type: event.event_type,
+      source: event.source,
+      occurred_at: event.occurred_at,
+      received_at: event.received_at,
+      transaction_serial: event.transaction_serial,
+      transaction_type: event.transaction_type,
+      amount: event.amount,
+      currency: event.currency,
+      rrn: event.rrn,
+      stan: event.stan,
+      auth_code: event.auth_code,
+      card_masked: event.card_masked,
+      receipt_date: event.receipt_date,
+      cassette_outputs: event.cassette_outputs_json,
+      details,
+      file_path: event.file_path,
+      line_number: event.line_number,
+    },
+    detailItems,
+    atm: {
+      id: atmId,
+      name: atmName,
+      branch: atmBranch,
+      ip: atmIp,
+      known: atmId !== "-",
+    },
+    target: [atmBranch, atmIp].filter(Boolean).join(" Â· "),
+    occurredAt: event.received_at || event.occurred_at,
+    searchText: [
+      "journal",
+      atmId,
+      atmName,
+      atmBranch,
+      atmIp,
+      event.event_type,
+      event.transaction_serial,
+      event.transaction_type,
+      event.amount,
+      event.currency,
+      event.rrn,
+      event.stan,
+      event.auth_code,
+      event.card_masked,
+      event.file_path,
+      stringifyDetails(details),
+    ].join(" "),
+  };
+}
+
 function StatPill({ label, value, icon: Icon, tone = "slate" }) {
   const tones = {
     slate: "border-slate-200 bg-white text-slate-950",
@@ -431,7 +534,7 @@ function LogTimeline({ records }) {
                   </span>
                 </div>
 
-                {record.source === "agent" && (
+                {(record.source === "agent" || record.source === "journal") && (
                   <div
                     className={`mt-3 rounded-lg border px-3 py-2 text-sm ${
                       record.atm?.known
@@ -505,7 +608,7 @@ function LogTimeline({ records }) {
   );
 }
 
-export default function Logs({ logs, auditLogs, onRefresh }) {
+export default function Logs({ logs, auditLogs, journalLogs, onRefresh }) {
   const [query, setQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [levelFilter, setLevelFilter] = useState("all");
@@ -513,12 +616,13 @@ export default function Logs({ logs, auditLogs, onRefresh }) {
   const records = useMemo(() => {
     const agentRecords = (Array.isArray(logs) ? logs : []).map(buildAgentRecord);
     const auditRecords = (Array.isArray(auditLogs) ? auditLogs : []).map(buildAuditRecord);
-    return [...agentRecords, ...auditRecords].sort((first, second) => {
+    const journalRecords = (Array.isArray(journalLogs) ? journalLogs : []).map(buildJournalRecord);
+    return [...agentRecords, ...journalRecords, ...auditRecords].sort((first, second) => {
       const firstDate = parseApiDate(first.occurredAt)?.getTime() || 0;
       const secondDate = parseApiDate(second.occurredAt)?.getTime() || 0;
       return secondDate - firstDate;
     });
-  }, [logs, auditLogs]);
+  }, [logs, auditLogs, journalLogs]);
 
   const stats = useMemo(() => {
     const agentLogs = Array.isArray(logs) ? logs : [];
@@ -527,15 +631,16 @@ export default function Logs({ logs, auditLogs, onRefresh }) {
       errors: agentLogs.filter((log) => normalizeText(log.level) === "error").length,
       warnings: agentLogs.filter((log) => normalizeText(log.level) === "warning").length,
       audit: Array.isArray(auditLogs) ? auditLogs.length : 0,
+      journal: Array.isArray(journalLogs) ? journalLogs.length : 0,
     };
-  }, [logs, auditLogs, records.length]);
+  }, [logs, auditLogs, journalLogs, records.length]);
 
   const filteredRecords = useMemo(() => {
     const needle = normalizeText(query);
     return records.filter((record) => {
       if (sourceFilter !== "all" && record.source !== sourceFilter) return false;
-      if (levelFilter !== "all" && record.source === "agent" && record.level !== levelFilter) return false;
-      if (levelFilter !== "all" && record.source !== "agent") return false;
+      if (levelFilter !== "all" && record.source === "audit") return false;
+      if (levelFilter !== "all" && record.level !== levelFilter) return false;
       if (!needle) return true;
       return normalizeText(record.searchText).includes(needle);
     });
@@ -557,10 +662,11 @@ export default function Logs({ logs, auditLogs, onRefresh }) {
         </button>
       </div>
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <StatPill label="كل السجلات" value={stats.total} icon={Activity} />
         <StatPill label="أخطاء Agent" value={stats.errors} icon={XCircle} tone={stats.errors ? "rose" : "emerald"} />
         <StatPill label="تحذيرات Agent" value={stats.warnings} icon={AlertTriangle} tone={stats.warnings ? "amber" : "emerald"} />
+        <StatPill label="Journal" value={stats.journal} icon={ClipboardList} tone="sky" />
         <StatPill label="Audit" value={stats.audit} icon={ShieldCheck} tone="sky" />
       </div>
 

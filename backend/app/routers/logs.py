@@ -40,7 +40,7 @@ def list_journal_events(
     return (
         db.query(AtmJournalEvent)
         .options(joinedload(AtmJournalEvent.atm))
-        .order_by(AtmJournalEvent.occurred_at.desc())
+        .order_by(AtmJournalEvent.received_at.desc(), AtmJournalEvent.occurred_at.desc())
         .limit(min(limit, 500))
         .all()
     )
