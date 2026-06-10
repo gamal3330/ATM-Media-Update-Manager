@@ -356,9 +356,31 @@ def parse_grg_journal_text(text: str, file_path: str = "<memory>") -> list[Journ
     return parser.parse_lines(text.splitlines())
 
 
+def decode_journal_bytes(data: bytes) -> str:
+    if not data:
+        return ""
+    if data.startswith(b"\xff\xfe") or data.startswith(b"\xfe\xff"):
+        return data.decode("utf-16", errors="replace")
+
+    sample = data[:4096]
+    if sample:
+        even_nulls = sample[0::2].count(0)
+        odd_nulls = sample[1::2].count(0)
+        half = max(1, len(sample) // 2)
+        if odd_nulls / half > 0.20 and odd_nulls > even_nulls * 2:
+            return data.decode("utf-16-le", errors="replace")
+        if even_nulls / half > 0.20 and even_nulls > odd_nulls * 2:
+            return data.decode("utf-16-be", errors="replace")
+
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return data.decode("cp1252", errors="replace")
+
+
 def read_new_text(path: Path, offset: int) -> tuple[str, int]:
     with path.open("rb") as file_obj:
         file_obj.seek(max(0, offset))
         data = file_obj.read()
         new_offset = file_obj.tell()
-    return data.decode("utf-8", errors="replace"), new_offset
+    return decode_journal_bytes(data), new_offset

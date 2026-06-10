@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from journal_reader import mask_card, parse_grg_journal_text
+from journal_reader import decode_journal_bytes, mask_card, parse_grg_journal_text
 
 
 SAMPLE_EJ = """2026-06-09 17:41:17.637 TRANSACTION REQUEST ADBA  AC
@@ -77,3 +77,12 @@ def test_parse_grg_journal_transaction_summary():
         {"cassette_no": 1, "out": 19, "reject": 0, "denomination": 1000},
         {"cassette_no": 2, "out": 21, "reject": 0, "denomination": 1000},
     ]
+
+
+def test_decode_utf16le_journal_without_bom():
+    decoded = decode_journal_bytes(SAMPLE_EJ.encode("utf-16-le"))
+
+    events = parse_grg_journal_text(decoded, file_path=r"D:\Log\EJ260610.log")
+
+    assert by_type(events, "TRANSACTION_START")
+    assert by_type(events, "TRANSACTION_END")[0].card_masked == "996700******1749"
