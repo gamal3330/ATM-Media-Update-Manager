@@ -616,6 +616,7 @@ export default function Logs({ logs, auditLogs, journalLogs, atms, onRefresh }) 
   const [atmFilter, setAtmFilter] = useState("");
   const [fromAt, setFromAt] = useState("");
   const [toAt, setToAt] = useState("");
+  const journalCanLoad = Boolean(atmFilter);
 
   const records = useMemo(() => {
     const agentRecords = (Array.isArray(logs) ? logs : []).map(buildAgentRecord);
@@ -798,6 +799,12 @@ export default function Logs({ logs, auditLogs, journalLogs, atms, onRefresh }) 
             <span>مسح</span>
           </button>
         </div>
+
+        {!journalCanLoad && (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            اختر صرافًا ثم اضغط بحث لتحميل سجلات Journal الخاصة به فقط.
+          </div>
+        )}
       </div>
 
       <LogTimeline records={filteredRecords} />

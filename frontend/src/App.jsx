@@ -15,7 +15,7 @@ import UploadPackage from "./pages/UploadPackage";
 import UserManagement from "./pages/UserManagement";
 
 const fallbackPages = ["dashboard"];
-const appLoadSteps = ["تحميل بيانات اللوحة", "تحميل السجلات", "فتح النظام"];
+const appLoadSteps = ["تحميل بيانات اللوحة", "فتح النظام"];
 
 function AuthLoading() {
   return (
@@ -90,6 +90,7 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [journalLogs, setJournalLogs] = useState([]);
+  const [logsLoaded, setLogsLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [initializingApp, setInitializingApp] = useState(false);
   const [initialLoadStep, setInitialLoadStep] = useState(0);
@@ -121,14 +122,16 @@ export default function App() {
   const refreshLogs = useCallback(async (filters = {}) => {
     setGlobalError("");
     try {
+      const shouldLoadJournal = Boolean(filters.atmId);
       const [agentLogData, auditLogData, journalLogData] = await Promise.all([
         api.listLogs(filters),
         api.listAuditLogs(filters),
-        api.listJournalLogs(filters),
+        shouldLoadJournal ? api.listJournalLogs(filters) : Promise.resolve([]),
       ]);
       setLogs(agentLogData);
       setAuditLogs(auditLogData);
       setJournalLogs(journalLogData);
+      setLogsLoaded(true);
     } catch (err) {
       setGlobalError(err.message || "تعذر تحميل السجلات");
     }
@@ -150,15 +153,6 @@ export default function App() {
       setCashSummary(cashData);
 
       setInitialLoadStep(1);
-      const [agentLogData, auditLogData, journalLogData] = await Promise.all([
-        api.listLogs(),
-        api.listAuditLogs(),
-        api.listJournalLogs(),
-      ]);
-      setLogs(agentLogData);
-      setAuditLogs(auditLogData);
-      setJournalLogs(journalLogData);
-      setInitialLoadStep(2);
     } catch (err) {
       setGlobalError(err.message || "تعذر تحميل البيانات");
       if (err.status === 401) {
@@ -223,6 +217,12 @@ export default function App() {
       setActivePage(visiblePage);
     }
   }, [activePage, user, visiblePage]);
+
+  useEffect(() => {
+    if (user && visiblePage === "logs" && !logsLoaded) {
+      refreshLogs({});
+    }
+  }, [logsLoaded, refreshLogs, user, visiblePage]);
 
   async function logout() {
     try {
