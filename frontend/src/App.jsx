@@ -6,6 +6,7 @@ import AgentUpdates from "./pages/AgentUpdates";
 import Atms from "./pages/Atms";
 import CashMonitoring from "./pages/CashMonitoring";
 import Dashboard from "./pages/Dashboard";
+import Journal from "./pages/Journal";
 import Login from "./pages/Login";
 import Logs from "./pages/Logs";
 import NotificationCenter from "./pages/NotificationCenter";
@@ -48,7 +49,9 @@ function BackgroundLoadingNotice() {
 function getAllowedPages(user) {
   const pageIds = nav.map((item) => item.id);
   const pages = Array.isArray(user?.allowed_pages) ? user.allowed_pages : fallbackPages;
-  return pages.filter((page) => pageIds.includes(page));
+  const expanded = new Set(pages);
+  if (expanded.has("logs")) expanded.add("journal");
+  return pageIds.filter((page) => expanded.has(page));
 }
 
 export default function App() {
@@ -238,6 +241,7 @@ export default function App() {
   if (visiblePage === "logs") {
     page = <Logs logs={logs} auditLogs={auditLogs} journalLogs={journalLogs} atms={atms} loading={logsLoading} onRefresh={refreshLogs} />;
   }
+  if (visiblePage === "journal") page = <Journal atms={atms} />;
   if (visiblePage === "settings") {
     page = <Settings atms={atms} onChanged={refreshCore} onOpenAgentDownloads={() => setActivePage("agent-downloads")} />;
   }

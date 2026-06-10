@@ -1,6 +1,7 @@
 import {
   Activity,
   Bell,
+  BookOpenText,
   Boxes,
   Download,
   FileArchive,
@@ -24,6 +25,7 @@ export const nav = [
   { id: "notifications", label: "مركز التنبيهات", icon: Bell },
   { id: "agent-downloads", label: "Agent Downloads", icon: Download },
   { id: "logs", label: "السجلات", icon: ScrollText },
+  { id: "journal", label: "Journal", icon: BookOpenText },
   { id: "settings", label: "الإعدادات", icon: Settings },
   { id: "users", label: "المستخدمون", icon: Users },
 ];
