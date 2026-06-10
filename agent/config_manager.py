@@ -52,6 +52,14 @@ class CashMonitoringConfig:
 
 
 @dataclass
+class JournalReaderConfig:
+    enabled: bool
+    provider: str
+    log_glob: str
+    read_interval_seconds: int
+
+
+@dataclass
 class RemoteConfig:
     atm_id: str
     config_version: int
@@ -62,6 +70,7 @@ class RemoteConfig:
     switch_probe_interval_seconds: int
     media_update: MediaUpdateConfig
     cash_monitoring: CashMonitoringConfig
+    journal_reader: JournalReaderConfig
 
     @property
     def media_path(self) -> str:
@@ -140,6 +149,7 @@ def parse_remote_config(payload: dict[str, Any]) -> RemoteConfig:
         "cash_layout": [],
         "stale_after_minutes": 10,
     }
+    journal_payload = modules.get("journal_reader") or {}
     cash_layout = [
         CashLayoutItem(
             cassette_no=int(item["cassette_no"]),
@@ -155,6 +165,7 @@ def parse_remote_config(payload: dict[str, Any]) -> RemoteConfig:
     if xfs_profile not in {"ncr_aptra", "grg", "custom"}:
         xfs_profile = "custom"
     default_logical_service = "CDM" if xfs_profile == "grg" else "MediaDispenser1"
+    journal_enabled_default = xfs_profile == "grg"
     return RemoteConfig(
         atm_id=str(payload["atm_id"]),
         config_version=int(payload["config_version"]),
@@ -183,5 +194,14 @@ def parse_remote_config(payload: dict[str, Any]) -> RemoteConfig:
             read_interval_seconds=int(cash_payload.get("read_interval_seconds") or 120),
             cash_layout=cash_layout,
             stale_after_minutes=int(cash_payload.get("stale_after_minutes") or 10),
+        ),
+        journal_reader=JournalReaderConfig(
+            enabled=bool(journal_payload.get("enabled", journal_enabled_default)),
+            provider=str(journal_payload.get("provider") or "grg_ej").strip().lower() or "grg_ej",
+            log_glob=str(
+                journal_payload.get("log_glob")
+                or r"D:\Program Files\DTATMW\Bin\ATMAPP\Log\EJ*.log"
+            ),
+            read_interval_seconds=int(journal_payload.get("read_interval_seconds") or 60),
         ),
     )

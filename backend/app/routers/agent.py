@@ -15,6 +15,7 @@ from ..models import (
     AgentPackage,
     AgentUpdateTarget,
     AtmCashSnapshot,
+    AtmJournalEvent,
     AtmSwitchProbe,
     UpdatePackage,
     UpdateResult,
@@ -39,6 +40,9 @@ from ..schemas import (
     AgentSwitchProbeRequest,
     AgentSwitchProbeResult,
     CashMonitoringRemoteConfig,
+    JournalEventsRequest,
+    JournalEventsResponse,
+    JournalReaderRemoteConfig,
     MediaUpdateRemoteConfig,
     UpdateResultRequest,
 )
@@ -140,6 +144,12 @@ def get_agent_config(atm: ATM = Depends(get_agent_atm)) -> AgentConfigResponse:
                 read_interval_seconds=atm.cash_read_interval_seconds,
                 cash_layout=normalized_cash_layout(atm.cash_layout_json),
                 stale_after_minutes=atm.cash_stale_after_minutes,
+            ),
+            journal_reader=JournalReaderRemoteConfig(
+                enabled=bool(atm.journal_reader_enabled or atm.xfs_profile == "grg"),
+                provider="grg_ej",
+                log_glob=atm.journal_log_glob,
+                read_interval_seconds=atm.journal_read_interval_seconds,
             ),
         ),
         media_path=atm.media_path,
@@ -755,3 +765,123 @@ def submit_log(
     db.add(log)
     db.commit()
     return {"ok": True}
+
+
+JOURNAL_EVENT_LABELS = {
+    "TRANSACTION_START": "Journal transaction started",
+    "TRANSACTION_END": "Journal transaction ended",
+    "TRANSACTION_SERIAL_NUMBER": "Journal transaction serial number",
+    "DISPENSE_SUCCESS": "Journal dispense success",
+    "PRESENT_SUCCESS": "Journal present success",
+    "CARD_TAKEN": "Journal card taken",
+    "TAKE_CASH_TIMEOUT": "Journal take cash timeout",
+    "MONEY_TAKEN": "Journal money taken",
+    "CASSETTE_OUT": "Journal cassette output",
+    "LINE_DOWN": "Journal line down",
+    "LINE_UP": "Journal line up",
+    "ENTER_OFFLINE_MODE": "Journal entered offline mode",
+    "EXIT_OFFLINE_MODE": "Journal exited offline mode",
+    "ENTER_OUTOFSERVICE_MODE": "Journal entered out-of-service mode",
+    "ENTER_INSERVICE_MODE": "Journal entered in-service mode",
+    "ATM_POWER_UP": "Journal ATM power up",
+    "PRINTER_EVENT": "Journal printer event",
+}
+
+
+def journal_log_message(event_type: str, payload) -> str:
+    title = JOURNAL_EVENT_LABELS.get(event_type, f"Journal {event_type.lower().replace('_', ' ')}")
+    if event_type == "TRANSACTION_END":
+        parts = [title]
+        if payload.transaction_type:
+            parts.append(f"type={payload.transaction_type}")
+        if payload.amount is not None:
+            parts.append(f"amount={payload.amount}")
+        if payload.currency:
+            parts.append(f"currency={payload.currency}")
+        if payload.rrn:
+            parts.append(f"rrn={payload.rrn}")
+        if payload.details.get("completed") is not None:
+            parts.append(f"completed={payload.details.get('completed')}")
+        return " | ".join(parts)
+    if event_type == "CASSETTE_OUT":
+        details = payload.details or {}
+        return (
+            f"{title} | cassette={details.get('cassette_no')} "
+            f"out={details.get('out')} reject={details.get('reject')} deno={details.get('denomination')}"
+        )
+    return title
+
+
+@router.post("/journal-events", response_model=JournalEventsResponse)
+def submit_journal_events(
+    payload: JournalEventsRequest,
+    atm: ATM = Depends(get_agent_atm),
+    db: Session = Depends(get_db),
+) -> JournalEventsResponse:
+    if payload.atm_id and payload.atm_id != atm.atm_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ATM ID does not match credentials")
+
+    inserted = 0
+    skipped = 0
+    for item in payload.events:
+        exists = db.query(AtmJournalEvent.id).filter(AtmJournalEvent.event_uid == item.event_uid).first()
+        if exists:
+            skipped += 1
+            continue
+
+        event = AtmJournalEvent(
+            atm_id=atm.id,
+            event_uid=item.event_uid,
+            source=item.source,
+            event_type=item.event_type,
+            severity=item.severity,
+            message=item.message,
+            file_path=item.file_path,
+            line_number=item.line_number,
+            transaction_serial=item.transaction_serial,
+            transaction_type=item.transaction_type,
+            amount=item.amount,
+            currency=item.currency,
+            rrn=item.rrn,
+            stan=item.stan,
+            auth_code=item.auth_code,
+            card_masked=item.card_masked,
+            receipt_date=item.receipt_date,
+            cassette_outputs_json=item.cassette_outputs,
+            details_json=item.details,
+            occurred_at=item.occurred_at,
+        )
+        db.add(event)
+        db.add(
+            AgentLog(
+                atm_id=atm.id,
+                level=item.severity,
+                message=journal_log_message(item.event_type, item),
+                context={
+                    "event_type": f"JOURNAL_{item.event_type}",
+                    "journal_event_type": item.event_type,
+                    "source": item.source,
+                    "occurred_at": item.occurred_at.isoformat(),
+                    "file_path": item.file_path,
+                    "line_number": item.line_number,
+                    "transaction_serial": item.transaction_serial,
+                    "transaction_type": item.transaction_type,
+                    "amount": item.amount,
+                    "currency": item.currency,
+                    "rrn": item.rrn,
+                    "stan": item.stan,
+                    "auth_code": item.auth_code,
+                    "card_masked": item.card_masked,
+                    "receipt_date": item.receipt_date,
+                    "cassette_outputs": item.cassette_outputs,
+                    "details": item.details,
+                },
+                created_at=item.occurred_at,
+            )
+        )
+        inserted += 1
+
+    if inserted:
+        atm.last_seen = datetime.now(timezone.utc)
+    db.commit()
+    return JournalEventsResponse(inserted=inserted, skipped=skipped)

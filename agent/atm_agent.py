@@ -19,6 +19,7 @@ from agent_instance_lock import AgentInstanceLock
 from agent_self_update import AgentSelfUpdateManager
 from cash_monitoring_module import CashMonitoringModule
 from config_manager import LocalConfig, RemoteConfig, load_local_config, write_local_config
+from journal_reader_module import JournalReaderModule
 from logger import setup_logger
 from media_update_module import MediaUpdateModule
 from module_runner import ModuleRunner
@@ -28,7 +29,7 @@ from xfs_cdm_diagnostics import diagnose_xfs_cdm, format_diagnostics
 from xfs_cdm_reader import read_cash_units, read_cdm_status, format_read_result, format_status_result
 from xfs_siu_reader import read_siu_status, format_status_result as format_siu_status_result
 
-AGENT_VERSION = "2.0.16"
+AGENT_VERSION = "2.0.17"
 DEFAULT_INSTALL_DIR = Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "QIB ATM Manager Agent"
 DEFAULT_CONFIG = DEFAULT_INSTALL_DIR / "config.json"
 SERVICE_NAME = "ATMUnifiedAgent"
@@ -451,10 +452,12 @@ class AtmAgent:
         )
         self.media_module = MediaUpdateModule(self.api, self.local_config, self.logger)
         self.cash_module = CashMonitoringModule(self.api, self.local_config.atm_id, self.logger)
+        self.journal_module = JournalReaderModule(self.api, self.local_config, self.logger)
         self.terminal_status_module = TerminalStatusModule(self.api, self.logger)
         self.modules = ModuleRunner(self.logger)
         self.modules.register(self.media_module)
         self.modules.register(self.cash_module)
+        self.modules.register(self.journal_module)
         self.modules.register(self.terminal_status_module)
         self.stop_event = stop_event or threading.Event()
         self.remote_config: RemoteConfig | None = None
@@ -470,6 +473,8 @@ class AtmAgent:
             last_cash_snapshot_at=self.cash_module.last_snapshot_at,
             last_cash_unit_count=self.cash_module.last_unit_count,
             last_cash_error=self.cash_module.last_error,
+            last_journal_event_count=self.journal_module.last_event_count,
+            last_journal_error=self.journal_module.last_error,
             last_cdm_status=self.cash_module.last_cdm_status,
             last_siu_status=self.terminal_status_module.last_siu_status,
             last_siu_error=self.terminal_status_module.last_error,
@@ -821,6 +826,9 @@ def status_command(args: argparse.Namespace) -> None:
     print(f"Last Cash Unit Count: {state.get('last_cash_unit_count', '-')}")
     if state.get("last_cash_error"):
         print(f"Last Cash Error: {state['last_cash_error']}")
+    print(f"Last Journal Event Count: {state.get('last_journal_event_count', '-')}")
+    if state.get("last_journal_error"):
+        print(f"Last Journal Error: {state['last_journal_error']}")
     cdm_status = state.get("last_cdm_status")
     if isinstance(cdm_status, dict):
         print(f"Last CDM Device: {cdm_status.get('device_status', '-')}")

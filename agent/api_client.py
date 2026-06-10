@@ -227,6 +227,20 @@ class ApiClient:
                 response=response,
             )
 
+    def journal_events(self, events: list[dict[str, Any]]) -> None:
+        if not events:
+            return
+        response = self.session.post(
+            self.url("/api/agent/journal-events"),
+            json={"atm_id": self.config.atm_id, "events": events},
+            timeout=30,
+        )
+        if not response.ok:
+            raise requests.HTTPError(
+                f"journal-events failed HTTP {response.status_code}: {response.text[:800]}",
+                response=response,
+            )
+
     def list_commands(self) -> list[dict[str, Any]]:
         response = self.session.get(self.url("/api/agent/commands"), timeout=15)
         response.raise_for_status()

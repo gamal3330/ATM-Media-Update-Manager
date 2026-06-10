@@ -160,6 +160,45 @@ function formatDuration(seconds) {
 function agentEventSummary(context, fallbackMessage) {
   if (!context || typeof context !== "object") return null;
   const eventType = context.event_type || "";
+  if (eventType.startsWith("JOURNAL_")) {
+    const title = context.journal_event_type
+      ? `Journal ${String(context.journal_event_type).replaceAll("_", " ").toLowerCase()}`
+      : "Journal event";
+    const details = context.details && typeof context.details === "object" ? context.details : {};
+    const amount = context.amount ? `${context.amount} ${context.currency || ""}`.trim() : "";
+    const cassetteOutputs = Array.isArray(context.cassette_outputs)
+      ? context.cassette_outputs
+          .map((item) => `CAS ${item.cassette_no}: out ${item.out}, reject ${item.reject}, deno ${item.denomination}`)
+          .join(" | ")
+      : "";
+    const subtitleParts = [
+      context.transaction_type,
+      amount,
+      context.rrn ? `RRN ${context.rrn}` : "",
+      details.completed === true ? "completed" : "",
+      details.take_cash_timeout ? "cash timeout warning" : "",
+    ].filter(Boolean);
+    const items = [
+      ["Event", context.journal_event_type || eventType],
+      context.occurred_at ? ["Occurred at", formatApiDate(context.occurred_at)] : null,
+      context.transaction_serial ? ["Serial", context.transaction_serial] : null,
+      context.transaction_type ? ["Transaction type", context.transaction_type] : null,
+      amount ? ["Amount", amount] : null,
+      context.rrn ? ["RRN", context.rrn] : null,
+      context.stan ? ["STAN", context.stan] : null,
+      context.auth_code ? ["Auth code", context.auth_code] : null,
+      context.card_masked ? ["Card", context.card_masked] : null,
+      context.receipt_date ? ["Receipt date", context.receipt_date] : null,
+      cassetteOutputs ? ["Cassette outputs", cassetteOutputs] : null,
+      context.file_path ? ["File", context.file_path] : null,
+      context.line_number ? ["Line", context.line_number] : null,
+    ].filter(Boolean);
+    return {
+      title,
+      subtitle: subtitleParts.join(" | ") || fallbackMessage,
+      items,
+    };
+  }
   const state = context.state && typeof context.state === "object" ? context.state : {};
   const siu = context.siu && typeof context.siu === "object" ? context.siu : {};
   const labels = {

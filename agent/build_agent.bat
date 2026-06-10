@@ -89,6 +89,8 @@ if exist agent-updater.spec del /f /q agent-updater.spec
   --hidden-import cash_monitoring_module ^
   --hidden-import checksum ^
   --hidden-import config_manager ^
+  --hidden-import journal_reader ^
+  --hidden-import journal_reader_module ^
   --hidden-import logger ^
   --hidden-import media_update_module ^
   --hidden-import module_runner ^

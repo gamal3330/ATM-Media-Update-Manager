@@ -35,6 +35,8 @@ class ModuleRunner:
             enabled.add("media_update")
         if config.cash_monitoring.enabled:
             enabled.add("cash_monitoring")
+        if config.journal_reader.enabled:
+            enabled.add("journal_reader")
 
         self.enabled = enabled
         for name, module in self.modules.items():

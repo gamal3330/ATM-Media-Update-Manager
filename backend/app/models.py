@@ -81,6 +81,11 @@ class ATM(Base):
     switch_probe_host: Mapped[str] = mapped_column(String(120), default="172.16.25.75", nullable=False)
     switch_probe_port: Mapped[int] = mapped_column(Integer, default=10200, nullable=False)
     switch_probe_interval_seconds: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    journal_reader_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    journal_log_glob: Mapped[str] = mapped_column(
+        String(500), default=r"D:\Program Files\DTATMW\Bin\ATMAPP\Log\EJ*.log", nullable=False
+    )
+    journal_read_interval_seconds: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
     last_switch_probe_status: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     last_switch_probe_latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     last_switch_probe_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -102,6 +107,7 @@ class ATM(Base):
     reject_retract_statuses: Mapped[list["AtmRejectRetractStatus"]] = relationship(back_populates="atm")
     switch_probes: Mapped[list["AtmSwitchProbe"]] = relationship(back_populates="atm")
     agent_update_targets: Mapped[list["AgentUpdateTarget"]] = relationship(back_populates="atm")
+    journal_events: Mapped[list["AtmJournalEvent"]] = relationship(back_populates="atm")
 
     @property
     def seconds_since_last_seen(self) -> int | None:
@@ -262,6 +268,35 @@ class AgentLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     atm: Mapped[Optional[ATM]] = relationship(back_populates="logs")
+
+
+class AtmJournalEvent(Base):
+    __tablename__ = "atm_journal_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    atm_id: Mapped[int] = mapped_column(ForeignKey("atms.id"), nullable=False)
+    event_uid: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    source: Mapped[str] = mapped_column(String(40), default="grg_ej", nullable=False)
+    event_type: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
+    severity: Mapped[str] = mapped_column(String(20), default="info", nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    line_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    transaction_serial: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    transaction_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    amount: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    currency: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    rrn: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    stan: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    auth_code: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    card_masked: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    receipt_date: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    cassette_outputs_json: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
+    details_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    atm: Mapped[ATM] = relationship(back_populates="journal_events")
 
 
 class AtmAgentConfig(Base):

@@ -685,6 +685,49 @@ class AgentLogRequest(BaseModel):
     details: str | dict[str, Any] | None = None
 
 
+class JournalEventPayload(BaseModel):
+    event_uid: str = Field(min_length=16, max_length=128)
+    source: str = Field(default="grg_ej", max_length=40)
+    event_type: str = Field(min_length=1, max_length=80)
+    occurred_at: datetime
+    severity: Literal["debug", "info", "warning", "error"] = "info"
+    message: str = Field(min_length=1, max_length=2000)
+    file_path: str = Field(min_length=1, max_length=500)
+    line_number: int = Field(ge=1)
+    transaction_serial: str | None = Field(default=None, max_length=80)
+    transaction_type: str | None = Field(default=None, max_length=20)
+    amount: int | None = Field(default=None, ge=0)
+    currency: str | None = Field(default=None, max_length=10)
+    rrn: str | None = Field(default=None, max_length=80)
+    stan: str | None = Field(default=None, max_length=80)
+    auth_code: str | None = Field(default=None, max_length=80)
+    card_masked: str | None = Field(default=None, max_length=40)
+    receipt_date: str | None = Field(default=None, max_length=80)
+    cassette_outputs: list[dict[str, Any]] = Field(default_factory=list)
+    details: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("card_masked")
+    @classmethod
+    def reject_unmasked_card(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        digits = "".join(char for char in value if char.isdigit())
+        if len(digits) > 10 and "*" not in value:
+            raise ValueError("card_masked must not contain a full card number")
+        return value
+
+
+class JournalEventsRequest(BaseModel):
+    atm_id: str | None = None
+    events: list[JournalEventPayload] = Field(default_factory=list, max_length=500)
+
+
+class JournalEventsResponse(BaseModel):
+    ok: bool = True
+    inserted: int = 0
+    skipped: int = 0
+
+
 class MediaUpdateRemoteConfig(BaseModel):
     enabled: bool
     media_path: str
@@ -707,9 +750,17 @@ class CashMonitoringRemoteConfig(BaseModel):
     stale_after_minutes: int
 
 
+class JournalReaderRemoteConfig(BaseModel):
+    enabled: bool
+    provider: Literal["grg_ej"] = "grg_ej"
+    log_glob: str = r"D:\Program Files\DTATMW\Bin\ATMAPP\Log\EJ*.log"
+    read_interval_seconds: int = Field(default=60, ge=10, le=86400)
+
+
 class AgentModulesConfig(BaseModel):
     media_update: MediaUpdateRemoteConfig
     cash_monitoring: CashMonitoringRemoteConfig
+    journal_reader: JournalReaderRemoteConfig
 
 
 class AgentConfigResponse(BaseModel):
@@ -750,6 +801,33 @@ class AgentLogRead(BaseModel):
     message: str
     context: dict[str, Any] | None
     created_at: datetime
+    atm: ATMRead | None = None
+
+
+class JournalEventRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    event_uid: str
+    source: str
+    event_type: str
+    severity: str
+    message: str
+    file_path: str
+    line_number: int
+    transaction_serial: str | None = None
+    transaction_type: str | None = None
+    amount: int | None = None
+    currency: str | None = None
+    rrn: str | None = None
+    stan: str | None = None
+    auth_code: str | None = None
+    card_masked: str | None = None
+    receipt_date: str | None = None
+    cassette_outputs_json: list[dict[str, Any]] = Field(default_factory=list)
+    details_json: dict[str, Any] = Field(default_factory=dict)
+    occurred_at: datetime
+    received_at: datetime
     atm: ATMRead | None = None
 
 
