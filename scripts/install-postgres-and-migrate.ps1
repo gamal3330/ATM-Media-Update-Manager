@@ -7,6 +7,7 @@ param(
   [string]$DbUser = "qib_atm_user",
   [int]$Port = 5432,
   [string]$InstallerPath = "",
+  [switch]$ForceDownload,
   [switch]$UpdateEnv
 )
 
@@ -49,14 +50,31 @@ $Python = Join-Path $BackendDir ".venv\Scripts\python.exe"
 $EnvPath = Join-Path $Root ".env"
 $DefaultInstaller = Join-Path $Root "postgresql-17.10-windows-x64.exe"
 $DownloadUrl = "https://sbp.enterprisedb.com/getfile.jsp?fileid=1260200"
+$MinimumInstallerBytes = 200MB
 
 if (-not $InstallerPath) {
   $InstallerPath = $DefaultInstaller
 }
 
+if ((Test-Path $InstallerPath) -and $ForceDownload) {
+  Remove-Item -LiteralPath $InstallerPath -Force
+}
+
+if (Test-Path $InstallerPath) {
+  $installerSize = (Get-Item -LiteralPath $InstallerPath).Length
+  if ($installerSize -lt $MinimumInstallerBytes) {
+    Write-Host "Existing PostgreSQL installer looks incomplete ($installerSize bytes). Re-downloading..." -ForegroundColor Yellow
+    Remove-Item -LiteralPath $InstallerPath -Force
+  }
+}
+
 if (-not (Test-Path $InstallerPath)) {
   Write-Host "Downloading PostgreSQL installer..." -ForegroundColor Cyan
   Invoke-WebRequest -Uri $DownloadUrl -OutFile $InstallerPath
+  $installerSize = (Get-Item -LiteralPath $InstallerPath).Length
+  if ($installerSize -lt $MinimumInstallerBytes) {
+    throw "Downloaded PostgreSQL installer is incomplete ($installerSize bytes). Delete $InstallerPath and download it manually from the official PostgreSQL Windows page."
+  }
 }
 
 $PostgresRoot = "C:\Program Files\PostgreSQL\17"
