@@ -3,6 +3,7 @@ import asyncio
 import logging
 import smtplib
 import ssl
+import threading
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -26,6 +27,7 @@ WHATSAPP_PROBLEM_STATUSES = {"disconnected", "auth_failure", "unreachable", "err
 MAX_DELIVERY_ATTEMPTS = 5
 DELIVERY_RETRY_DELAY_SECONDS = 120
 DELIVERY_RETRY_BATCH_SIZE = 50
+DELIVERY_RETRY_LOCK = threading.Lock()
 
 
 def utcnow() -> datetime:
@@ -623,6 +625,8 @@ def send_notification_delivery(
     db: Session,
     settings: NotificationSettings,
     delivery: NotificationDelivery,
+    *,
+    release_db_during_send: bool = False,
 ) -> NotificationDelivery:
     now = utcnow()
     if delivery.status == "sent":
@@ -644,6 +648,8 @@ def send_notification_delivery(
         delivery.subject = subject
         delivery.body = body
         delivery.html_body = html_body
+        if release_db_during_send:
+            db.commit()
         if delivery.channel == "whatsapp":
             send_whatsapp(settings, delivery.recipient_email, body)
         else:
@@ -665,34 +671,46 @@ def retry_failed_notification_deliveries(
     force: bool = False,
     limit: int = DELIVERY_RETRY_BATCH_SIZE,
 ) -> dict:
-    settings = get_notification_settings(db)
-    now = utcnow()
-    candidates = (
-        db.query(NotificationDelivery)
-        .filter(
-            NotificationDelivery.status == "failed",
-            NotificationDelivery.attempt_count < MAX_DELIVERY_ATTEMPTS,
+    if not DELIVERY_RETRY_LOCK.acquire(blocking=False):
+        return {
+            "retried": 0,
+            "sent": 0,
+            "failed": 0,
+            "skipped": 0,
+            "deliveries": [],
+        }
+
+    try:
+        settings = get_notification_settings(db)
+        now = utcnow()
+        candidates = (
+            db.query(NotificationDelivery)
+            .filter(
+                NotificationDelivery.status == "failed",
+                NotificationDelivery.attempt_count < MAX_DELIVERY_ATTEMPTS,
+            )
+            .order_by(NotificationDelivery.created_at.asc())
+            .limit(max(1, min(limit, 200)))
+            .all()
         )
-        .order_by(NotificationDelivery.created_at.asc())
-        .limit(max(1, min(limit, 200)))
-        .all()
-    )
 
-    deliveries: list[NotificationDelivery] = []
-    skipped = 0
-    for delivery in candidates:
-        if not force and not delivery_retry_due(delivery, now):
-            skipped += 1
-            continue
-        deliveries.append(send_notification_delivery(db, settings, delivery))
+        deliveries: list[NotificationDelivery] = []
+        skipped = 0
+        for delivery in candidates:
+            if not force and not delivery_retry_due(delivery, now):
+                skipped += 1
+                continue
+            deliveries.append(send_notification_delivery(db, settings, delivery, release_db_during_send=True))
 
-    return {
-        "retried": len(deliveries),
-        "sent": sum(1 for delivery in deliveries if delivery.status == "sent"),
-        "failed": sum(1 for delivery in deliveries if delivery.status == "failed"),
-        "skipped": skipped + sum(1 for delivery in deliveries if delivery.status == "skipped"),
-        "deliveries": deliveries,
-    }
+        return {
+            "retried": len(deliveries),
+            "sent": sum(1 for delivery in deliveries if delivery.status == "sent"),
+            "failed": sum(1 for delivery in deliveries if delivery.status == "failed"),
+            "skipped": skipped + sum(1 for delivery in deliveries if delivery.status == "skipped"),
+            "deliveries": deliveries,
+        }
+    finally:
+        DELIVERY_RETRY_LOCK.release()
 
 
 def retry_failed_notification_deliveries_once(session_factory) -> None:

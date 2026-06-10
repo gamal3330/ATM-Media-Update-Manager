@@ -35,6 +35,10 @@ class Settings:
         for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
         if origin.strip()
     ]
+    database_pool_size: int = int(os.getenv("DATABASE_POOL_SIZE", "20"))
+    database_max_overflow: int = int(os.getenv("DATABASE_MAX_OVERFLOW", "20"))
+    database_pool_timeout: int = int(os.getenv("DATABASE_POOL_TIMEOUT", "30"))
+    database_pool_recycle_seconds: int = int(os.getenv("DATABASE_POOL_RECYCLE_SECONDS", "1800"))
     allow_insecure_defaults: bool = os.getenv("ALLOW_INSECURE_DEFAULTS", "").lower() in {"1", "true", "yes"}
 
     def validate_security(self) -> None:

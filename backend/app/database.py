@@ -8,12 +8,21 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from .config import settings
 
 
-connect_args = {"check_same_thread": False, "timeout": 30} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, connect_args=connect_args)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+is_sqlite = settings.database_url.startswith("sqlite")
+connect_args = {"check_same_thread": False, "timeout": 30} if is_sqlite else {}
+engine_options = {
+    "connect_args": connect_args,
+    "pool_pre_ping": True,
+    "pool_size": settings.database_pool_size,
+    "max_overflow": settings.database_max_overflow,
+    "pool_timeout": settings.database_pool_timeout,
+    "pool_recycle": settings.database_pool_recycle_seconds,
+}
+engine = create_engine(settings.database_url, **engine_options)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)
 
 
-if settings.database_url.startswith("sqlite"):
+if is_sqlite:
 
     @event.listens_for(engine, "connect")
     def configure_sqlite(connection, connection_record) -> None:
