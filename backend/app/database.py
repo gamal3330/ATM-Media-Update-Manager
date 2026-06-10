@@ -1,5 +1,6 @@
 from collections.abc import Generator
 
+from sqlalchemy import event
 from sqlalchemy import create_engine
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -7,9 +8,20 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from .config import settings
 
 
-connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
+connect_args = {"check_same_thread": False, "timeout": 30} if settings.database_url.startswith("sqlite") else {}
 engine = create_engine(settings.database_url, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+if settings.database_url.startswith("sqlite"):
+
+    @event.listens_for(engine, "connect")
+    def configure_sqlite(connection, connection_record) -> None:
+        cursor = connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.close()
 
 
 class Base(DeclarativeBase):
@@ -36,6 +48,7 @@ def migrate_existing_schema() -> None:
     with engine.begin() as connection:
         inspector = inspect(connection)
         table_names = inspector.get_table_names()
+        create_log_indexes(connection, table_names)
         if "users" in table_names:
             existing_columns = {column["name"] for column in inspector.get_columns("users")}
             datetime_type = "TIMESTAMP WITH TIME ZONE" if connection.dialect.name == "postgresql" else "DATETIME"
@@ -337,3 +350,24 @@ def migrate_existing_schema() -> None:
         for name, definition in columns.items():
             if name not in existing_columns:
                 connection.execute(text(f"ALTER TABLE update_targets ADD COLUMN {name} {definition}"))
+
+
+def create_log_indexes(connection, table_names: list[str]) -> None:
+    indexes = {
+        "agent_logs": [
+            "CREATE INDEX IF NOT EXISTS ix_agent_logs_atm_created_at ON agent_logs (atm_id, created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_agent_logs_created_at ON agent_logs (created_at)",
+        ],
+        "audit_logs": [
+            "CREATE INDEX IF NOT EXISTS ix_audit_logs_created_at ON audit_logs (created_at)",
+        ],
+        "atm_journal_events": [
+            "CREATE INDEX IF NOT EXISTS ix_journal_events_atm_occurred_at ON atm_journal_events (atm_id, occurred_at)",
+            "CREATE INDEX IF NOT EXISTS ix_journal_events_received_at ON atm_journal_events (received_at)",
+        ],
+    }
+    for table_name, statements in indexes.items():
+        if table_name not in table_names:
+            continue
+        for statement in statements:
+            connection.execute(text(statement))
