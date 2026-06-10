@@ -26,7 +26,9 @@ os.environ["ADMIN_PASSWORD"] = "secret123"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from app.database import SessionLocal  # noqa: E402
 from app.main import app  # noqa: E402
+from app.models import AgentUpdateTarget  # noqa: E402
 
 
 def make_zip(files: dict[str, bytes]) -> io.BytesIO:
@@ -261,6 +263,57 @@ def test_agent_update_downloads_are_throttled(monkeypatch) -> None:
         second_check = client.get("/api/agent/check-agent-update", headers=agent_headers[1])
         assert second_check.status_code == 200
         assert second_check.json()["update_available"] is False
+
+
+def test_stale_agent_update_target_is_marked_failed() -> None:
+    with TestClient(app) as client:
+        headers = login(client)
+        atm_response = client.post(
+            "/api/atms",
+            json={"atm_id": "ATM-AGENT-STALE", "name": "Agent Stale ATM", "vpn_ip": "10.10.9.50", "branch": "HQ"},
+            headers=headers,
+        )
+        assert atm_response.status_code == 201
+
+        upload = client.post(
+            "/api/agent-packages/upload",
+            data={"version": "agent-test-stale-x86"},
+            files={
+                "agent_file": ("atm-agent.exe", make_pe_exe(0x014C), "application/octet-stream"),
+                "updater_file": ("agent-updater.exe", make_pe_exe(0x014C), "application/octet-stream"),
+            },
+            headers=headers,
+        )
+        assert upload.status_code == 201
+        package = upload.json()
+
+        assign = client.post(
+            f"/api/agent-packages/{package['id']}/assign",
+            json={"atm_ids": ["ATM-AGENT-STALE"]},
+            headers=headers,
+        )
+        assert assign.status_code == 200
+        target_id = assign.json()["targets"][0]["id"]
+
+        stale_time = datetime.now(timezone.utc) - timedelta(hours=2)
+        db = SessionLocal()
+        try:
+            target = db.query(AgentUpdateTarget).filter(AgentUpdateTarget.id == target_id).first()
+            target.status = "downloading"
+            target.progress_phase = "downloading"
+            target.progress_percent = 1
+            target.last_checked_at = stale_time
+            target.last_progress_at = stale_time
+            db.commit()
+        finally:
+            db.close()
+
+        details = client.get(f"/api/agent-packages/{package['id']}", headers=headers)
+        assert details.status_code == 200
+        target = details.json()["targets"][0]
+        assert target["status"] == "failed"
+        assert target["progress_phase"] == "failed"
+        assert target["last_error"] == "Agent update timed out before completion"
 
 
 def test_agent_package_upload_rejects_x64_exe() -> None:

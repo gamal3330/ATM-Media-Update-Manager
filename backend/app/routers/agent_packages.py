@@ -13,6 +13,7 @@ from ..schemas import (
     AgentPackageDetails,
     AgentPackageSummary,
 )
+from ..services.agent_update_service import mark_stale_agent_update_targets
 from ..services.agent_package_service import create_agent_package_from_upload
 from ..services.audit_service import write_audit
 
@@ -36,6 +37,8 @@ def list_agent_packages(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_page("agent-updates")),
 ) -> list[AgentPackageSummary]:
+    if mark_stale_agent_update_targets(db):
+        db.commit()
     packages = db.query(AgentPackage).order_by(AgentPackage.created_at.desc()).all()
     summaries: list[AgentPackageSummary] = []
     for package in packages:
@@ -73,6 +76,8 @@ def get_agent_package(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_page("agent-updates")),
 ) -> AgentPackage:
+    if mark_stale_agent_update_targets(db, package_id=package_id):
+        db.commit()
     package = (
         db.query(AgentPackage)
         .options(joinedload(AgentPackage.targets).joinedload(AgentUpdateTarget.atm))

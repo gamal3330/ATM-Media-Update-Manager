@@ -49,6 +49,7 @@ from ..schemas import (
     UpdateResultRequest,
 )
 from ..services.audit_service import write_audit
+from ..services.agent_update_service import mark_stale_agent_update_targets
 from ..services.notification_service import notify_switch_probe_failed
 from ..services.package_service import ALLOWED_IMAGE_EXTENSIONS
 
@@ -297,6 +298,7 @@ def check_agent_update(
     atm.status = "online"
     now = datetime.now(timezone.utc)
     atm.last_seen = now
+    mark_stale_agent_update_targets(db, atm_id=atm.id, now=now)
 
     target = (
         db.query(AgentUpdateTarget)
