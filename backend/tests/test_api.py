@@ -175,6 +175,8 @@ def test_admin_can_upload_x86_agent_package_and_assign_to_atm() -> None:
         assert update["architecture"] == "x86"
         assert update["agent_sha256"] == package["agent_sha256"]
         assert update["updater_sha256"] == package["updater_sha256"]
+        assert update["agent_download_url"] == f"/api/agent/agent-update-download/{package['id']}/agent"
+        assert update["updater_download_url"] == f"/api/agent/agent-update-download/{package['id']}/updater"
 
         agent_download = client.get(f"/api/agent/agent-update-download/{package['id']}/agent", headers=agent_headers)
         assert agent_download.status_code == 200
@@ -378,6 +380,7 @@ def test_upload_assign_check_download_and_report_success() -> None:
         assert check.json()["update_available"] is True
         assert check.json()["has_update"] is True
         assert check.json()["sha256"] == package["sha256"]
+        assert check.json()["download_url"] == f"/api/agent/download/{package['id']}"
 
         download = client.get(f"/api/agent/download/{package['id']}", headers=agent_headers)
         assert download.status_code == 200

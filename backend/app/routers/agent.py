@@ -257,7 +257,7 @@ def check_update(
     db.commit()
 
     package = target.package
-    download_url = str(request.url_for("download_package", package_id=package.id))
+    download_url = f"/api/agent/download/{package.id}"
     return AgentUpdateAvailable(
         update_available=True,
         has_update=True,
@@ -307,10 +307,10 @@ def check_agent_update(
         architecture=package.architecture,
         agent_sha256=package.agent_sha256,
         agent_size_bytes=package.agent_size_bytes,
-        agent_download_url=str(request.url_for("download_agent_update_file", package_id=package.id, file_kind="agent")),
+        agent_download_url=f"/api/agent/agent-update-download/{package.id}/agent",
         updater_sha256=package.updater_sha256,
         updater_size_bytes=package.updater_size_bytes,
-        updater_download_url=str(request.url_for("download_agent_update_file", package_id=package.id, file_kind="updater")),
+        updater_download_url=f"/api/agent/agent-update-download/{package.id}/updater",
     )
 
 
