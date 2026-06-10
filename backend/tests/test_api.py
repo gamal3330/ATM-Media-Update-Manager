@@ -217,6 +217,52 @@ def test_admin_can_upload_x86_agent_package_and_assign_to_atm() -> None:
         assert applied_target["attempt_count"] == 1
 
 
+def test_agent_update_downloads_are_throttled(monkeypatch) -> None:
+    monkeypatch.setattr("app.routers.agent.settings.agent_update_max_active_downloads", 1)
+    with TestClient(app) as client:
+        headers = login(client)
+        agent_headers = []
+        atm_ids = ["ATM-AGENT-THROTTLE-1", "ATM-AGENT-THROTTLE-2"]
+        for atm_id in atm_ids:
+            response = client.post(
+                "/api/atms",
+                json={"atm_id": atm_id, "name": atm_id, "vpn_ip": f"10.10.9.{len(agent_headers) + 1}", "branch": "HQ"},
+                headers=headers,
+            )
+            assert response.status_code == 201
+            agent_headers.append({"X-ATM-ID": atm_id, "X-API-Key": response.json()["api_key"]})
+
+        upload = client.post(
+            "/api/agent-packages/upload",
+            data={"version": "agent-test-throttle-x86"},
+            files={
+                "agent_file": ("atm-agent.exe", make_pe_exe(0x014C), "application/octet-stream"),
+                "updater_file": ("agent-updater.exe", make_pe_exe(0x014C), "application/octet-stream"),
+            },
+            headers=headers,
+        )
+        assert upload.status_code == 201
+        package = upload.json()
+
+        assign = client.post(
+            f"/api/agent-packages/{package['id']}/assign",
+            json={"atm_ids": atm_ids},
+            headers=headers,
+        )
+        assert assign.status_code == 200
+
+        first_check = client.get("/api/agent/check-agent-update", headers=agent_headers[0])
+        assert first_check.status_code == 200
+        assert first_check.json()["update_available"] is True
+
+        first_download = client.get(f"/api/agent/agent-update-download/{package['id']}/agent", headers=agent_headers[0])
+        assert first_download.status_code == 200
+
+        second_check = client.get("/api/agent/check-agent-update", headers=agent_headers[1])
+        assert second_check.status_code == 200
+        assert second_check.json()["update_available"] is False
+
+
 def test_agent_package_upload_rejects_x64_exe() -> None:
     with TestClient(app) as client:
         headers = login(client)

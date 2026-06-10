@@ -39,6 +39,7 @@ class Settings:
     database_max_overflow: int = int(os.getenv("DATABASE_MAX_OVERFLOW", "20"))
     database_pool_timeout: int = int(os.getenv("DATABASE_POOL_TIMEOUT", "30"))
     database_pool_recycle_seconds: int = int(os.getenv("DATABASE_POOL_RECYCLE_SECONDS", "1800"))
+    agent_update_max_active_downloads: int = int(os.getenv("AGENT_UPDATE_MAX_ACTIVE_DOWNLOADS", "4"))
     allow_insecure_defaults: bool = os.getenv("ALLOW_INSECURE_DEFAULTS", "").lower() in {"1", "true", "yes"}
 
     def validate_security(self) -> None:

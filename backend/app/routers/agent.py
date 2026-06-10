@@ -3,10 +3,12 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..auth import get_agent_atm
 from ..cash_layout import normalized_cash_layout
+from ..config import settings
 from ..database import get_db
 from ..models import (
     ATM,
@@ -51,6 +53,7 @@ from ..services.notification_service import notify_switch_probe_failed
 from ..services.package_service import ALLOWED_IMAGE_EXTENSIONS
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
+AGENT_UPDATE_ACTIVE_WINDOW = timedelta(minutes=30)
 
 
 def effective_cash_provider(atm: ATM) -> str:
@@ -72,6 +75,22 @@ def has_recent_cash_snapshot(db: Session, atm: ATM, now: datetime) -> bool:
     if read_at.tzinfo is None:
         read_at = read_at.replace(tzinfo=timezone.utc)
     return now - read_at <= timedelta(minutes=atm.cash_stale_after_minutes)
+
+
+def active_agent_update_download_count(db: Session, package_id: int, now: datetime) -> int:
+    cutoff = now - AGENT_UPDATE_ACTIVE_WINDOW
+    return (
+        db.query(AgentUpdateTarget.id)
+        .filter(
+            AgentUpdateTarget.agent_package_id == package_id,
+            AgentUpdateTarget.status.in_(["downloading", "applying"]),
+            or_(
+                AgentUpdateTarget.last_progress_at >= cutoff,
+                AgentUpdateTarget.last_checked_at >= cutoff,
+            ),
+        )
+        .count()
+    )
 
 
 def update_target_progress(
@@ -276,7 +295,8 @@ def check_agent_update(
     db: Session = Depends(get_db),
 ) -> AgentSelfUpdateAvailable | AgentNoUpdate:
     atm.status = "online"
-    atm.last_seen = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)
+    atm.last_seen = now
 
     target = (
         db.query(AgentUpdateTarget)
@@ -289,7 +309,13 @@ def check_agent_update(
         db.commit()
         return AgentNoUpdate(update_available=False)
 
-    target.last_checked_at = datetime.now(timezone.utc)
+    if settings.agent_update_max_active_downloads > 0:
+        active_downloads = active_agent_update_download_count(db, target.agent_package_id, now)
+        if active_downloads >= settings.agent_update_max_active_downloads:
+            db.commit()
+            return AgentNoUpdate(update_available=False)
+
+    target.last_checked_at = now
     update_agent_target_progress(
         target,
         phase="pending",
@@ -521,11 +547,14 @@ def download_package(
         bytes_downloaded=0,
         total_bytes=package.size_bytes,
     )
+    storage_path = package.storage_path
+    original_filename = package.original_filename
     db.commit()
+    db.close()
     return FileResponse(
-        package.storage_path,
+        storage_path,
         media_type="application/zip",
-        filename=package.original_filename,
+        filename=original_filename,
     )
 
 
@@ -568,11 +597,14 @@ def download_agent_update_file(
         bytes_downloaded=0,
         total_bytes=size_bytes,
     )
+    download_path = str(path)
+    download_filename = "atm-agent.exe" if file_kind == "agent" else "agent-updater.exe"
     db.commit()
+    db.close()
     return FileResponse(
-        path,
+        download_path,
         media_type="application/vnd.microsoft.portable-executable",
-        filename="atm-agent.exe" if file_kind == "agent" else "agent-updater.exe",
+        filename=download_filename,
     )
 
 
