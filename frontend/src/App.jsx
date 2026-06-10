@@ -122,10 +122,13 @@ export default function App() {
   const refreshLogs = useCallback(async (filters = {}) => {
     setGlobalError("");
     try {
-      const shouldLoadJournal = Boolean(filters.atmId);
+      const source = filters.source || "all";
+      const shouldLoadAgent = source === "all" || source === "agent";
+      const shouldLoadAudit = source === "all" || source === "audit";
+      const shouldLoadJournal = Boolean(filters.atmId) && (source === "all" || source === "journal");
       const [agentLogData, auditLogData, journalLogData] = await Promise.all([
-        api.listLogs(filters),
-        api.listAuditLogs(filters),
+        shouldLoadAgent ? api.listLogs(filters) : Promise.resolve([]),
+        shouldLoadAudit ? api.listAuditLogs(filters) : Promise.resolve([]),
         shouldLoadJournal ? api.listJournalLogs(filters) : Promise.resolve([]),
       ]);
       setLogs(agentLogData);

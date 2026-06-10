@@ -656,6 +656,7 @@ export default function Logs({ logs, auditLogs, journalLogs, atms, onRefresh }) 
       atmId: atmFilter,
       fromAt,
       toAt,
+      source: sourceFilter,
     };
   }
 

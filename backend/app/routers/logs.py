@@ -11,6 +11,12 @@ from ..schemas import AgentLogRead, AuditLogRead, JournalEventRead
 router = APIRouter(prefix="/api/logs", tags=["logs"])
 
 
+def get_atm_primary_key(db: Session, atm_id: str | None) -> int | None:
+    if not atm_id:
+        return None
+    return db.query(ATM.id).filter(ATM.atm_id == atm_id).scalar()
+
+
 @router.get("", response_model=list[AgentLogRead])
 def list_agent_logs(
     level: str | None = None,
@@ -28,7 +34,10 @@ def list_agent_logs(
     if level:
         query = query.filter(AgentLog.level == level)
     if atm_id:
-        query = query.join(AgentLog.atm).filter(ATM.atm_id == atm_id)
+        atm_pk = get_atm_primary_key(db, atm_id)
+        if atm_pk is None:
+            return []
+        query = query.filter(AgentLog.atm_id == atm_pk)
     if from_at:
         query = query.filter(AgentLog.created_at >= from_at)
     if to_at:
@@ -63,7 +72,10 @@ def list_journal_events(
 ) -> list[AtmJournalEvent]:
     query = db.query(AtmJournalEvent).options(joinedload(AtmJournalEvent.atm))
     if atm_id:
-        query = query.join(AtmJournalEvent.atm).filter(ATM.atm_id == atm_id)
+        atm_pk = get_atm_primary_key(db, atm_id)
+        if atm_pk is None:
+            return []
+        query = query.filter(AtmJournalEvent.atm_id == atm_pk)
     if from_at:
         query = query.filter(AtmJournalEvent.occurred_at >= from_at)
     if to_at:
