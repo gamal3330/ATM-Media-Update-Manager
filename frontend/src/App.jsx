@@ -62,6 +62,7 @@ export default function App() {
   const [auditLogs, setAuditLogs] = useState([]);
   const [journalLogs, setJournalLogs] = useState([]);
   const [logsLoaded, setLogsLoaded] = useState(false);
+  const [logsLoading, setLogsLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [initialDataLoading, setInitialDataLoading] = useState(false);
   const [globalError, setGlobalError] = useState("");
@@ -90,6 +91,7 @@ export default function App() {
   }, []);
 
   const refreshLogs = useCallback(async (filters = {}) => {
+    setLogsLoading(true);
     setGlobalError("");
     try {
       const source = filters.source || "all";
@@ -107,6 +109,8 @@ export default function App() {
       setLogsLoaded(true);
     } catch (err) {
       setGlobalError(err.message || "تعذر تحميل السجلات");
+    } finally {
+      setLogsLoading(false);
     }
   }, []);
 
@@ -189,7 +193,7 @@ export default function App() {
 
   useEffect(() => {
     if (user && visiblePage === "logs" && !logsLoaded) {
-      refreshLogs({});
+      refreshLogs({ source: "agent", limit: 100 });
     }
   }, [logsLoaded, refreshLogs, user, visiblePage]);
 
@@ -232,7 +236,7 @@ export default function App() {
   if (visiblePage === "notifications") page = <NotificationCenter />;
   if (visiblePage === "agent-downloads") page = <AgentDownloads />;
   if (visiblePage === "logs") {
-    page = <Logs logs={logs} auditLogs={auditLogs} journalLogs={journalLogs} atms={atms} onRefresh={refreshLogs} />;
+    page = <Logs logs={logs} auditLogs={auditLogs} journalLogs={journalLogs} atms={atms} loading={logsLoading} onRefresh={refreshLogs} />;
   }
   if (visiblePage === "settings") {
     page = <Settings atms={atms} onChanged={refreshCore} onOpenAgentDownloads={() => setActivePage("agent-downloads")} />;

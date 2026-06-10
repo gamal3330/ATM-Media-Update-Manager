@@ -371,7 +371,7 @@ export const api = {
   retryFailedAgentPackage: (id) => request(`/api/agent-packages/${id}/retry-failed`, { method: "POST" }),
   downloadAgentSource: () => downloadBlob("/api/agent-downloads/source"),
   downloadAgentExe: () => downloadBlob("/api/agent-downloads/exe"),
-  listLogs: (params = {}) => request(`/api/logs?${buildLogQuery(params, 300)}`),
-  listAuditLogs: (params = {}) => request(`/api/logs/audit?${buildLogQuery(params, 300)}`),
-  listJournalLogs: (params = {}) => request(`/api/logs/journal?${buildLogQuery(params, 150)}`),
+  listLogs: (params = {}) => request(`/api/logs?${buildLogQuery(params, 100)}`),
+  listAuditLogs: (params = {}) => request(`/api/logs/audit?${buildLogQuery(params, 100)}`),
+  listJournalLogs: (params = {}) => request(`/api/logs/journal?${buildLogQuery(params, 100)}`),
 };

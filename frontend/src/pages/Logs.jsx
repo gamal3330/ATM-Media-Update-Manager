@@ -11,8 +11,12 @@ import {
   TerminalSquare,
   XCircle,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { formatApiDate, formatLocalWallDate, parseApiDate, parseLocalWallDate } from "../api/time";
+
+const LOG_FETCH_LIMIT = 100;
+const INITIAL_RENDER_LIMIT = 60;
+const RENDER_INCREMENT = 60;
 
 const sourceOptions = [
   ["all", "الكل"],
@@ -39,6 +43,21 @@ function stringifyDetails(details) {
   } catch {
     return "";
   }
+}
+
+function compactSearchDetails(details) {
+  if (!details || typeof details !== "object") return "";
+  try {
+    return JSON.stringify(details).slice(0, 500);
+  } catch {
+    return "";
+  }
+}
+
+function hasMeaningfulDetails(details) {
+  if (!details) return false;
+  if (typeof details !== "object") return Boolean(String(details));
+  return Object.keys(details).length > 0;
 }
 
 function getLevelMeta(level) {
@@ -339,7 +358,7 @@ function buildAgentRecord(log) {
     },
     target: [atmBranch, atmIp].filter(Boolean).join(" · "),
     occurredAt: log.created_at,
-    searchText: [atmId, atmName, atmBranch, atmIp, log.level, eventSummary?.title, log.message, stringifyDetails(log.context)].join(" "),
+    searchText: [atmId, atmName, atmBranch, atmIp, log.level, eventSummary?.title, log.message, compactSearchDetails(log.context)].join(" "),
   };
 }
 
@@ -366,7 +385,7 @@ function buildAuditRecord(log) {
     detailItems: alertSummary?.items || [],
     target,
     occurredAt: log.created_at,
-    searchText: [log.action, actor, target, alertSummary?.title, alertSummary?.subtitle, stringifyDetails(log.details)].join(" "),
+    searchText: [log.action, actor, target, alertSummary?.title, alertSummary?.subtitle, compactSearchDetails(log.details)].join(" "),
   };
 }
 
@@ -477,7 +496,7 @@ function buildJournalRecord(event) {
       event.auth_code,
       event.card_masked,
       event.file_path,
-      stringifyDetails(details),
+      compactSearchDetails(details),
     ].join(" "),
   };
 }
@@ -512,6 +531,37 @@ function EmptyState() {
   );
 }
 
+function RecordDetails({ record }) {
+  const [open, setOpen] = useState(false);
+  const hasStructuredDetails = Array.isArray(record.detailItems) && record.detailItems.length > 0;
+  const hasRawDetails = hasMeaningfulDetails(record.details);
+  if (!hasStructuredDetails && !hasRawDetails) return null;
+
+  const detailsText = open && !hasStructuredDetails ? stringifyDetails(record.details) : "";
+
+  return (
+    <details className="group mt-3" onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary className="focus-ring inline-flex cursor-pointer list-none items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+        <span>Ø§Ù„ØªÙØ§ØµÙŠÙ„</span>
+      </summary>
+      {hasStructuredDetails ? (
+        <div className="mt-2 grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm sm:grid-cols-3">
+          {record.detailItems.map(([label, value]) => (
+            <div key={label} className="rounded-lg bg-white px-3 py-2">
+              <div className="text-xs font-medium text-slate-500">{label}</div>
+              <div className="mt-1 font-semibold text-slate-950">{value}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-slate-950 p-3 text-xs leading-5 text-slate-100" dir="ltr">
+          {detailsText}
+        </pre>
+      )}
+    </details>
+  );
+}
+
 function LogTimeline({ records }) {
   if (records.length === 0) return <EmptyState />;
 
@@ -521,9 +571,9 @@ function LogTimeline({ records }) {
         {records.map((record) => {
           const Icon = record.icon;
           const BadgeIcon = record.levelMeta.icon;
-          const detailsText = stringifyDetails(record.details);
           const hasStructuredDetails = Array.isArray(record.detailItems) && record.detailItems.length > 0;
-          const hasDetails = hasStructuredDetails || Boolean(detailsText);
+          const detailsText = hasStructuredDetails ? "" : stringifyDetails(record.details);
+          const hasDetails = hasStructuredDetails || hasMeaningfulDetails(record.details);
 
           return (
             <article key={record.id} className="grid gap-3 px-4 py-4 md:grid-cols-[auto_1fr_auto]">
@@ -619,13 +669,14 @@ function LogTimeline({ records }) {
   );
 }
 
-export default function Logs({ logs, auditLogs, journalLogs, atms, onRefresh }) {
+export default function Logs({ logs, auditLogs, journalLogs, atms, loading = false, onRefresh }) {
   const [query, setQuery] = useState("");
-  const [sourceFilter, setSourceFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("agent");
   const [levelFilter, setLevelFilter] = useState("all");
   const [atmFilter, setAtmFilter] = useState("");
   const [fromAt, setFromAt] = useState("");
   const [toAt, setToAt] = useState("");
+  const [visibleCount, setVisibleCount] = useState(INITIAL_RENDER_LIMIT);
   const journalCanLoad = Boolean(atmFilter);
 
   const records = useMemo(() => {
@@ -661,12 +712,20 @@ export default function Logs({ logs, auditLogs, journalLogs, atms, onRefresh }) 
     });
   }, [levelFilter, query, records, sourceFilter]);
 
+  useEffect(() => {
+    setVisibleCount(INITIAL_RENDER_LIMIT);
+  }, [atmFilter, auditLogs, fromAt, journalLogs, levelFilter, logs, query, sourceFilter, toAt]);
+
+  const visibleRecords = filteredRecords.slice(0, visibleCount);
+  const hasMoreRecords = filteredRecords.length > visibleRecords.length;
+
   function currentServerFilters() {
     return {
       atmId: atmFilter,
       fromAt,
       toAt,
       source: sourceFilter,
+      limit: LOG_FETCH_LIMIT,
     };
   }
 
@@ -675,10 +734,11 @@ export default function Logs({ logs, auditLogs, journalLogs, atms, onRefresh }) 
   }
 
   function clearServerFilters() {
+    setSourceFilter("agent");
     setAtmFilter("");
     setFromAt("");
     setToAt("");
-    onRefresh({});
+    onRefresh({ source: "agent", limit: LOG_FETCH_LIMIT });
   }
 
   return (
@@ -689,10 +749,11 @@ export default function Logs({ logs, auditLogs, journalLogs, atms, onRefresh }) 
         </div>
         <button
           onClick={() => onRefresh(currentServerFilters())}
+          disabled={loading}
           className="focus-ring inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-50"
           title="تحديث السجلات"
         >
-          <RefreshCw size={17} />
+          <RefreshCw size={17} className={loading ? "animate-spin" : ""} />
           <span>تحديث</span>
         </button>
       </div>
@@ -795,15 +856,17 @@ export default function Logs({ logs, auditLogs, journalLogs, atms, onRefresh }) 
           <button
             type="button"
             onClick={applyServerFilters}
+            disabled={loading}
             className="focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800"
           >
-            <Search size={17} />
+            <Search size={17} className={loading ? "animate-pulse" : ""} />
             <span>بحث</span>
           </button>
 
           <button
             type="button"
             onClick={clearServerFilters}
+            disabled={loading}
             className="focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             <XCircle size={17} />
@@ -811,14 +874,33 @@ export default function Logs({ logs, auditLogs, journalLogs, atms, onRefresh }) 
           </button>
         </div>
 
-        {!journalCanLoad && (
+        {(sourceFilter === "journal" || sourceFilter === "all") && !journalCanLoad && (
           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
             اختر صرافًا ثم اضغط بحث لتحميل سجلات Journal الخاصة به فقط.
           </div>
         )}
       </div>
 
-      <LogTimeline records={filteredRecords} />
+      {loading && (
+        <div className="mb-3 flex items-center gap-2 rounded-lg border border-teal-100 bg-teal-50 px-3 py-2 text-sm text-teal-800">
+          <RefreshCw size={16} className="animate-spin" />
+          <span>جاري تحميل السجلات</span>
+        </div>
+      )}
+
+      <LogTimeline records={visibleRecords} />
+
+      {hasMoreRecords && (
+        <div className="mt-4 flex justify-center">
+          <button
+            type="button"
+            onClick={() => setVisibleCount((current) => current + RENDER_INCREMENT)}
+            className="focus-ring inline-flex min-h-11 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            عرض المزيد ({filteredRecords.length - visibleRecords.length})
+          </button>
+        </div>
+      )}
     </section>
   );
 }
