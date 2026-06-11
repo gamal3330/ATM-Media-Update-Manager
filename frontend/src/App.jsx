@@ -24,7 +24,6 @@ function AuthLoading() {
       <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-5 text-center shadow-sm">
         <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-teal-100 border-t-teal-700" />
         <div className="font-semibold text-slate-950">جاري التحقق من الجلسة</div>
-        <div className="mt-1 text-sm text-slate-500">لن يتم فتح لوحة التحكم قبل التأكد من تسجيل الدخول.</div>
       </div>
     </div>
   );
