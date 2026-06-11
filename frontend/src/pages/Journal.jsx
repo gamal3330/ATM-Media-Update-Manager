@@ -402,10 +402,11 @@ export default function Journal({ atms }) {
           type="button"
           onClick={loadJournal}
           disabled={loading || !atmId}
-          className="focus-ring inline-flex min-h-11 items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
+          className="focus-ring inline-flex h-10 min-w-[9.5rem] items-center justify-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 text-sm font-semibold text-teal-800 shadow-sm transition hover:bg-teal-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+          aria-label="تحميل الجورنال"
         >
           <RefreshCw size={17} className={loading ? "animate-spin" : ""} />
-          <span>تحميل Journal</span>
+          <span>{loading ? "جار التحميل" : "تحميل الجورنال"}</span>
         </button>
       </div>
 
