@@ -725,6 +725,7 @@ class JournalEventsRequest(BaseModel):
 class JournalEventsResponse(BaseModel):
     ok: bool = True
     inserted: int = 0
+    updated: int = 0
     skipped: int = 0
 
 

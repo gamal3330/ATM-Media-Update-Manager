@@ -18,6 +18,7 @@ CASSETTE_OUT_RE = re.compile(
 NCR_HEADER_RE = re.compile(r"^\*(?P<sequence>\d+)\*(?P<date>\d{2}/\d{2}/\d{4})\*(?P<time>\d{2}:\d{2})\*")
 NCR_TIME_RE = re.compile(r"^\s*(?P<time>\d{2}:\d{2}:\d{2})\s+(?P<message>.*)$")
 NCR_NOTES_PRESENTED_RE = re.compile(r"NOTES PRESENTED\s+(?P<counts>[\d,\s]+)", re.IGNORECASE)
+NCR_DENOMINATION_RE = re.compile(r"^DENOMINATION\s+(?P<values>[\d\s]+)$", re.IGNORECASE)
 
 
 EVENT_MESSAGES: tuple[tuple[str, str], ...] = (
@@ -89,6 +90,7 @@ class TransactionContext:
     wording: str | None = None
     cassette_outputs: list[dict[str, int]] = field(default_factory=list)
     notes_presented: list[int] = field(default_factory=list)
+    ncr_denominations: list[int] = field(default_factory=list)
     dispense_success: bool = False
     present_success: bool = False
     card_taken: bool = False
@@ -134,6 +136,50 @@ def parse_int(value: str | None) -> int | None:
         return int(cleaned)
     except ValueError:
         return None
+
+
+def parse_int_list(value: str | None) -> list[int]:
+    if value is None:
+        return []
+    numbers: list[int] = []
+    for part in re.split(r"[,\s]+", value.strip()):
+        if not part:
+            continue
+        parsed = parse_int(part)
+        if parsed is not None:
+            numbers.append(parsed)
+    return numbers
+
+
+def ncr_cassette_outputs_from_notes(tx: TransactionContext) -> list[dict[str, int]]:
+    counts = [max(0, int(count)) for count in tx.notes_presented]
+    if not counts:
+        return []
+
+    total_notes = sum(counts)
+    inferred_denomination: int | None = None
+    if tx.amount is not None and total_notes > 0 and tx.amount % total_notes == 0:
+        inferred_denomination = tx.amount // total_notes
+
+    outputs: list[dict[str, int]] = []
+    for index, count in enumerate(counts, start=1):
+        if count <= 0:
+            continue
+        denomination = inferred_denomination
+        denomination_code = tx.ncr_denominations[index - 1] if index <= len(tx.ncr_denominations) else None
+        if denomination is None:
+            denomination = denomination_code or 0
+
+        output = {
+            "cassette_no": index,
+            "out": count,
+            "reject": 0,
+            "denomination": denomination,
+        }
+        if denomination_code is not None and denomination_code != denomination:
+            output["denomination_code"] = denomination_code
+        outputs.append(output)
+    return outputs
 
 
 def apply_receipt_field_to_tx(tx: TransactionContext, key: str, value: str) -> None:
@@ -456,6 +502,7 @@ class NcrJournalParser:
                 )
 
         if self.current_tx:
+            self._parse_cash_total_line(line)
             self._parse_receipt_field(line)
         return []
 
@@ -504,10 +551,11 @@ class NcrJournalParser:
 
         notes_presented = NCR_NOTES_PRESENTED_RE.search(message)
         if notes_presented:
-            counts = [int(part.strip()) for part in notes_presented.group("counts").split(",") if part.strip()]
+            counts = parse_int_list(notes_presented.group("counts"))
             if tx:
                 tx.present_success = True
                 tx.notes_presented = counts
+                tx.cassette_outputs = ncr_cassette_outputs_from_notes(tx)
             events.append(
                 make_event(
                     file_path=self.file_path,
@@ -628,6 +676,8 @@ class NcrJournalParser:
         completed = bool((tx.dispense_success or tx.present_success) and tx.money_taken)
         inferred = "INFERRED" in message.upper()
         severity = "warning" if tx.take_cash_timeout else "info"
+        if tx.notes_presented:
+            tx.cassette_outputs = ncr_cassette_outputs_from_notes(tx)
         details = {
             "completed": completed,
             "withdrawal": tx.transaction_type == "WID",
@@ -637,10 +687,24 @@ class NcrJournalParser:
             "take_cash_timeout": tx.take_cash_timeout,
             "money_taken": tx.money_taken,
             "notes_presented": tx.notes_presented,
+            "ncr_denominations": tx.ncr_denominations,
             "response": tx.response,
             "wording": tx.wording,
             "inferred_end": inferred,
         }
+        events = [
+            make_event(
+                file_path=self.file_path,
+                line_number=line_number,
+                occurred_at=occurred_at,
+                event_type="CASSETTE_OUT",
+                message=f"NCR cassette {output['cassette_no']} out={output['out']}",
+                source="ncr_ej",
+                tx=tx,
+                details=output,
+            )
+            for output in tx.cassette_outputs
+        ]
         event = make_event(
             file_path=self.file_path,
             line_number=line_number,
@@ -652,9 +716,21 @@ class NcrJournalParser:
             tx=tx,
             details=details,
         )
+        events.append(event)
         self.current_tx = None
         self.last_tx_at = None
-        return [event]
+        return events
+
+    def _parse_cash_total_line(self, line: str) -> None:
+        tx = self.current_tx
+        if tx is None:
+            return
+        matched = NCR_DENOMINATION_RE.match(line.strip())
+        if not matched:
+            return
+        tx.ncr_denominations = parse_int_list(matched.group("values"))
+        if tx.notes_presented:
+            tx.cassette_outputs = ncr_cassette_outputs_from_notes(tx)
 
     def _parse_receipt_field(self, line: str) -> None:
         tx = self.current_tx

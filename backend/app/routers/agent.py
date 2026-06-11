@@ -42,6 +42,7 @@ from ..schemas import (
     AgentSwitchProbeRequest,
     AgentSwitchProbeResult,
     CashMonitoringRemoteConfig,
+    JournalEventPayload,
     JournalEventsRequest,
     JournalEventsResponse,
     JournalReaderRemoteConfig,
@@ -865,6 +866,49 @@ def journal_log_message(event_type: str, payload) -> str:
     return title
 
 
+def has_journal_value(value) -> bool:
+    return value not in (None, "", [], {})
+
+
+def merge_existing_journal_event(event: AtmJournalEvent, payload: JournalEventPayload) -> bool:
+    changed = False
+
+    for attr in (
+        "transaction_serial",
+        "transaction_type",
+        "amount",
+        "currency",
+        "rrn",
+        "stan",
+        "auth_code",
+        "card_masked",
+        "receipt_date",
+    ):
+        incoming = getattr(payload, attr)
+        if has_journal_value(incoming) and not has_journal_value(getattr(event, attr)):
+            setattr(event, attr, incoming)
+            changed = True
+
+    if payload.cassette_outputs and not event.cassette_outputs_json:
+        event.cassette_outputs_json = payload.cassette_outputs
+        changed = True
+
+    if payload.details:
+        current_details = dict(event.details_json or {})
+        merged_details = dict(current_details)
+        for key, incoming in payload.details.items():
+            if not has_journal_value(incoming):
+                continue
+            current = merged_details.get(key)
+            if not has_journal_value(current) or (incoming is True and current is False):
+                merged_details[key] = incoming
+        if merged_details != current_details:
+            event.details_json = merged_details
+            changed = True
+
+    return changed
+
+
 @router.post("/journal-events", response_model=JournalEventsResponse)
 def submit_journal_events(
     payload: JournalEventsRequest,
@@ -875,11 +919,15 @@ def submit_journal_events(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ATM ID does not match credentials")
 
     inserted = 0
+    updated = 0
     skipped = 0
     for item in payload.events:
-        exists = db.query(AtmJournalEvent.id).filter(AtmJournalEvent.event_uid == item.event_uid).first()
+        exists = db.query(AtmJournalEvent).filter(AtmJournalEvent.event_uid == item.event_uid).first()
         if exists:
-            skipped += 1
+            if merge_existing_journal_event(exists, item):
+                updated += 1
+            else:
+                skipped += 1
             continue
 
         event = AtmJournalEvent(
@@ -907,7 +955,7 @@ def submit_journal_events(
         db.add(event)
         inserted += 1
 
-    if inserted:
+    if inserted or updated:
         atm.last_seen = datetime.now(timezone.utc)
     db.commit()
-    return JournalEventsResponse(inserted=inserted, skipped=skipped)
+    return JournalEventsResponse(inserted=inserted, updated=updated, skipped=skipped)
