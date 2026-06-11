@@ -433,12 +433,12 @@ function MetricCard({ label, value, tone = "slate", icon: Icon }) {
   };
 
   return (
-    <div className={`rounded-lg border px-4 py-3 shadow-sm ${tones[tone]}`}>
+    <div className={`rounded-lg border px-3 py-2 shadow-sm ${tones[tone]}`}>
       <div className="flex items-center justify-between gap-3">
-        <div className="text-sm font-medium text-slate-600">{label}</div>
-        {Icon && <Icon size={18} className="opacity-75" />}
+        <div className="truncate text-xs font-medium text-slate-600">{label}</div>
+        {Icon && <Icon size={16} className="shrink-0 opacity-75" />}
       </div>
-      <div className="mt-2 text-2xl font-semibold leading-none sm:text-3xl">{value}</div>
+      <div className="mt-1 text-xl font-semibold leading-none">{value}</div>
     </div>
   );
 }
@@ -711,6 +711,117 @@ function AtmCard({ atm, onOpenSettings, onDelete, onProbeSwitch, switchProbeBusy
   );
 }
 
+function AtmTable({ atms, onOpenSettings, onDelete, onProbeSwitch, switchProbeBusyId, deletingAtmId }) {
+  return (
+    <div className="hidden overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm lg:block">
+      <table className="w-full table-fixed text-sm">
+        <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-500">
+          <tr>
+            <th className="w-[24%] px-3 py-2 text-right">الصراف</th>
+            <th className="w-[10%] px-3 py-2 text-right">الحالة</th>
+            <th className="w-[10%] px-3 py-2 text-right">Agent</th>
+            <th className="w-[10%] px-3 py-2 text-right">XFS</th>
+            <th className="w-[12%] px-3 py-2 text-right">آخر اتصال</th>
+            <th className="w-[9%] px-3 py-2 text-right">Latency</th>
+            <th className="w-[12%] px-3 py-2 text-right">Config</th>
+            <th className="w-[13%] px-3 py-2 text-right">إجراءات</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {atms.map((atm) => {
+            const health = getAtmHealth(atm);
+            const HealthIcon = health.icon;
+            const configStatus = getConfigStatus(atm);
+            const ConfigIcon = configStatus.icon;
+            const lastProblem = getActiveProblem(atm);
+
+            return (
+              <tr key={atm.atm_id} className="align-middle hover:bg-slate-50/70">
+                <td className="px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="truncate font-semibold text-slate-950">{atm.name}</span>
+                      <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[11px] text-slate-700">
+                        {atm.atm_id}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-slate-500">
+                      <span className="truncate">{atm.branch || "-"}</span>
+                      <span className="shrink-0" dir="ltr">
+                        {atm.vpn_ip || "-"}
+                      </span>
+                    </div>
+                    {lastProblem && (
+                      <div className="mt-1 truncate text-xs text-rose-600" title={lastProblem}>
+                        {lastProblem}
+                      </div>
+                    )}
+                  </div>
+                </td>
+                <td className="px-3 py-2">
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${health.tone}`}>
+                    <HealthIcon size={13} />
+                    {health.title}
+                  </span>
+                </td>
+                <td className="px-3 py-2 font-semibold text-slate-800" dir="ltr">
+                  {atm.agent_version || "-"}
+                </td>
+                <td className="px-3 py-2 font-semibold text-slate-800">{getXfsProfileLabel(atm.xfs_profile)}</td>
+                <td className="px-3 py-2 text-slate-700">{formatLastSeenAge(atm)}</td>
+                <td className="px-3 py-2">
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-xs ${getAtmLatencyTone(atm)}`} dir="ltr">
+                    {formatAtmLatency(atm)}
+                  </span>
+                </td>
+                <td className="px-3 py-2">
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${configStatus.tone}`}>
+                    <ConfigIcon size={13} />
+                    {configStatus.label}
+                  </span>
+                  <div className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${getSwitchProbeTone(atm.last_switch_probe_status)}`}>
+                    Switch: {formatSwitchProbe(atm)}
+                  </div>
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onOpenSettings(atm)}
+                      className="focus-ring rounded-lg border border-slate-300 p-2 text-slate-700 hover:bg-white"
+                      title="إعدادات الصراف"
+                    >
+                      <Settings2 size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onProbeSwitch(atm)}
+                      disabled={switchProbeBusyId === atm.atm_id}
+                      className="focus-ring rounded-lg border border-slate-300 p-2 text-slate-700 hover:bg-white disabled:opacity-60"
+                      title={`فحص TCP من الصراف إلى ${atm.switch_probe_host}:${atm.switch_probe_port}`}
+                    >
+                      <Network size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDelete(atm)}
+                      disabled={deletingAtmId === atm.atm_id}
+                      className="focus-ring rounded-lg border border-rose-200 p-2 text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+                      title="حذف الصراف"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function Atms({ atms, onChanged }) {
   const [form, setForm] = useState(() => buildEmptyForm());
   const [selectedAtmId, setSelectedAtmId] = useState("");
@@ -734,6 +845,7 @@ export default function Atms({ atms, onChanged }) {
   const [switchProbeDialog, setSwitchProbeDialog] = useState(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [query, setQuery] = useState("");
+  const [quickAtmId, setQuickAtmId] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
   const selectedAtm = useMemo(
@@ -759,12 +871,13 @@ export default function Atms({ atms, onChanged }) {
     return [...atms]
       .filter((atm) => {
         const health = getAtmHealth(atm);
+        if (quickAtmId && atm.atm_id !== quickAtmId) return false;
         if (statusFilter === "online" && !isRecentlyOnline(atm)) return false;
         if (statusFilter === "offline" && isRecentlyOnline(atm)) return false;
         if (statusFilter === "pending" && (atm.applied_config_version || 0) >= (atm.config_version || 0)) return false;
         if (statusFilter === "error" && health.label !== "error") return false;
         if (!needle) return true;
-        return [atm.atm_id, atm.name, atm.branch, atm.vpn_ip]
+        return [atm.atm_id, atm.name, atm.branch, atm.vpn_ip, atm.agent_version, getXfsProfileLabel(atm.xfs_profile)]
           .filter(Boolean)
           .some((value) => String(value).toLowerCase().includes(needle));
       })
@@ -772,9 +885,9 @@ export default function Atms({ atms, onChanged }) {
         const firstHealth = getAtmHealth(first);
         const secondHealth = getAtmHealth(second);
         if (firstHealth.rank !== secondHealth.rank) return firstHealth.rank - secondHealth.rank;
-        return String(first.atm_id).localeCompare(String(second.atm_id), "ar");
+        return String(first.atm_id).localeCompare(String(second.atm_id), "ar", { numeric: true, sensitivity: "base" });
       });
-  }, [atms, query, statusFilter]);
+  }, [atms, query, quickAtmId, statusFilter]);
 
   async function submit(event) {
     event.preventDefault();
@@ -1109,7 +1222,7 @@ export default function Atms({ atms, onChanged }) {
         </button>
       </div>
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="mb-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
         <MetricCard label="الصرافات" value={metrics.total} icon={Server} />
         <MetricCard label="Online" value={metrics.online} tone="emerald" icon={Wifi} />
         <MetricCard label="Offline" value={metrics.offline} tone={metrics.offline ? "rose" : "emerald"} icon={WifiOff} />
@@ -1248,16 +1361,39 @@ export default function Atms({ atms, onChanged }) {
         </div>
       )}
 
-      <div className="mb-5 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-        <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
+      <div className="mb-4 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(220px,320px)_auto]">
           <label className="relative block">
             <Search className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input
               className="focus-ring min-h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pr-10 pl-3 text-sm"
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setQuickAtmId("");
+              }}
               placeholder="بحث بالاسم أو ATM ID أو الفرع أو IP"
             />
+          </label>
+          <label className="block">
+            <select
+              className="focus-ring min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+              value={quickAtmId}
+              onChange={(event) => {
+                setQuickAtmId(event.target.value);
+                setQuery("");
+              }}
+              title="اختيار صراف محدد"
+            >
+              <option value="">كل الصرافات</option>
+              {[...atms]
+                .sort((first, second) => String(first.atm_id).localeCompare(String(second.atm_id), "ar", { numeric: true, sensitivity: "base" }))
+                .map((atm) => (
+                  <option key={atm.atm_id} value={atm.atm_id}>
+                    {atm.name ? `${atm.name} - ATM ${atm.atm_id}` : `ATM ${atm.atm_id}`}
+                  </option>
+                ))}
+            </select>
           </label>
           <div className="flex flex-wrap items-center gap-2">
             <SlidersHorizontal size={18} className="text-slate-500" />
@@ -1281,11 +1417,41 @@ export default function Atms({ atms, onChanged }) {
                 {label}
               </button>
             ))}
+            {(query || quickAtmId || statusFilter !== "all") && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  setQuickAtmId("");
+                  setStatusFilter("all");
+                }}
+                className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 hover:bg-slate-50"
+                title="مسح البحث والفلاتر"
+              >
+                <XCircle size={16} />
+                <span>مسح</span>
+              </button>
+            )}
           </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+          <span>
+            المعروض {filteredAtms.length} من {atms.length}
+          </span>
+          <span>يمكن البحث بالاسم، ATM ID، الفرع، IP، نسخة Agent أو نوع XFS.</span>
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+      <AtmTable
+        atms={filteredAtms}
+        onOpenSettings={openSettings}
+        onDelete={deleteAtm}
+        onProbeSwitch={requestSwitchProbe}
+        switchProbeBusyId={switchProbeBusyId}
+        deletingAtmId={deletingAtmId}
+      />
+
+      <div className="grid gap-3 md:grid-cols-2 lg:hidden">
         {filteredAtms.map((atm) => (
           <AtmCard
             key={atm.atm_id}
