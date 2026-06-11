@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 
 DEFAULT_BATCH_SIZE = 200
+NCR_PARSER_STATE_VERSION = 2
 
 
 class JournalReaderModule:
@@ -74,6 +75,10 @@ class JournalReaderModule:
             file_state = dict(files_state.get(file_key) or {})
             offset = int(file_state.get("offset") or 0)
             line_number = int(file_state.get("line_number") or 1)
+            parser_state_version = int(file_state.get("parser_state_version") or 0)
+            if provider == "ncr_ej" and parser_state_version < NCR_PARSER_STATE_VERSION:
+                offset = 0
+                line_number = 1
             if current_size < offset:
                 offset = 0
                 line_number = 1
@@ -83,6 +88,7 @@ class JournalReaderModule:
                 files_state[file_key] = {
                     "path": str(path),
                     "provider": provider,
+                    "parser_state_version": NCR_PARSER_STATE_VERSION if provider == "ncr_ej" else 1,
                     "offset": new_offset,
                     "line_number": line_number,
                     "size": current_size,
@@ -106,6 +112,7 @@ class JournalReaderModule:
             files_state[file_key] = {
                 "path": str(path),
                 "provider": provider,
+                "parser_state_version": NCR_PARSER_STATE_VERSION if provider == "ncr_ej" else 1,
                 "offset": new_offset,
                 "line_number": line_number + len(lines),
                 "size": current_size,

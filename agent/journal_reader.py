@@ -398,6 +398,7 @@ class NcrJournalParser:
         self.current_tx: TransactionContext | None = None
         self.current_date: str | None = None
         self.current_header_at: str | None = None
+        self.last_tx_at: str | None = None
 
     def parse_lines(self, lines: Iterable[str], start_line: int = 1) -> list[JournalEvent]:
         events: list[JournalEvent] = []
@@ -419,8 +420,14 @@ class NcrJournalParser:
             occurred_at = self.current_header_at
             if not occurred_at:
                 return []
+            events = self._finalize_current_tx(
+                line_number=line_number,
+                occurred_at=self.last_tx_at or occurred_at,
+                message="TRANSACTION END (inferred from next transaction)",
+            )
             self.current_tx = TransactionContext(occurred_at, line_number, self.file_path)
-            return [
+            self.last_tx_at = occurred_at
+            events.append(
                 make_event(
                     file_path=self.file_path,
                     line_number=line_number,
@@ -430,13 +437,23 @@ class NcrJournalParser:
                     source="ncr_ej",
                     tx=self.current_tx,
                 )
-            ]
+            )
+            return events
 
         timed = NCR_TIME_RE.match(line)
         if timed and self.current_date:
             occurred_at = parse_ncr_datetime(self.current_date, timed.group("time"))
             message = timed.group("message").strip()
             return self._parse_timestamped_line(occurred_at, message, line_number)
+
+        if "TRANSACTION END" in stripped.upper():
+            occurred_at = self.last_tx_at or self.current_header_at
+            if occurred_at:
+                return self._finalize_current_tx(
+                    line_number=line_number,
+                    occurred_at=occurred_at,
+                    message=stripped.strip("* ") or "TRANSACTION END",
+                )
 
         if self.current_tx:
             self._parse_receipt_field(line)
@@ -445,41 +462,15 @@ class NcrJournalParser:
     def _parse_timestamped_line(self, occurred_at: str, message: str, line_number: int) -> list[JournalEvent]:
         upper = message.upper()
         events: list[JournalEvent] = []
+        if self.current_tx:
+            self.last_tx_at = occurred_at
 
         if "TRANSACTION END" in upper:
-            tx = self.current_tx or TransactionContext(occurred_at, line_number, self.file_path)
-            completed = bool((tx.dispense_success or tx.present_success) and tx.money_taken)
-            severity = "warning" if tx.take_cash_timeout else "info"
-            details = {
-                "completed": completed,
-                "withdrawal": tx.transaction_type == "WID",
-                "dispense_success": tx.dispense_success,
-                "present_success": tx.present_success,
-                "card_taken": tx.card_taken,
-                "take_cash_timeout": tx.take_cash_timeout,
-                "money_taken": tx.money_taken,
-                "notes_presented": tx.notes_presented,
-                "response": tx.response,
-                "wording": tx.wording,
-            }
-            events.append(
-                make_event(
-                    file_path=self.file_path,
-                    line_number=line_number,
-                    occurred_at=occurred_at,
-                    event_type="TRANSACTION_END",
-                    message=message,
-                    severity=severity,
-                    source="ncr_ej",
-                    tx=tx,
-                    details=details,
-                )
-            )
-            self.current_tx = None
-            return events
+            return self._finalize_current_tx(line_number=line_number, occurred_at=occurred_at, message=message)
 
         if "OPCODE =" in upper and self.current_tx is None:
             self.current_tx = TransactionContext(occurred_at, line_number, self.file_path)
+            self.last_tx_at = occurred_at
             events.append(
                 make_event(
                     file_path=self.file_path,
@@ -613,6 +604,57 @@ class NcrJournalParser:
             )
 
         return events
+
+    def _finalize_current_tx(self, *, line_number: int, occurred_at: str, message: str) -> list[JournalEvent]:
+        tx = self.current_tx
+        if tx is None:
+            return []
+
+        has_transaction_data = any(
+            [
+                tx.transaction_type,
+                tx.amount is not None,
+                tx.rrn,
+                tx.stan,
+                tx.auth_code,
+                tx.card_masked,
+            ]
+        )
+        if not has_transaction_data:
+            self.current_tx = None
+            self.last_tx_at = None
+            return []
+
+        completed = bool((tx.dispense_success or tx.present_success) and tx.money_taken)
+        inferred = "INFERRED" in message.upper()
+        severity = "warning" if tx.take_cash_timeout else "info"
+        details = {
+            "completed": completed,
+            "withdrawal": tx.transaction_type == "WID",
+            "dispense_success": tx.dispense_success,
+            "present_success": tx.present_success,
+            "card_taken": tx.card_taken,
+            "take_cash_timeout": tx.take_cash_timeout,
+            "money_taken": tx.money_taken,
+            "notes_presented": tx.notes_presented,
+            "response": tx.response,
+            "wording": tx.wording,
+            "inferred_end": inferred,
+        }
+        event = make_event(
+            file_path=self.file_path,
+            line_number=line_number,
+            occurred_at=occurred_at,
+            event_type="TRANSACTION_END",
+            message=message,
+            severity=severity,
+            source="ncr_ej",
+            tx=tx,
+            details=details,
+        )
+        self.current_tx = None
+        self.last_tx_at = None
+        return [event]
 
     def _parse_receipt_field(self, line: str) -> None:
         tx = self.current_tx

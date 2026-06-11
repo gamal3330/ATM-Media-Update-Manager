@@ -81,6 +81,27 @@ REMAINING        01124 01123 00171 00050
 """
 
 
+SAMPLE_NCR_EJ_WITHOUT_EXPLICIT_END = """*010*06/11/2026*08:10*
+     *TRANSACTION START*
+===================================
+Transaction Type  : WID
+DATE              : 11/06/2026 08:10:15
+ATM               : 31
+WORDING           : QutaibiDhala
+CURRENCY          : YER
+AMOUNT            : 15000
+RRN               : 616210123456
+STAN              : 123456
+AUTH CODE         : 991122
+CARD              : 9967009912345678
+RESPONSE          : ERROR.ISSUER
+===================================
+*011*06/11/2026*08:12*
+     *TRANSACTION START*
+ CARD INSERTED
+"""
+
+
 def by_type(events, event_type):
     return [event for event in events if event.event_type == event_type]
 
@@ -161,3 +182,25 @@ def test_parse_ncr_journal_transaction_summary():
     assert end.details["completed"] is True
     assert end.details["withdrawal"] is True
     assert end.details["notes_presented"] == [5, 5, 0, 0]
+
+
+def test_parse_ncr_journal_infers_transaction_end_from_next_start():
+    events = parse_ncr_journal_text(
+        SAMPLE_NCR_EJ_WITHOUT_EXPLICIT_END,
+        file_path=r"C:\Program Files (x86)\NCR APTRA\Advance NDC\Data\EJDATA.LOG",
+    )
+
+    starts = by_type(events, "TRANSACTION_START")
+    assert len(starts) == 2
+
+    end = by_type(events, "TRANSACTION_END")[0]
+    assert end.source == "ncr_ej"
+    assert end.transaction_type == "WID"
+    assert end.amount == 15000
+    assert end.currency == "YER"
+    assert end.rrn == "616210123456"
+    assert end.stan == "123456"
+    assert end.auth_code == "991122"
+    assert end.card_masked == "996700******5678"
+    assert end.details["withdrawal"] is True
+    assert end.details["inferred_end"] is True
