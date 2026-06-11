@@ -336,8 +336,6 @@ export default function Dashboard({ atms, cashSummary, loading, onRefresh }) {
     <section>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold text-slate-950 sm:text-3xl">لوحة المراقبة</h1>
-
           <div className="flex flex-wrap items-center gap-2">
             <SummaryTile label="Online" value={online} tone="emerald" icon={Wifi} />
             <SummaryTile label="Offline" value={offline} tone={offline ? "rose" : "emerald"} icon={WifiOff} />
