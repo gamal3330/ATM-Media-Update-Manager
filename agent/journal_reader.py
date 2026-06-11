@@ -16,6 +16,7 @@ CASSETTE_OUT_RE = re.compile(
     re.IGNORECASE,
 )
 NCR_HEADER_RE = re.compile(r"^\*(?P<sequence>\d+)\*(?P<date>\d{2}/\d{2}/\d{4})\*(?P<time>\d{2}:\d{2})\*")
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 NCR_TIME_RE = re.compile(r"^\s*(?P<time>\d{2}:\d{2}:\d{2})\s+(?P<message>.*)$")
 NCR_NOTES_PRESENTED_RE = re.compile(r"NOTES PRESENTED\s+(?P<counts>[\d,\s]+)", re.IGNORECASE)
 NCR_DENOMINATION_RE = re.compile(r"^DENOMINATION\s+(?P<values>[\d\s]+)$", re.IGNORECASE)
@@ -149,6 +150,12 @@ def parse_int_list(value: str | None) -> list[int]:
         if parsed is not None:
             numbers.append(parsed)
     return numbers
+
+
+def clean_ncr_line(value: str) -> str:
+    cleaned = ANSI_ESCAPE_RE.sub("", value)
+    cleaned = "".join(char for char in cleaned if char in "\t\r\n" or ord(char) >= 32)
+    return cleaned.strip("\ufeff")
 
 
 def ncr_cassette_outputs_from_notes(tx: TransactionContext) -> list[dict[str, int]]:
@@ -455,6 +462,7 @@ class NcrJournalParser:
         return events
 
     def parse_line(self, line: str, line_number: int) -> list[JournalEvent]:
+        line = clean_ncr_line(line)
         stripped = line.strip()
         header = NCR_HEADER_RE.match(stripped)
         if header:

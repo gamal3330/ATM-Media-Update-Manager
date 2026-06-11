@@ -137,6 +137,29 @@ CASSETE 4       :
 """
 
 
+SAMPLE_NCR_EJ_WITH_CONTROL_PREFIXES = """*538*06/11/2026*08:49*
+     *TRANSACTION START*
+\x1b[020t 08:49:37 OPCODE = ADBA  AC
+\x1b[020t 08:49:56 NOTES STACKED
+\x1b[020t 08:49:59 CARD TAKEN
+\x1b[020t 08:50:02 NOTES PRESENTED 4,6,0,0
+DENOMINATION         5    10    20    50
+Transaction Type  : WID
+DATE              : 11/06/2026 08:50:18
+ATM               : 12
+WORDING           : QutaibiYAFE01
+CURRENCY          : YER
+AMOUNT            : 10000
+RRN               : 616205072540
+STAN              : 072540
+AUTH CODE         : 186894
+CARD              : 9967009974173752
+RESPONSE          : ERROR.ISSUER
+\x1b[020t 08:50:02 NOTES TAKEN
+\x1b[020t 08:50:09 TRANSACTION END
+"""
+
+
 def by_type(events, event_type):
     return [event for event in events if event.event_type == event_type]
 
@@ -268,3 +291,26 @@ def test_parse_ncr_journal_cassette_outputs_when_notes_precede_receipt():
     assert len(cassette_events) == 2
     assert cassette_events[0].details["cassette_no"] == 1
     assert cassette_events[1].details["cassette_no"] == 2
+
+
+def test_parse_ncr_journal_ignores_control_prefixes_before_timestamps():
+    events = parse_ncr_journal_text(
+        SAMPLE_NCR_EJ_WITH_CONTROL_PREFIXES,
+        file_path=r"C:\Program Files (x86)\NCR APTRA\Advance NDC\Data\EJDATA.LOG",
+    )
+
+    assert by_type(events, "DISPENSE_SUCCESS")
+    assert by_type(events, "PRESENT_SUCCESS")
+    assert by_type(events, "CARD_TAKEN")
+    assert by_type(events, "MONEY_TAKEN")
+
+    end = by_type(events, "TRANSACTION_END")[0]
+    assert end.details["completed"] is True
+    assert end.details["dispense_success"] is True
+    assert end.details["present_success"] is True
+    assert end.details["money_taken"] is True
+    assert end.details["card_taken"] is True
+    assert end.cassette_outputs == [
+        {"cassette_no": 1, "out": 4, "reject": 0, "denomination": 1000, "denomination_code": 5},
+        {"cassette_no": 2, "out": 6, "reject": 0, "denomination": 1000, "denomination_code": 10},
+    ]
