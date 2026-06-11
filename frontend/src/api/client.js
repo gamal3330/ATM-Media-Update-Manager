@@ -310,6 +310,7 @@ function buildLogQuery(params = {}, fallbackLimit = 200) {
   query.set("page_size", String(pageSize));
   if (params.atmId) query.set("atm_id", params.atmId);
   if (params.eventType) query.set("event_type", params.eventType);
+  if (params.transactionType) query.set("transaction_type", params.transactionType);
   if (params.level) query.set("level", params.level);
   if (params.fromAt) query.set("from_at", params.fromAt);
   if (params.toAt) query.set("to_at", params.toAt);

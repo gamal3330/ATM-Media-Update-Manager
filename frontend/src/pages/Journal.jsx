@@ -75,6 +75,10 @@ function transactionTitle(event) {
   return transactionTypeLabels[type] || (type ? `عملية ${type}` : "عملية");
 }
 
+function isWithdrawalTransaction(event) {
+  return event?.event_type === "TRANSACTION_END" && String(event?.transaction_type || "").toUpperCase() === "WID";
+}
+
 function operationNumber(event) {
   return event?.transaction_serial || event?.rrn || event?.stan || "-";
 }
@@ -332,6 +336,7 @@ export default function Journal({ atms }) {
       const data = await api.listJournalLogs({
         atmId,
         eventType: eventType === "all" ? "" : eventType,
+        transactionType: eventType === "TRANSACTION_END" ? "WID" : "",
         fromAt,
         toAt,
         page: nextPage,
@@ -362,7 +367,7 @@ export default function Journal({ atms }) {
   }, [events, eventType, hasLoadedCurrentFilters, query]);
 
   const stats = useMemo(() => {
-    const transactions = filteredEvents.filter((event) => event.event_type === "TRANSACTION_END");
+    const transactions = filteredEvents.filter(isWithdrawalTransaction);
     const completed = transactions.filter((event) => event.details_json?.completed === true);
     const warnings = filteredEvents.filter((event) => normalizeText(event.severity) === "warning" || event.details_json?.take_cash_timeout);
     const totalAmount = completed.reduce((sum, event) => sum + (Number(event.amount) || 0), 0);
@@ -376,7 +381,7 @@ export default function Journal({ atms }) {
   }, [filteredEvents]);
 
   const transactionEvents = useMemo(
-    () => filteredEvents.filter((event) => event.event_type === "TRANSACTION_END"),
+    () => filteredEvents.filter(isWithdrawalTransaction),
     [filteredEvents],
   );
   const showingTransactionsOnly = eventType === "TRANSACTION_END";
