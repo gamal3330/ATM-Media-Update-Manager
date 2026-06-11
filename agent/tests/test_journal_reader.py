@@ -3,7 +3,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from journal_reader import decode_journal_bytes, mask_card, parse_grg_journal_text, parse_ncr_journal_text
+from journal_reader import (
+    decode_journal_bytes,
+    mask_card,
+    parse_grg_journal_text,
+    parse_ncr_journal_text,
+    parse_ncr_merged_trace_text,
+)
 
 
 SAMPLE_EJ = """2026-06-09 17:41:17.637 TRANSACTION REQUEST ADBA  AC
@@ -157,6 +163,31 @@ CARD              : 9967009974173752
 RESPONSE          : ERROR.ISSUER
 \x1b[020t 08:50:02 NOTES TAKEN
 \x1b[020t 08:50:09 TRANSACTION END
+"""
+
+
+SAMPLE_NCR_MERGED_TRACE = """          Trace Created 10/06/2026 00:10:59
+        Counter = 5
+<MESSAGEIN>19:53:30.100 - 10/06/2026 #1375 [4 000 000===================================
+Transaction Type  : WID
+DATE              : 10/06/2026 19:53:34
+ATM               : 31
+WORDING           : Qutaibi-ALDALI
+CURRENCY          : YER
+AMOUNT            : 20000
+RRN               : 616119012345
+STAN              : 012345
+AUTH CODE         : 123456
+CARD              : 9967009981418828
+RESPONSE          : ERROR.ISSUER
+
+CASSETE 1       :
+CASSETE 2       :
+CASSETE 3       :
+CASSETE 4       :
+===================================]</MESSAGEIN>
+<DEBUG>Applica.. (MAIN)(3508) 10/06/2026 19:53:34.643 Cash Presented Journalled Caller Triggered.</DEBUG>
+<DEBUG>Applica.. (MAIN)(3508) 10/06/2026 19:53:35.807 Journal Printing Failed or Journal Level Not Applicable[NOTES TAKEN]</DEBUG>
 """
 
 
@@ -314,3 +345,40 @@ def test_parse_ncr_journal_ignores_control_prefixes_before_timestamps():
         {"cassette_no": 1, "out": 4, "reject": 0, "denomination": 1000, "denomination_code": 5},
         {"cassette_no": 2, "out": 6, "reject": 0, "denomination": 1000, "denomination_code": 10},
     ]
+
+
+def test_parse_ncr_merged_trace_with_cash_presented_and_notes_taken():
+    events = parse_ncr_merged_trace_text(
+        SAMPLE_NCR_MERGED_TRACE,
+        file_path=r"C:\Program Files (x86)\NCR APTRA\Advance NDC\Debug\MergedTrace_10.log",
+    )
+
+    start = by_type(events, "TRANSACTION_START")[0]
+    assert start.source == "ncr_ej"
+    assert start.occurred_at == "2026-06-10T19:53:30"
+    assert start.details["trace_source"] == "merged_trace"
+
+    presented = by_type(events, "PRESENT_SUCCESS")[0]
+    assert presented.occurred_at == "2026-06-10T19:53:34"
+    assert presented.details["trace_source"] == "merged_trace"
+
+    taken = by_type(events, "MONEY_TAKEN")[0]
+    assert taken.occurred_at == "2026-06-10T19:53:35"
+
+    end = by_type(events, "TRANSACTION_END")[0]
+    assert end.source == "ncr_ej"
+    assert end.occurred_at == "2026-06-10T19:53:35"
+    assert end.transaction_type == "WID"
+    assert end.amount == 20000
+    assert end.currency == "YER"
+    assert end.rrn == "616119012345"
+    assert end.stan == "012345"
+    assert end.auth_code == "123456"
+    assert end.card_masked == "996700******8828"
+    assert end.receipt_date == "10/06/2026 19:53:34"
+    assert end.details["trace_source"] == "merged_trace"
+    assert end.details["completed"] is True
+    assert end.details["withdrawal"] is True
+    assert end.details["dispense_success"] is True
+    assert end.details["present_success"] is True
+    assert end.details["money_taken"] is True

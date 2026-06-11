@@ -57,7 +57,9 @@ from ..services.package_service import ALLOWED_IMAGE_EXTENSIONS
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 AGENT_UPDATE_ACTIVE_WINDOW = timedelta(minutes=30)
 GRG_JOURNAL_GLOB = r"D:\Program Files\DTATMW\Bin\ATMAPP\Log\EJ*.log"
-NCR_JOURNAL_GLOB = r"C:\Program Files (x86)\NCR APTRA\Advance NDC\Data\EJDATA.LOG"
+NCR_EJDATA_GLOB = r"C:\Program Files (x86)\NCR APTRA\Advance NDC\Data\EJDATA.LOG"
+NCR_MERGED_TRACE_GLOB = r"C:\Program Files (x86)\NCR APTRA\Advance NDC\Debug\MergedTrace_*.log"
+NCR_JOURNAL_GLOB = f"{NCR_MERGED_TRACE_GLOB};{NCR_EJDATA_GLOB}"
 
 
 def effective_cash_provider(atm: ATM) -> str:
@@ -74,7 +76,9 @@ def effective_journal_provider(atm: ATM) -> str:
 
 def effective_journal_log_glob(atm: ATM) -> str:
     configured = (atm.journal_log_glob or "").strip()
-    if effective_journal_provider(atm) == "ncr_ej" and (not configured or configured == GRG_JOURNAL_GLOB):
+    if effective_journal_provider(atm) == "ncr_ej" and (
+        not configured or configured in {GRG_JOURNAL_GLOB, NCR_EJDATA_GLOB}
+    ):
         return NCR_JOURNAL_GLOB
     return configured or GRG_JOURNAL_GLOB
 
@@ -909,6 +913,29 @@ def merge_existing_journal_event(event: AtmJournalEvent, payload: JournalEventPa
     return changed
 
 
+def find_existing_journal_event(db: Session, atm: ATM, payload: JournalEventPayload) -> AtmJournalEvent | None:
+    existing = db.query(AtmJournalEvent).filter(AtmJournalEvent.event_uid == payload.event_uid).first()
+    if existing:
+        return existing
+
+    if payload.event_type != "TRANSACTION_END":
+        return None
+
+    query = db.query(AtmJournalEvent).filter(
+        AtmJournalEvent.atm_id == atm.id,
+        AtmJournalEvent.event_type == payload.event_type,
+    )
+    if payload.transaction_type:
+        query = query.filter(AtmJournalEvent.transaction_type == payload.transaction_type)
+    if payload.rrn:
+        query = query.filter(AtmJournalEvent.rrn == payload.rrn)
+    elif payload.stan and payload.receipt_date:
+        query = query.filter(AtmJournalEvent.stan == payload.stan, AtmJournalEvent.receipt_date == payload.receipt_date)
+    else:
+        return None
+    return query.order_by(AtmJournalEvent.received_at.desc()).first()
+
+
 @router.post("/journal-events", response_model=JournalEventsResponse)
 def submit_journal_events(
     payload: JournalEventsRequest,
@@ -922,7 +949,7 @@ def submit_journal_events(
     updated = 0
     skipped = 0
     for item in payload.events:
-        exists = db.query(AtmJournalEvent).filter(AtmJournalEvent.event_uid == item.event_uid).first()
+        exists = find_existing_journal_event(db, atm, item)
         if exists:
             if merge_existing_journal_event(exists, item):
                 updated += 1

@@ -8,14 +8,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from config_manager import JournalReaderConfig, LocalConfig, RemoteConfig
-from journal_reader import GrgJournalParser, NcrJournalParser, read_new_text
+from journal_reader import GrgJournalParser, NcrJournalParser, NcrMergedTraceParser, read_new_text
 
 if TYPE_CHECKING:
     from api_client import ApiClient
 
 
 DEFAULT_BATCH_SIZE = 200
-NCR_PARSER_STATE_VERSION = 4
+NCR_PARSER_STATE_VERSION = 5
 
 
 class JournalReaderModule:
@@ -31,7 +31,7 @@ class JournalReaderModule:
         self.last_event_count = 0
         self.last_error: str | None = None
         self.state_file = Path(local_config.local_log_path) / "journal-reader-state.json"
-        self.parsers: dict[str, GrgJournalParser | NcrJournalParser] = {}
+        self.parsers: dict[str, GrgJournalParser | NcrJournalParser | NcrMergedTraceParser] = {}
 
     def configure(self, config: RemoteConfig) -> None:
         self.config = config.journal_reader
@@ -65,7 +65,7 @@ class JournalReaderModule:
         provider = (config.provider or "grg_ej").strip().lower()
         state = self._load_state()
         files_state = state.setdefault("files", {})
-        paths = sorted(Path(path) for path in glob.glob(config.log_glob))
+        paths = self._expand_log_globs(config.log_glob)
         total_sent = 0
         batch: list[dict[str, Any]] = []
 
@@ -127,8 +127,19 @@ class JournalReaderModule:
             self.logger.info("Journal events sent: %s", total_sent)
         return total_sent
 
-    def _new_parser(self, provider: str, file_path: str) -> GrgJournalParser | NcrJournalParser:
+    def _expand_log_globs(self, log_glob: str) -> list[Path]:
+        patterns = [part.strip() for part in log_glob.replace("\n", ";").split(";") if part.strip()]
+        paths_by_key: dict[str, Path] = {}
+        for pattern in patterns:
+            for match in glob.glob(pattern):
+                path = Path(match)
+                paths_by_key[os.path.normcase(str(path.resolve()))] = path
+        return sorted(paths_by_key.values(), key=lambda path: (path.stat().st_mtime, str(path).lower()))
+
+    def _new_parser(self, provider: str, file_path: str) -> GrgJournalParser | NcrJournalParser | NcrMergedTraceParser:
         if provider == "ncr_ej":
+            if Path(file_path).name.lower().startswith("mergedtrace_"):
+                return NcrMergedTraceParser(file_path)
             return NcrJournalParser(file_path)
         return GrgJournalParser(file_path)
 

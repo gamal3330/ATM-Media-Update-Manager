@@ -20,6 +20,14 @@ ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 NCR_TIME_RE = re.compile(r"^\s*(?P<time>\d{2}:\d{2}:\d{2})\s+(?P<message>.*)$")
 NCR_NOTES_PRESENTED_RE = re.compile(r"NOTES PRESENTED\s+(?P<counts>[\d,\s]+)", re.IGNORECASE)
 NCR_DENOMINATION_RE = re.compile(r"^DENOMINATION\s+(?P<values>[\d\s]+)$", re.IGNORECASE)
+NCR_TRACE_MESSAGEIN_RE = re.compile(
+    r"<MESSAGEIN>\s*(?P<time>\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+-\s+(?P<date>\d{2}/\d{2}/\d{4})",
+    re.IGNORECASE,
+)
+NCR_TRACE_TIMESTAMP_RE = re.compile(
+    r"(?P<date>\d{2}/\d{2}/\d{4})\s+(?P<time>\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s*(?P<message>.*)$",
+    re.IGNORECASE,
+)
 
 
 EVENT_MESSAGES: tuple[tuple[str, str], ...] = (
@@ -105,6 +113,8 @@ def parse_timestamp(value: str) -> str:
 
 def parse_ncr_datetime(date_value: str, time_value: str) -> str:
     normalized_time = time_value.strip()
+    if "." in normalized_time:
+        normalized_time = normalized_time.split(".", 1)[0]
     if len(normalized_time) == 5:
         normalized_time = f"{normalized_time}:00"
     value = f"{date_value.strip()} {normalized_time}"
@@ -114,6 +124,21 @@ def parse_ncr_datetime(date_value: str, time_value: str) -> str:
         except ValueError:
             continue
     raise ValueError(f"Unsupported NCR journal timestamp: {value}")
+
+
+def parse_ncr_trace_datetime(date_value: str, time_value: str) -> str:
+    normalized_time = time_value.strip()
+    if "." in normalized_time:
+        normalized_time = normalized_time.split(".", 1)[0]
+    if len(normalized_time) == 5:
+        normalized_time = f"{normalized_time}:00"
+    value = f"{date_value.strip()} {normalized_time}"
+    for date_format in ("%d/%m/%Y %H:%M:%S", "%m/%d/%Y %H:%M:%S"):
+        try:
+            return datetime.strptime(value, date_format).isoformat(timespec="seconds")
+        except ValueError:
+            continue
+    raise ValueError(f"Unsupported NCR merged trace timestamp: {value}")
 
 
 def mask_card(value: str | None) -> str | None:
@@ -752,6 +777,262 @@ class NcrJournalParser:
         apply_receipt_field_to_tx(tx, key, value)
 
 
+class NcrMergedTraceParser:
+    def __init__(self, file_path: str) -> None:
+        self.file_path = file_path
+        self.current_tx: TransactionContext | None = None
+        self.receipt_tx: TransactionContext | None = None
+        self.last_tx_at: str | None = None
+
+    def parse_lines(self, lines: Iterable[str], start_line: int = 1) -> list[JournalEvent]:
+        events: list[JournalEvent] = []
+        for offset, raw_line in enumerate(lines):
+            line_number = start_line + offset
+            line = raw_line.rstrip("\r\n")
+            events.extend(self.parse_line(line, line_number))
+        return events
+
+    def parse_line(self, line: str, line_number: int) -> list[JournalEvent]:
+        line = clean_ncr_line(line)
+        stripped = line.strip()
+        if not stripped:
+            return []
+
+        messagein = NCR_TRACE_MESSAGEIN_RE.search(stripped)
+        if messagein:
+            occurred_at = parse_ncr_trace_datetime(messagein.group("date"), messagein.group("time"))
+            self.receipt_tx = TransactionContext(occurred_at, line_number, self.file_path)
+            return []
+
+        if self.receipt_tx:
+            self._parse_receipt_field(stripped)
+            if stripped.startswith("===") or "</MESSAGEIN>" in stripped.upper():
+                return self._finish_receipt_block(line_number)
+            return []
+
+        timed = NCR_TRACE_TIMESTAMP_RE.search(stripped)
+        if not timed:
+            return []
+
+        occurred_at = parse_ncr_trace_datetime(timed.group("date"), timed.group("time"))
+        message = timed.group("message").strip()
+        return self._parse_trace_message(occurred_at, message, line_number)
+
+    def _finish_receipt_block(self, line_number: int) -> list[JournalEvent]:
+        tx = self.receipt_tx
+        self.receipt_tx = None
+        if tx is None:
+            return []
+
+        if tx.transaction_type != "WID":
+            return []
+
+        events = self._finalize_current_tx(
+            line_number=line_number,
+            occurred_at=self.last_tx_at or tx.started_at,
+            message="TRANSACTION END (merged trace inferred)",
+            only_if_ready=True,
+        )
+        self.current_tx = tx
+        self.last_tx_at = tx.started_at
+        events.append(
+            make_event(
+                file_path=self.file_path,
+                line_number=line_number,
+                occurred_at=tx.started_at,
+                event_type="TRANSACTION_START",
+                message="TRANSACTION START (merged trace)",
+                source="ncr_ej",
+                tx=self.current_tx,
+                details={"trace_source": "merged_trace"},
+            )
+        )
+        return events
+
+    def _parse_trace_message(self, occurred_at: str, message: str, line_number: int) -> list[JournalEvent]:
+        upper = message.upper()
+        tx = self.current_tx
+        events: list[JournalEvent] = []
+        if tx:
+            self.last_tx_at = occurred_at
+
+        if "NOTES STACKED" in upper or "CASH STACKED" in upper:
+            if tx:
+                tx.dispense_success = True
+            events.append(self._trace_event(line_number, occurred_at, "DISPENSE_SUCCESS", message, tx))
+            return events
+
+        notes_presented = NCR_NOTES_PRESENTED_RE.search(message)
+        if notes_presented:
+            counts = parse_int_list(notes_presented.group("counts"))
+            if tx:
+                tx.present_success = True
+                tx.notes_presented = counts
+                tx.cassette_outputs = ncr_cassette_outputs_from_notes(tx)
+            events.append(
+                self._trace_event(
+                    line_number,
+                    occurred_at,
+                    "PRESENT_SUCCESS",
+                    message,
+                    tx,
+                    details={"notes_presented": counts, "trace_source": "merged_trace"},
+                )
+            )
+            return events
+
+        if "CASH PRESENTED JOURNALLED" in upper or "CASH PRESENTED" in upper:
+            if tx:
+                tx.dispense_success = True
+                tx.present_success = True
+            events.append(
+                self._trace_event(
+                    line_number,
+                    occurred_at,
+                    "PRESENT_SUCCESS",
+                    message,
+                    tx,
+                    details={"trace_source": "merged_trace"},
+                )
+            )
+            return events
+
+        if "NOTES TAKEN" in upper or "CASH TAKEN" in upper:
+            if tx:
+                tx.money_taken = True
+            events.append(self._trace_event(line_number, occurred_at, "MONEY_TAKEN", message, tx))
+            events.extend(
+                self._finalize_current_tx(
+                    line_number=line_number,
+                    occurred_at=occurred_at,
+                    message="TRANSACTION END (merged trace)",
+                )
+            )
+            return events
+
+        if "CARD TAKEN" in upper:
+            if tx:
+                tx.card_taken = True
+            events.append(self._trace_event(line_number, occurred_at, "CARD_TAKEN", message, tx))
+            return events
+
+        if "TAKE CASH TIMEOUT" in upper or "CASH TIMEOUT" in upper:
+            if tx:
+                tx.take_cash_timeout = True
+            events.append(
+                self._trace_event(
+                    line_number,
+                    occurred_at,
+                    "TAKE_CASH_TIMEOUT",
+                    message,
+                    tx,
+                    severity="warning",
+                )
+            )
+            return events
+
+        return events
+
+    def _trace_event(
+        self,
+        line_number: int,
+        occurred_at: str,
+        event_type: str,
+        message: str,
+        tx: TransactionContext | None,
+        *,
+        severity: str = "info",
+        details: dict[str, Any] | None = None,
+    ) -> JournalEvent:
+        event_details = {"trace_source": "merged_trace"}
+        if details:
+            event_details.update(details)
+        return make_event(
+            file_path=self.file_path,
+            line_number=line_number,
+            occurred_at=occurred_at,
+            event_type=event_type,
+            message=message,
+            severity=severity,
+            source="ncr_ej",
+            tx=tx,
+            details=event_details,
+        )
+
+    def _finalize_current_tx(
+        self,
+        *,
+        line_number: int,
+        occurred_at: str,
+        message: str,
+        only_if_ready: bool = False,
+    ) -> list[JournalEvent]:
+        tx = self.current_tx
+        if tx is None:
+            return []
+        if only_if_ready and not (tx.money_taken or tx.take_cash_timeout):
+            return []
+
+        if tx.notes_presented:
+            tx.cassette_outputs = ncr_cassette_outputs_from_notes(tx)
+
+        completed = bool((tx.dispense_success or tx.present_success) and tx.money_taken)
+        details = {
+            "completed": completed,
+            "withdrawal": tx.transaction_type == "WID",
+            "dispense_success": tx.dispense_success,
+            "present_success": tx.present_success,
+            "card_taken": tx.card_taken,
+            "take_cash_timeout": tx.take_cash_timeout,
+            "money_taken": tx.money_taken,
+            "notes_presented": tx.notes_presented,
+            "ncr_denominations": tx.ncr_denominations,
+            "response": tx.response,
+            "wording": tx.wording,
+            "trace_source": "merged_trace",
+        }
+        events = [
+            make_event(
+                file_path=self.file_path,
+                line_number=line_number,
+                occurred_at=occurred_at,
+                event_type="CASSETTE_OUT",
+                message=f"NCR merged trace cassette {output['cassette_no']} out={output['out']}",
+                source="ncr_ej",
+                tx=tx,
+                details=output | {"trace_source": "merged_trace"},
+            )
+            for output in tx.cassette_outputs
+        ]
+        events.append(
+            make_event(
+                file_path=self.file_path,
+                line_number=line_number,
+                occurred_at=occurred_at,
+                event_type="TRANSACTION_END",
+                message=message,
+                severity="warning" if tx.take_cash_timeout else "info",
+                source="ncr_ej",
+                tx=tx,
+                details=details,
+            )
+        )
+        self.current_tx = None
+        self.last_tx_at = None
+        return events
+
+    def _parse_receipt_field(self, line: str) -> None:
+        tx = self.receipt_tx
+        if tx is None:
+            return
+        matched = RECEIPT_FIELD_RE.match(line.strip())
+        if not matched:
+            return
+        key = normalize_receipt_key(matched.group("key"))
+        value = matched.group("value").strip()
+        apply_receipt_field_to_tx(tx, key, value)
+
+
 def parse_grg_journal_text(text: str, file_path: str = "<memory>") -> list[JournalEvent]:
     parser = GrgJournalParser(file_path)
     return parser.parse_lines(text.splitlines())
@@ -759,6 +1040,11 @@ def parse_grg_journal_text(text: str, file_path: str = "<memory>") -> list[Journ
 
 def parse_ncr_journal_text(text: str, file_path: str = "<memory>") -> list[JournalEvent]:
     parser = NcrJournalParser(file_path)
+    return parser.parse_lines(text.splitlines())
+
+
+def parse_ncr_merged_trace_text(text: str, file_path: str = "<memory>") -> list[JournalEvent]:
+    parser = NcrMergedTraceParser(file_path)
     return parser.parse_lines(text.splitlines())
 
 
