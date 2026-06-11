@@ -1,4 +1,4 @@
-import { AlertTriangle, Banknote, PackageCheck, RefreshCw } from "lucide-react";
+import { AlertTriangle, Banknote, PackageCheck, RefreshCw, Search, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { formatApiDate } from "../api/time";
@@ -259,6 +259,8 @@ export default function CashMonitoring({ atms }) {
   const [alerts, setAlerts] = useState([]);
   const [activeSummaryKey, setActiveSummaryKey] = useState("");
   const [selectedAtmId, setSelectedAtmId] = useState("");
+  const [atmQuery, setAtmQuery] = useState("");
+  const [atmListFilter, setAtmListFilter] = useState("all");
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(false);
   const [readNowLoading, setReadNowLoading] = useState(false);
@@ -281,6 +283,47 @@ export default function CashMonitoring({ atms }) {
     return alerts.filter((alert) => Number(alert.atm_id) === Number(selectedInternalId));
   }, [alerts, details]);
   const atmsByInternalId = useMemo(() => new Map(atms.map((atm) => [Number(atm.id), atm])), [atms]);
+  const alertAtmIds = useMemo(() => {
+    const ids = new Set();
+    alerts.forEach((alert) => {
+      const atm = atmsByInternalId.get(Number(alert.atm_id));
+      if (atm?.atm_id) ids.add(atm.atm_id);
+    });
+    return ids;
+  }, [alerts, atmsByInternalId]);
+  const filteredAtms = useMemo(() => {
+    const needle = atmQuery.trim().toLowerCase();
+    return [...atms]
+      .filter((atm) => {
+        const cashStatus = getCashModuleStatus(atm).toLowerCase();
+        const hasAlert = alertAtmIds.has(atm.atm_id);
+        if (atmListFilter === "enabled" && !atm.cash_monitoring_enabled) return false;
+        if (atmListFilter === "disabled" && atm.cash_monitoring_enabled) return false;
+        if (atmListFilter === "alerts" && !hasAlert && cashStatus !== "error") return false;
+        if (
+          atmListFilter === "pending" &&
+          Number(atm.config_version) === Number(atm.applied_config_version) &&
+          cashStatus !== "pending"
+        ) {
+          return false;
+        }
+        if (!needle) return true;
+        return [atm.atm_id, atm.name, atm.branch, atm.vpn_ip, atm.agent_version, getCashModuleStatus(atm)]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(needle));
+      })
+      .sort((first, second) => {
+        if (first.atm_id === selectedAtmId) return -1;
+        if (second.atm_id === selectedAtmId) return 1;
+        const firstAlert = alertAtmIds.has(first.atm_id);
+        const secondAlert = alertAtmIds.has(second.atm_id);
+        if (firstAlert !== secondAlert) return firstAlert ? -1 : 1;
+        if (Boolean(first.cash_monitoring_enabled) !== Boolean(second.cash_monitoring_enabled)) {
+          return first.cash_monitoring_enabled ? -1 : 1;
+        }
+        return String(first.atm_id).localeCompare(String(second.atm_id), "ar", { numeric: true, sensitivity: "base" });
+      });
+  }, [alertAtmIds, atmListFilter, atmQuery, atms, selectedAtmId]);
   const summaryDetailItems = useMemo(() => {
     if (!activeSummaryKey) return [];
 
@@ -436,11 +479,61 @@ export default function CashMonitoring({ atms }) {
         onSelectAtm={selectAtm}
       />
 
-      <div className="mt-6 grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+      <div className="mt-5 grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
         <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 px-4 py-3 font-medium">الصرافات</div>
-          <div className="divide-y divide-slate-100">
-            {atms.map((atm) => (
+          <div className="border-b border-slate-100 px-4 py-3">
+            <label className="relative block">
+              <Search className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+              <input
+                className="focus-ring min-h-10 w-full rounded-lg border border-slate-300 bg-white py-2 pr-9 pl-3 text-sm"
+                value={atmQuery}
+                onChange={(event) => setAtmQuery(event.target.value)}
+                placeholder="بحث باسم الصراف، ATM ID، الفرع أو IP"
+              />
+            </label>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {[
+                ["all", "الكل"],
+                ["enabled", "مفعل"],
+                ["alerts", "تنبيهات"],
+                ["pending", "ينتظر"],
+                ["disabled", "معطل"],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setAtmListFilter(value)}
+                  className={`focus-ring rounded-lg border px-2.5 py-1.5 text-xs font-medium ${
+                    atmListFilter === value
+                      ? "border-teal-600 bg-teal-50 text-teal-800"
+                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+              {(atmQuery || atmListFilter !== "all") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAtmQuery("");
+                    setAtmListFilter("all");
+                  }}
+                  className="focus-ring inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                  title="مسح البحث"
+                >
+                  <XCircle size={14} />
+                  <span>مسح</span>
+                </button>
+              )}
+            </div>
+            <div className="mt-2 text-xs text-slate-500">
+              المعروض {filteredAtms.length} من {atms.length}
+            </div>
+          </div>
+          <div className="max-h-[calc(100vh-350px)] min-h-64 divide-y divide-slate-100 overflow-y-auto">
+            {filteredAtms.map((atm) => (
               <button
                 key={atm.atm_id}
                 onClick={() => selectAtm(atm.atm_id)}
@@ -448,16 +541,31 @@ export default function CashMonitoring({ atms }) {
                   selectedAtmId === atm.atm_id ? "bg-teal-50" : ""
                 }`}
               >
-                <div className="font-medium text-slate-950">{atm.name}</div>
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <div className="truncate font-medium text-slate-950">{atm.name}</div>
+                  {alertAtmIds.has(atm.atm_id) && <AlertTriangle size={16} className="shrink-0 text-amber-500" />}
+                </div>
                 <div className="mt-1 text-xs text-slate-500">
                   {atm.atm_id} · {atm.cash_monitoring_enabled ? "CDM Enabled" : "CDM Disabled"}
                 </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${cashStatusTone(getCashModuleStatus(atm))}`}>
+                    Cash: {getCashModuleStatus(atm)}
+                  </span>
+                  {Number(atm.config_version) !== Number(atm.applied_config_version) && (
+                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                      Config Pending
+                    </span>
+                  )}
+                </div>
               </button>
             ))}
+            {filteredAtms.length === 0 && atms.length > 0 && (
+              <div className="px-4 py-8 text-center text-sm text-slate-500">لا توجد صرافات مطابقة</div>
+            )}
             {atms.length === 0 && <div className="px-4 py-8 text-center text-sm text-slate-500">لا توجد صرافات</div>}
           </div>
         </div>
-
         <div className="min-w-0 space-y-4">
           {selectedAtmDiagnostics && (
             <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-sm">
