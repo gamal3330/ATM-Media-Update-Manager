@@ -369,7 +369,7 @@ export const api = {
   assignPackage: (id, atmIds) =>
     request(`/api/packages/${id}/assign`, { method: "POST", body: JSON.stringify({ atm_ids: atmIds }) }),
   retryFailedPackage: (id) => request(`/api/packages/${id}/retry-failed`, { method: "POST" }),
-  listAgentPackages: () => request("/api/agent-packages"),
+  listAgentPackages: ({ limit = 50 } = {}) => request(`/api/agent-packages?limit=${encodeURIComponent(limit)}`),
   getAgentPackage: (id) => request(`/api/agent-packages/${id}`),
   uploadAgentPackage: (formData) => request("/api/agent-packages/upload", { method: "POST", body: formData }),
   assignAgentPackage: (id, atmIds) =>

@@ -205,26 +205,27 @@ export default function AgentUpdates({ atms = [] }) {
     () => packages.find((item) => item.id === selectedPackageId) || null,
     [packages, selectedPackageId],
   );
-  const counts = useMemo(() => countsFromDetails(details, selectedPackage), [details, selectedPackage]);
-  const targetsByAtmId = useMemo(() => targetMap(details), [details]);
+  const detailsLoaded = Boolean(details && details.id === selectedPackageId);
+  const counts = useMemo(() => countsFromDetails(detailsLoaded ? details : null, selectedPackage), [details, detailsLoaded, selectedPackage]);
+  const targetsByAtmId = useMemo(() => targetMap(detailsLoaded ? details : null), [details, detailsLoaded]);
   const assignableAtms = useMemo(
-    () => atms.filter((atm) => canSelectAtm(targetsByAtmId.get(atm.atm_id))),
-    [atms, targetsByAtmId],
+    () => (detailsLoaded ? atms.filter((atm) => canSelectAtm(targetsByAtmId.get(atm.atm_id))) : []),
+    [atms, detailsLoaded, targetsByAtmId],
   );
   const activeTargets = useMemo(
-    () => details?.targets?.some((target) => ["pending", "downloading", "applying"].includes(target.status)) || false,
-    [details],
+    () => (detailsLoaded ? details?.targets?.some((target) => ["pending", "downloading", "applying"].includes(target.status)) || false : false),
+    [details, detailsLoaded],
   );
 
-  async function loadPackages(nextSelectedId = selectedPackageId) {
+  async function loadPackages(nextSelectedId = selectedPackageId, { loadSelectedDetails = false } = {}) {
     setLoading(true);
     setError("");
     try {
-      const data = await api.listAgentPackages();
+      const data = await api.listAgentPackages({ limit: 50 });
       setPackages(data);
       const nextId = nextSelectedId || data[0]?.id || null;
       setSelectedPackageId(nextId);
-      if (nextId) {
+      if (nextId && loadSelectedDetails) {
         setDetails(await api.getAgentPackage(nextId));
       } else {
         setDetails(null);
@@ -247,13 +248,13 @@ export default function AgentUpdates({ atms = [] }) {
   }
 
   useEffect(() => {
-    loadPackages();
+    loadPackages(null, { loadSelectedDetails: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!selectedPackageId || !activeTargets) return undefined;
-    const timer = window.setInterval(() => loadDetails(selectedPackageId), 4000);
+    const timer = window.setInterval(() => loadDetails(selectedPackageId), 10000);
     return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPackageId, activeTargets]);
@@ -290,7 +291,7 @@ export default function AgentUpdates({ atms = [] }) {
       const created = await api.uploadAgentPackage(formData);
       setMessage(`تم رفع نسخة Agent ${created.version}.`);
       setUploadForm({ version: "", notes: "", agentFile: null, updaterFile: null });
-      await loadPackages(created.id);
+      await loadPackages(created.id, { loadSelectedDetails: true });
     } catch (err) {
       setError(err.message || "فشل رفع نسخة Agent");
     } finally {
@@ -313,7 +314,7 @@ export default function AgentUpdates({ atms = [] }) {
       const result = await api.assignAgentPackage(selectedPackageId, selectedAtms);
       setMessage(`تم إرسال التحديث إلى ${result.targets.length} صراف.`);
       setSelectedAtms([]);
-      await loadPackages(selectedPackageId);
+      await loadPackages(selectedPackageId, { loadSelectedDetails: true });
     } catch (err) {
       setError(err.message || "فشل تعيين تحديث Agent");
     } finally {
@@ -329,7 +330,7 @@ export default function AgentUpdates({ atms = [] }) {
     try {
       const result = await api.retryFailedAgentPackage(selectedPackageId);
       setMessage(`تمت إعادة محاولة ${result.assigned} صراف.`);
-      await loadPackages(selectedPackageId);
+      await loadPackages(selectedPackageId, { loadSelectedDetails: true });
     } catch (err) {
       setError(err.message || "تعذر إعادة محاولة التحديثات الفاشلة");
     } finally {
@@ -348,7 +349,7 @@ export default function AgentUpdates({ atms = [] }) {
           <p className="mt-1 text-sm text-slate-500">رفع نسخة Agent 32-bit وتوزيعها على الصرافات ومتابعة النتيجة</p>
         </div>
         <button
-          onClick={() => loadPackages()}
+          onClick={() => loadPackages(selectedPackageId, { loadSelectedDetails: detailsLoaded })}
           disabled={loading}
           className="focus-ring inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           title="تحديث"
@@ -546,7 +547,7 @@ export default function AgentUpdates({ atms = [] }) {
                   {atms.map((atm) => {
                     const target = targetsByAtmId.get(atm.atm_id);
                     const status = target?.status || "unassigned";
-                    const selectable = Boolean(selectedPackageId) && canSelectAtm(target);
+                    const selectable = detailsLoaded && Boolean(selectedPackageId) && canSelectAtm(target);
                     const selected = selectedAtms.includes(atm.atm_id);
                     return (
                       <label
@@ -609,7 +610,7 @@ export default function AgentUpdates({ atms = [] }) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 bg-white">
-                      {details?.targets?.map((target) => (
+                      {detailsLoaded && details?.targets?.map((target) => (
                         <tr key={target.id}>
                           <td className="px-4 py-3">
                             <div className="font-medium text-slate-950">{target.atm.name}</div>
@@ -634,7 +635,21 @@ export default function AgentUpdates({ atms = [] }) {
                           </td>
                         </tr>
                       ))}
-                      {(!details?.targets || details.targets.length === 0) && (
+                      {selectedPackage && !detailsLoaded && (
+                        <tr>
+                          <td colSpan="6" className="px-4 py-10 text-center text-slate-500">
+                            <button
+                              type="button"
+                              onClick={() => loadDetails()}
+                              className="focus-ring inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                            >
+                              <RefreshCw size={16} />
+                              <span>تحميل تفاصيل النسخة</span>
+                            </button>
+                          </td>
+                        </tr>
+                      )}
+                      {detailsLoaded && (!details?.targets || details.targets.length === 0) && (
                         <tr>
                           <td colSpan="6" className="px-4 py-10 text-center text-slate-500">
                             لا توجد صرافات مستهدفة لهذه النسخة بعد

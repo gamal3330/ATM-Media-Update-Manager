@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
@@ -34,20 +34,27 @@ def reset_agent_target_for_retry(target: AgentUpdateTarget) -> None:
 
 @router.get("", response_model=list[AgentPackageSummary])
 def list_agent_packages(
+    limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_page("agent-updates")),
 ) -> list[AgentPackageSummary]:
     if mark_stale_agent_update_targets(db):
         db.commit()
-    packages = db.query(AgentPackage).order_by(AgentPackage.created_at.desc()).all()
-    summaries: list[AgentPackageSummary] = []
-    for package in packages:
-        counts = dict(
-            db.query(AgentUpdateTarget.status, func.count(AgentUpdateTarget.id))
-            .filter(AgentUpdateTarget.agent_package_id == package.id)
-            .group_by(AgentUpdateTarget.status)
+    packages = db.query(AgentPackage).order_by(AgentPackage.created_at.desc()).limit(limit).all()
+    package_ids = [package.id for package in packages]
+    counts_by_package: dict[int, dict[str, int]] = {package_id: {} for package_id in package_ids}
+    if package_ids:
+        count_rows = (
+            db.query(AgentUpdateTarget.agent_package_id, AgentUpdateTarget.status, func.count(AgentUpdateTarget.id))
+            .filter(AgentUpdateTarget.agent_package_id.in_(package_ids))
+            .group_by(AgentUpdateTarget.agent_package_id, AgentUpdateTarget.status)
             .all()
         )
+        for package_id, target_status, count in count_rows:
+            counts_by_package.setdefault(package_id, {})[target_status] = count
+    summaries: list[AgentPackageSummary] = []
+    for package in packages:
+        counts = counts_by_package.get(package.id, {})
         summaries.append(
             AgentPackageSummary(
                 id=package.id,
