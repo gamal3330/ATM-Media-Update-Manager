@@ -273,6 +273,7 @@ def migrate_existing_schema() -> None:
                 "whatsapp_default_recipient": "VARCHAR(40)",
                 "whatsapp_default_recipients_json": "JSON NOT NULL DEFAULT '[]'",
                 "notify_switch_disconnected": default_true,
+                "notify_journal_out_of_service": default_true,
                 "notify_whatsapp_disconnected": default_true,
                 "last_whatsapp_gateway_status": "VARCHAR(40)",
                 "last_whatsapp_gateway_error": "TEXT",

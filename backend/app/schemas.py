@@ -904,6 +904,7 @@ class NotificationSettingsUpdate(BaseModel):
     notify_cash_low: bool = True
     notify_cash_empty: bool = True
     notify_switch_disconnected: bool = True
+    notify_journal_out_of_service: bool = True
     notify_whatsapp_disconnected: bool = True
 
     @field_validator("recipient_email", "sender_email")
@@ -964,6 +965,7 @@ class NotificationSettingsRead(BaseModel):
     notify_cash_low: bool
     notify_cash_empty: bool
     notify_switch_disconnected: bool
+    notify_journal_out_of_service: bool
     notify_whatsapp_disconnected: bool
     last_whatsapp_gateway_status: str | None = None
     last_whatsapp_gateway_error: str | None = None

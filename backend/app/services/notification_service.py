@@ -12,7 +12,7 @@ from html import escape
 
 from sqlalchemy.orm import Session
 
-from ..models import ATM, AtmCashAlert, NotificationDelivery, NotificationRecipient, NotificationSettings
+from ..models import ATM, AtmCashAlert, AtmJournalEvent, NotificationDelivery, NotificationRecipient, NotificationSettings
 
 logger = logging.getLogger(__name__)
 
@@ -287,6 +287,23 @@ def build_switch_probe_failed_whatsapp(
             ("وقت الفشل", email_datetime(failed_at)),
         ],
         note=error_message,
+    )
+    return subject, body
+
+
+def build_journal_out_of_service_whatsapp(atm: ATM, event: AtmJournalEvent) -> tuple[str, str]:
+    title = "خروج الصراف عن الخدمة"
+    subject = f"{BRAND_NAME} - {title} - {atm.name} ({atm.atm_id})"
+    body = whatsapp_template(
+        title=title,
+        subtitle=f"{atm.name} - {atm.atm_id}",
+        rows=[
+            ("الصراف", f"{atm.name} ({atm.atm_id})"),
+            ("الفرع", atm.branch or "-"),
+            ("الوقت", email_datetime(event.occurred_at)),
+            ("المصدر", event.source or "journal"),
+        ],
+        note=event.message or "تم تسجيل خروج الصراف عن الخدمة من الجورنال.",
     )
     return subject, body
 
@@ -895,6 +912,31 @@ def notify_switch_probe_failed(
                     atm=atm,
                 )
             )
+
+    return deliveries[0] if deliveries else None
+
+
+def notify_journal_out_of_service(db: Session, atm: ATM, event: AtmJournalEvent) -> NotificationDelivery | None:
+    settings = get_notification_settings(db)
+    if not settings.is_whatsapp_configured:
+        return None
+    if not settings.notify_journal_out_of_service:
+        return None
+
+    subject, body = build_journal_out_of_service_whatsapp(atm, event)
+    deliveries = []
+    for whatsapp_recipient in whatsapp_recipients_for_atm(db, settings, atm):
+        deliveries.append(
+            create_whatsapp_delivery(
+                db,
+                settings,
+                event_type="JOURNAL_OUT_OF_SERVICE",
+                subject=subject,
+                body=body,
+                recipient=whatsapp_recipient,
+                atm=atm,
+            )
+        )
 
     return deliveries[0] if deliveries else None
 
