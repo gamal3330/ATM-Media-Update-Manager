@@ -64,21 +64,23 @@ export default function Layout({ activePage, setActivePage, onLogout, allowedPag
       >
         <div
           className={`flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-4 sm:px-5 lg:py-5 ${
-            sidebarCollapsed ? "lg:px-3" : ""
+            sidebarCollapsed ? "lg:justify-center lg:px-3" : ""
           }`}
         >
-          <div className="flex min-w-0 items-center gap-3">
+          <div className={`flex min-w-0 items-center gap-3 ${sidebarCollapsed ? "lg:hidden" : ""}`}>
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-teal-600 text-white">
               <Activity size={22} />
             </div>
-            <div className={`min-w-0 ${sidebarCollapsed ? "lg:hidden" : ""}`}>
+            <div className="min-w-0">
               <div className="truncate text-base font-semibold text-slate-950">QIB ATM</div>
               <div className="truncate text-xs text-slate-500">Manager</div>
             </div>
           </div>
           <button
             onClick={toggleSidebar}
-            className="focus-ring hidden h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 lg:inline-flex"
+            className={`focus-ring hidden h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 lg:inline-flex ${
+              sidebarCollapsed ? "bg-slate-50" : "bg-white"
+            }`}
             title={sidebarCollapsed ? "توسيع الشاشات" : "طي الشاشات"}
           >
             {sidebarCollapsed ? <ChevronsLeft size={18} /> : <ChevronsRight size={18} />}
