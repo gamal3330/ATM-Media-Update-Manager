@@ -35,7 +35,8 @@ const roles = [
 ];
 
 const pageGroups = [
-  { title: "العمليات", ids: ["dashboard", "atms", "atms-manage", "cash", "notifications"] },
+  { title: "الصرافات", ids: ["atms", "atms-manage"] },
+  { title: "العمليات", ids: ["dashboard", "cash", "notifications"] },
   { title: "التحديثات", ids: ["upload", "packages", "agent-updates", "agent-downloads"] },
   { title: "الإدارة", ids: ["logs", "journal", "settings", "users"] },
 ];
@@ -131,7 +132,7 @@ function PageSelector({ role, value, pages, onChange }) {
           </button>
         </div>
       )}
-      <div className="grid gap-3 lg:grid-cols-3">
+      <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-4">
         {pageGroups.map((group) => {
           const groupPages = group.ids.map((id) => pageById.get(id)).filter(Boolean);
           if (!groupPages.length) return null;

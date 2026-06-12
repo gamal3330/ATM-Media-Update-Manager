@@ -370,8 +370,8 @@ def test_admin_can_manage_users_and_page_visibility() -> None:
         assert pages.status_code == 200
         page_map = {page["id"]: page["label"] for page in pages.json()}
         assert page_map["dashboard"] == "لوحة المراقبة"
-        assert page_map["atms"] == "الصرافات"
-        assert page_map["atms-manage"] == "إدارة إعدادات الصرافات"
+        assert page_map["atms"] == "عرض الصرافات"
+        assert page_map["atms-manage"] == "إضافة/تعديل/حذف إعدادات الصرافات"
         assert page_map["cash"] == "مراقبة النقد"
         assert page_map["notifications"] == "مركز التنبيهات"
         assert page_map["agent-updates"] == "تحديثات Agent"
