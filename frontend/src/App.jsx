@@ -115,6 +115,24 @@ export default function App() {
   }, []);
 
   const refreshLogs = useCallback(async (filters = {}, options = {}) => {
+    if (filters.__clear) {
+      setLogs([]);
+      setAuditLogs([]);
+      setLogsPage(1);
+      setLogsHasMore(false);
+      setLogsLoaded(false);
+      setGlobalError("");
+      return;
+    }
+    if (!filters.atmId || !filters.fromAt || !filters.toAt) {
+      setLogs([]);
+      setAuditLogs([]);
+      setLogsPage(1);
+      setLogsHasMore(false);
+      setLogsLoaded(false);
+      setGlobalError("اختر الصراف وحدد الوقت من وإلى قبل تحميل السجلات.");
+      return;
+    }
     setLogsLoading(true);
     setGlobalError("");
     try {
@@ -254,12 +272,6 @@ export default function App() {
       setActivePage(visiblePage);
     }
   }, [activePage, user, visiblePage]);
-
-  useEffect(() => {
-    if (user && visiblePage === "logs" && !logsLoaded) {
-      refreshLogs({ source: "agent", pageSize: LOG_PAGE_SIZE });
-    }
-  }, [logsLoaded, refreshLogs, user, visiblePage]);
 
   useEffect(() => {
     if (user && visiblePage === "packages" && !packagesLoaded && !packagesLoading) {

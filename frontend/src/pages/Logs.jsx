@@ -533,6 +533,7 @@ export default function Logs({ logs, auditLogs, atms, loading = false, hasMore =
   const [fromAt, setFromAt] = useState("");
   const [toAt, setToAt] = useState("");
   const [visibleCount, setVisibleCount] = useState(INITIAL_RENDER_LIMIT);
+  const [searchAttempted, setSearchAttempted] = useState(false);
 
   const records = useMemo(() => {
     const agentRecords = (Array.isArray(logs) ? logs : []).map(buildAgentRecord);
@@ -571,6 +572,14 @@ export default function Logs({ logs, auditLogs, atms, loading = false, hasMore =
 
   const visibleRecords = filteredRecords.slice(0, visibleCount);
   const hasMoreRecords = filteredRecords.length > visibleRecords.length;
+  const requiredFiltersReady = Boolean(atmFilter && fromAt && toAt);
+  const dateRangeInvalid = Boolean(fromAt && toAt && new Date(fromAt).getTime() > new Date(toAt).getTime());
+  const canFetchLogs = requiredFiltersReady && !dateRangeInvalid;
+
+  useEffect(() => {
+    onRefresh({ __clear: true });
+    setSearchAttempted(false);
+  }, []);
 
   function currentServerFilters() {
     return {
@@ -584,7 +593,14 @@ export default function Logs({ logs, auditLogs, atms, loading = false, hasMore =
   }
 
   function applyServerFilters() {
+    if (!canFetchLogs) return;
+    setSearchAttempted(true);
     onRefresh(currentServerFilters());
+  }
+
+  function resetLoadedRecords() {
+    setSearchAttempted(false);
+    onRefresh({ __clear: true });
   }
 
   function clearServerFilters() {
@@ -593,7 +609,8 @@ export default function Logs({ logs, auditLogs, atms, loading = false, hasMore =
     setAtmFilter("");
     setFromAt("");
     setToAt("");
-    onRefresh({ source: "agent", pageSize: LOG_FETCH_LIMIT });
+    setSearchAttempted(false);
+    onRefresh({ __clear: true });
   }
 
   return (
@@ -603,9 +620,9 @@ export default function Logs({ logs, auditLogs, atms, loading = false, hasMore =
           <h1 className="text-2xl font-semibold text-slate-950 sm:text-3xl">السجلات</h1>
         </div>
         <button
-          onClick={() => onRefresh(currentServerFilters())}
-          disabled={loading}
-          className="focus-ring inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-50"
+          onClick={applyServerFilters}
+          disabled={loading || !canFetchLogs}
+          className="focus-ring inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
           title="تحديث السجلات"
         >
           <RefreshCw size={17} className={loading ? "animate-spin" : ""} />
@@ -640,6 +657,7 @@ export default function Logs({ logs, auditLogs, atms, loading = false, hasMore =
                 onClick={() => {
                   setSourceFilter(value);
                   if (value === "audit") setLevelFilter("all");
+                  resetLoadedRecords();
                 }}
                 className={`px-4 text-sm font-medium ${
                   sourceFilter === value ? "bg-teal-700 text-white" : "text-slate-600 hover:bg-slate-50"
@@ -654,7 +672,10 @@ export default function Logs({ logs, auditLogs, atms, loading = false, hasMore =
             <Filter className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
             <select
               value={levelFilter}
-              onChange={(event) => setLevelFilter(event.target.value)}
+              onChange={(event) => {
+                setLevelFilter(event.target.value);
+                resetLoadedRecords();
+              }}
               disabled={sourceFilter === "audit"}
               className="focus-ring min-h-11 min-w-44 rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
             >
@@ -672,11 +693,14 @@ export default function Logs({ logs, auditLogs, atms, loading = false, hasMore =
             <TerminalSquare className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
             <select
               value={atmFilter}
-              onChange={(event) => setAtmFilter(event.target.value)}
+              onChange={(event) => {
+                setAtmFilter(event.target.value);
+                resetLoadedRecords();
+              }}
               className="focus-ring min-h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
               title="ATM"
             >
-              <option value="">كل الصرافات</option>
+              <option value="">اختر الصراف</option>
               {(Array.isArray(atms) ? atms : []).map((atm) => (
                 <option key={atm.atm_id} value={atm.atm_id}>
                   {atm.name ? `${atm.name} - ATM ${atm.atm_id}` : `ATM ${atm.atm_id}`}
@@ -690,7 +714,10 @@ export default function Logs({ logs, auditLogs, atms, loading = false, hasMore =
             <input
               type="datetime-local"
               value={fromAt}
-              onChange={(event) => setFromAt(event.target.value)}
+              onChange={(event) => {
+                setFromAt(event.target.value);
+                resetLoadedRecords();
+              }}
               className="focus-ring min-h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
               title="From"
             />
@@ -701,7 +728,10 @@ export default function Logs({ logs, auditLogs, atms, loading = false, hasMore =
             <input
               type="datetime-local"
               value={toAt}
-              onChange={(event) => setToAt(event.target.value)}
+              onChange={(event) => {
+                setToAt(event.target.value);
+                resetLoadedRecords();
+              }}
               className="focus-ring min-h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
               title="To"
             />
@@ -710,8 +740,8 @@ export default function Logs({ logs, auditLogs, atms, loading = false, hasMore =
           <button
             type="button"
             onClick={applyServerFilters}
-            disabled={loading}
-            className="focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800"
+            disabled={loading || !canFetchLogs}
+            className="focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Search size={17} className={loading ? "animate-pulse" : ""} />
             <span>بحث</span>
@@ -730,6 +760,14 @@ export default function Logs({ logs, auditLogs, atms, loading = false, hasMore =
 
       </div>
 
+      {!canFetchLogs && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          {dateRangeInvalid
+            ? "وقت البداية يجب أن يكون قبل وقت النهاية."
+            : "اختر الصراف وحدد الوقت من وإلى قبل تحميل السجلات."}
+        </div>
+      )}
+
       {loading && (
         <div className="mb-3 flex items-center gap-2 rounded-lg border border-teal-100 bg-teal-50 px-3 py-2 text-sm text-teal-800">
           <RefreshCw size={16} className="animate-spin" />
@@ -737,7 +775,15 @@ export default function Logs({ logs, auditLogs, atms, loading = false, hasMore =
         </div>
       )}
 
-      <LogTimeline records={visibleRecords} />
+      {!searchAttempted && records.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-12 text-center">
+          <ClipboardList className="mx-auto text-slate-400" size={28} />
+          <div className="mt-3 font-semibold text-slate-900">اختر الصراف وحدد الفترة</div>
+          <div className="mt-1 text-sm text-slate-500">لن يتم تحميل السجلات قبل تحديد الصراف ووقت البداية والنهاية.</div>
+        </div>
+      ) : (
+        <LogTimeline records={visibleRecords} />
+      )}
 
       {hasMoreRecords && (
         <div className="mt-4 flex justify-center">
@@ -756,7 +802,7 @@ export default function Logs({ logs, auditLogs, atms, loading = false, hasMore =
           <button
             type="button"
             onClick={() => onLoadMore?.(currentServerFilters())}
-            disabled={loading}
+            disabled={loading || !canFetchLogs}
             className="focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
