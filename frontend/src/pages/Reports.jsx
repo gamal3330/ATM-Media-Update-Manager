@@ -210,11 +210,13 @@ function printPdf(title, sections) {
 }
 
 export default function Reports({ atms = [] }) {
+  const [reportMode, setReportMode] = useState("summary");
   const [branchFilter, setBranchFilter] = useState("all");
   const [atmFilter, setAtmFilter] = useState("");
   const [query, setQuery] = useState("");
   const [fromAt, setFromAt] = useState("");
   const [toAt, setToAt] = useState("");
+  const [withdrawalSummary, setWithdrawalSummary] = useState(null);
   const [withdrawals, setWithdrawals] = useState([]);
   const [withdrawalsLoaded, setWithdrawalsLoaded] = useState(false);
   const [withdrawalsLoading, setWithdrawalsLoading] = useState(false);
@@ -248,6 +250,16 @@ export default function Reports({ atms = [] }) {
   }, [atmFilter, branchFilter, filteredAtms, query, withdrawals]);
 
   const withdrawalStats = useMemo(() => {
+    if (withdrawalSummary) {
+      return {
+        total: withdrawalSummary.total || 0,
+        completed: withdrawalSummary.completed || 0,
+        incomplete: withdrawalSummary.incomplete || 0,
+        timeoutWarnings: 0,
+        amountByCurrency: withdrawalSummary.amount_by_currency || {},
+      };
+    }
+
     const completed = filteredWithdrawals.filter(isWithdrawalCompleted);
     const amountByCurrency = {};
     completed.forEach((event) => {
@@ -261,26 +273,49 @@ export default function Reports({ atms = [] }) {
       timeoutWarnings: filteredWithdrawals.filter((event) => event.details_json?.take_cash_timeout).length,
       amountByCurrency,
     };
-  }, [filteredWithdrawals]);
+  }, [filteredWithdrawals, withdrawalSummary]);
 
   const canLoadWithdrawals = Boolean(fromAt && toAt && new Date(fromAt).getTime() <= new Date(toAt).getTime());
+
+  function resetReportData() {
+    setWithdrawalSummary(null);
+    setWithdrawals([]);
+    setWithdrawalsLoaded(false);
+    setWithdrawalsError("");
+  }
 
   async function loadWithdrawals() {
     if (!canLoadWithdrawals) return;
     setWithdrawalsLoading(true);
     setWithdrawalsError("");
     try {
-      const data = await api.listJournalLogs({
+      const params = {
         atmId: atmFilter,
+        branch: branchFilter !== "all" ? branchFilter : "",
+        search: query.trim(),
         eventType: "TRANSACTION_END",
         transactionType: "WID",
         fromAt,
         toAt,
-        page: 1,
-        pageSize: WITHDRAWAL_LIMIT,
-        limit: WITHDRAWAL_LIMIT,
-      });
-      setWithdrawals(Array.isArray(data) ? data : []);
+      };
+      const summaryRequest = api.getJournalWithdrawalSummary(params);
+      if (reportMode === "summary") {
+        const summary = await summaryRequest;
+        setWithdrawalSummary(summary);
+        setWithdrawals([]);
+      } else {
+        const [summary, data] = await Promise.all([
+          summaryRequest,
+          api.listJournalLogs({
+            ...params,
+            page: 1,
+            pageSize: WITHDRAWAL_LIMIT,
+            limit: WITHDRAWAL_LIMIT,
+          }),
+        ]);
+        setWithdrawalSummary(summary);
+        setWithdrawals(Array.isArray(data) ? data : []);
+      }
       setWithdrawalsLoaded(true);
     } catch (err) {
       setWithdrawalsError(err.message || "تعذر تحميل عمليات السحب");
@@ -311,12 +346,30 @@ export default function Reports({ atms = [] }) {
     ];
   }
 
+  function withdrawalSummaryExportRows() {
+    return [
+      ["البند", "القيمة"],
+      { cells: ["إجمالي العمليات", withdrawalStats.total] },
+      { className: "row-completed", cells: ["العمليات الناجحة", withdrawalStats.completed] },
+      { className: "row-incomplete", cells: ["العمليات غير الناجحة", withdrawalStats.incomplete] },
+      { cells: ["إجمالي السحب", withdrawalTotalText || "-"] },
+    ];
+  }
+
+  function currentExportRows() {
+    return reportMode === "summary" ? withdrawalSummaryExportRows() : withdrawalExportRows();
+  }
+
+  function currentReportTitle() {
+    return reportMode === "summary" ? "تقرير عمليات السحب - إجمالي" : "تقرير عمليات السحب - تفصيلي";
+  }
+
   function exportWithdrawalsExcel() {
-    downloadExcel("withdrawal-report.xls", "تقرير عمليات السحب", withdrawalExportRows());
+    downloadExcel(reportMode === "summary" ? "withdrawal-summary-report.xls" : "withdrawal-detail-report.xls", currentReportTitle(), currentExportRows());
   }
 
   function exportWithdrawalsPdf() {
-    printPdf("تقرير عمليات السحب", [{ title: "تقرير عمليات السحب", rows: withdrawalExportRows() }]);
+    printPdf(currentReportTitle(), [{ title: currentReportTitle(), rows: currentExportRows() }]);
   }
 
   const withdrawalTotalText = Object.entries(withdrawalStats.amountByCurrency)
@@ -333,10 +386,35 @@ export default function Reports({ atms = [] }) {
       </div>
 
       <div className="mb-5 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-        <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-[minmax(180px,0.9fr)_minmax(200px,1fr)_minmax(240px,1.3fr)_minmax(180px,1fr)_minmax(180px,1fr)_minmax(120px,auto)]">
+        <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-[minmax(160px,0.85fr)_minmax(180px,0.9fr)_minmax(200px,1fr)_minmax(240px,1.25fr)_minmax(170px,1fr)_minmax(170px,1fr)_minmax(120px,auto)]">
+          <div className="flex h-11 overflow-hidden rounded-lg border border-slate-300 bg-slate-50 p-1 text-sm font-semibold">
+            {[
+              ["summary", "إجمالي"],
+              ["detail", "تفصيلي"],
+            ].map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => {
+                  if (reportMode === mode) return;
+                  setReportMode(mode);
+                  resetReportData();
+                }}
+                className={`focus-ring flex-1 rounded-md px-3 transition ${
+                  reportMode === mode ? "bg-teal-700 text-white shadow-sm" : "text-slate-600 hover:bg-white"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           <select
             value={branchFilter}
-            onChange={(event) => setBranchFilter(event.target.value)}
+            onChange={(event) => {
+              setBranchFilter(event.target.value);
+              resetReportData();
+            }}
             className="focus-ring h-11 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
           >
             <option value="all">كل الفروع</option>
@@ -351,7 +429,10 @@ export default function Reports({ atms = [] }) {
             <TerminalSquare className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
             <select
               value={atmFilter}
-              onChange={(event) => setAtmFilter(event.target.value)}
+              onChange={(event) => {
+                setAtmFilter(event.target.value);
+                resetReportData();
+              }}
               className="focus-ring h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
             >
               <option value="">كل الصرافات</option>
@@ -367,7 +448,10 @@ export default function Reports({ atms = [] }) {
             <Search className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                resetReportData();
+              }}
               className="focus-ring h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
               placeholder="بحث بالصراف، الفرع، IP، RRN أو البطاقة"
             />
@@ -380,8 +464,7 @@ export default function Reports({ atms = [] }) {
               value={fromAt}
               onChange={(event) => {
                 setFromAt(event.target.value);
-                setWithdrawalsLoaded(false);
-                setWithdrawals([]);
+                resetReportData();
               }}
               className="focus-ring h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
               title="من"
@@ -395,8 +478,7 @@ export default function Reports({ atms = [] }) {
               value={toAt}
               onChange={(event) => {
                 setToAt(event.target.value);
-                setWithdrawalsLoaded(false);
-                setWithdrawals([]);
+                resetReportData();
               }}
               className="focus-ring h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
               title="إلى"
@@ -424,9 +506,15 @@ export default function Reports({ atms = [] }) {
         <SectionHeader
           icon={CreditCard}
           title="تقرير عمليات السحب"
-          meta={withdrawalsLoaded ? `${filteredWithdrawals.length} عملية` : "حدد الفترة ثم اضغط عرض السحب"}
+          meta={
+            withdrawalsLoaded
+              ? reportMode === "summary"
+                ? `${withdrawalStats.total} عملية · إجمالي`
+                : `${filteredWithdrawals.length} من ${withdrawalStats.total} عملية · تفصيلي`
+              : "حدد الفترة ثم اضغط عرض السحب"
+          }
           action={
-            withdrawalsLoaded && filteredWithdrawals.length > 0 ? (
+            withdrawalsLoaded && withdrawalStats.total > 0 ? (
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -450,14 +538,14 @@ export default function Reports({ atms = [] }) {
         />
         {withdrawalsError && <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{withdrawalsError}</div>}
         <div className="mb-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="العمليات" value={withdrawalStats.total} icon={ClipboardList} />
-          <StatCard label="مكتملة" value={withdrawalStats.completed} icon={CheckCircle2} tone="emerald" />
-          <StatCard label="غير مكتملة" value={withdrawalStats.incomplete} icon={AlertTriangle} tone={withdrawalStats.incomplete ? "amber" : "emerald"} />
+          <StatCard label="إجمالي العمليات" value={withdrawalStats.total} icon={ClipboardList} />
+          <StatCard label="ناجحة" value={withdrawalStats.completed} icon={CheckCircle2} tone="emerald" />
+          <StatCard label="غير ناجحة" value={withdrawalStats.incomplete} icon={AlertTriangle} tone={withdrawalStats.incomplete ? "amber" : "emerald"} />
           <StatCard label="إجمالي السحب" value={withdrawalTotalText || "-"} icon={BarChart3} tone="sky" />
         </div>
         {!withdrawalsLoaded ? (
           <EmptyPanel>لن يتم تحميل عمليات السحب قبل تحديد الفترة والضغط على عرض السحب.</EmptyPanel>
-        ) : (
+        ) : reportMode === "detail" ? (
           <TableShell>
             <div className="max-h-[520px] overflow-auto">
               <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -503,13 +591,13 @@ export default function Reports({ atms = [] }) {
                 </tbody>
               </table>
             </div>
-            {withdrawals.length >= WITHDRAWAL_LIMIT && (
+            {withdrawalStats.total > filteredWithdrawals.length && (
               <div className="border-t border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                تم عرض أول {WITHDRAWAL_LIMIT} عملية فقط. ضيّق الفترة أو اختر صرافاً محدداً لنتيجة أدق.
+                تم عرض أول {filteredWithdrawals.length} من أصل {withdrawalStats.total} عملية فقط. ضيّق الفترة أو اختر صرافاً محدداً لنتيجة أدق.
               </div>
             )}
           </TableShell>
-        )}
+        ) : null}
       </div>
     </section>
   );

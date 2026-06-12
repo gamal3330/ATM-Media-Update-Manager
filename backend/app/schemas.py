@@ -832,6 +832,13 @@ class JournalEventRead(BaseModel):
     atm: ATMRead | None = None
 
 
+class JournalWithdrawalSummaryRead(BaseModel):
+    total: int = 0
+    completed: int = 0
+    incomplete: int = 0
+    amount_by_currency: dict[str, int] = Field(default_factory=dict)
+
+
 class ATMDiagnostics(BaseModel):
     atm_id: str
     is_online: bool

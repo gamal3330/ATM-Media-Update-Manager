@@ -309,6 +309,8 @@ function buildLogQuery(params = {}, fallbackLimit = 200) {
   query.set("page", String(params.page || 1));
   query.set("page_size", String(pageSize));
   if (params.atmId) query.set("atm_id", params.atmId);
+  if (params.branch) query.set("branch", params.branch);
+  if (params.search) query.set("search", params.search);
   if (params.eventType) query.set("event_type", params.eventType);
   if (params.transactionType) query.set("transaction_type", params.transactionType);
   if (params.level) query.set("level", params.level);
@@ -381,4 +383,6 @@ export const api = {
   listLogs: (params = {}) => request(`/api/logs?${buildLogQuery(params, 100)}`),
   listAuditLogs: (params = {}) => request(`/api/logs/audit?${buildLogQuery(params, 100)}`),
   listJournalLogs: (params = {}) => request(`/api/logs/journal?${buildLogQuery(params, 100)}`),
+  getJournalWithdrawalSummary: (params = {}) =>
+    request(`/api/logs/journal/withdrawals/summary?${buildLogQuery(params, 100)}`),
 };
