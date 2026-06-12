@@ -214,6 +214,7 @@ function printPdf(title, sections, metaLines = []) {
 
 export default function Reports({ atms = [] }) {
   const [reportMode, setReportMode] = useState("summary");
+  const [completionFilter, setCompletionFilter] = useState("all");
   const [branchFilter, setBranchFilter] = useState("all");
   const [atmFilter, setAtmFilter] = useState("");
   const [query, setQuery] = useState("");
@@ -296,6 +297,7 @@ export default function Reports({ atms = [] }) {
         atmId: atmFilter,
         branch: branchFilter !== "all" ? branchFilter : "",
         search: query.trim(),
+        completionStatus: completionFilter !== "all" ? completionFilter : "",
         eventType: "TRANSACTION_END",
         transactionType: "WID",
         fromAt,
@@ -367,6 +369,12 @@ export default function Reports({ atms = [] }) {
     return reportMode === "summary" ? "تقرير عمليات السحب - إجمالي" : "تقرير عمليات السحب - تفصيلي";
   }
 
+  function completionFilterLabel() {
+    if (completionFilter === "completed") return "مكتملة";
+    if (completionFilter === "incomplete") return "غير مكتملة";
+    return "كل العمليات";
+  }
+
   function reportPeriodText() {
     return `فترة التقرير: من ${formatLocalWallDate(fromAt)} إلى ${formatLocalWallDate(toAt)}`;
   }
@@ -378,6 +386,7 @@ export default function Reports({ atms = [] }) {
   function exportWithdrawalsPdf() {
     printPdf(currentReportTitle(), [{ title: currentReportTitle(), rows: currentExportRows() }], [
       reportPeriodText(),
+      `حالة العمليات: ${completionFilterLabel()}`,
       `تاريخ الطباعة: ${formatApiDate(new Date())}`,
     ]);
   }
@@ -397,7 +406,7 @@ export default function Reports({ atms = [] }) {
       </div>
 
       <div className="mb-5 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-        <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-[minmax(160px,0.85fr)_minmax(180px,0.9fr)_minmax(200px,1fr)_minmax(240px,1.25fr)_minmax(170px,1fr)_minmax(170px,1fr)_minmax(120px,auto)]">
+        <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-[minmax(150px,0.8fr)_minmax(160px,0.85fr)_minmax(170px,0.85fr)_minmax(190px,0.95fr)_minmax(230px,1.2fr)_minmax(160px,0.9fr)_minmax(160px,0.9fr)_minmax(115px,auto)]">
           <div className="flex h-11 overflow-hidden rounded-lg border border-slate-300 bg-slate-50 p-1 text-sm font-semibold">
             {[
               ["summary", "إجمالي"],
@@ -419,6 +428,19 @@ export default function Reports({ atms = [] }) {
               </button>
             ))}
           </div>
+
+          <select
+            value={completionFilter}
+            onChange={(event) => {
+              setCompletionFilter(event.target.value);
+              resetReportData();
+            }}
+            className="focus-ring h-11 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+          >
+            <option value="all">كل العمليات</option>
+            <option value="completed">مكتملة</option>
+            <option value="incomplete">غير مكتملة</option>
+          </select>
 
           <select
             value={branchFilter}

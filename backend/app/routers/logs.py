@@ -31,11 +31,14 @@ def apply_journal_filters(
     atm_pk: int | None = None,
     branch: str | None = None,
     search: str | None = None,
+    completion_status: str | None = None,
     event_type: str | None = None,
     transaction_type: str | None = None,
     from_at: datetime | None = None,
     to_at: datetime | None = None,
 ):
+    completed_value = AtmJournalEvent.details_json["completed"].as_boolean()
+    completed_expr = completed_value == True  # noqa: E712
     if branch or search:
         query = query.join(ATM)
     if atm_pk is not None:
@@ -50,6 +53,10 @@ def apply_journal_filters(
         query = query.filter(AtmJournalEvent.occurred_at >= from_at)
     if to_at:
         query = query.filter(AtmJournalEvent.occurred_at <= to_at)
+    if completion_status == "completed":
+        query = query.filter(completed_expr)
+    elif completion_status == "incomplete":
+        query = query.filter(or_(completed_value == False, completed_value.is_(None)))  # noqa: E712
     if search:
         pattern = f"%{search.strip()}%"
         query = query.filter(
@@ -128,6 +135,7 @@ def list_journal_events(
     atm_id: str | None = None,
     branch: str | None = None,
     search: str | None = None,
+    completion_status: str | None = None,
     event_type: str | None = None,
     transaction_type: str | None = None,
     from_at: datetime | None = None,
@@ -149,6 +157,7 @@ def list_journal_events(
         atm_pk=atm_pk,
         branch=branch,
         search=search,
+        completion_status=completion_status,
         event_type=event_type,
         transaction_type=transaction_type,
         from_at=from_at,
@@ -167,6 +176,7 @@ def summarize_withdrawal_journal_events(
     atm_id: str | None = None,
     branch: str | None = None,
     search: str | None = None,
+    completion_status: str | None = None,
     from_at: datetime | None = None,
     to_at: datetime | None = None,
     db: Session = Depends(get_db),
@@ -184,6 +194,7 @@ def summarize_withdrawal_journal_events(
         atm_pk=atm_pk,
         branch=branch,
         search=search,
+        completion_status=completion_status,
         event_type="TRANSACTION_END",
         transaction_type="WID",
         from_at=from_at,

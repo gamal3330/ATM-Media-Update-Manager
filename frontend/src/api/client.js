@@ -311,6 +311,7 @@ function buildLogQuery(params = {}, fallbackLimit = 200) {
   if (params.atmId) query.set("atm_id", params.atmId);
   if (params.branch) query.set("branch", params.branch);
   if (params.search) query.set("search", params.search);
+  if (params.completionStatus) query.set("completion_status", params.completionStatus);
   if (params.eventType) query.set("event_type", params.eventType);
   if (params.transactionType) query.set("transaction_type", params.transactionType);
   if (params.level) query.set("level", params.level);
