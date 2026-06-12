@@ -11,6 +11,7 @@ import Login from "./pages/Login";
 import Logs from "./pages/Logs";
 import NotificationCenter from "./pages/NotificationCenter";
 import Packages from "./pages/Packages";
+import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import UploadPackage from "./pages/UploadPackage";
 import UserManagement from "./pages/UserManagement";
@@ -325,6 +326,7 @@ export default function App() {
   if (visiblePage === "packages") page = <Packages packages={packages} atms={atms} onChanged={refreshPackages} />;
   if (visiblePage === "agent-updates") page = <AgentUpdates atms={atms} />;
   if (visiblePage === "cash") page = <CashMonitoring atms={atms} />;
+  if (visiblePage === "reports") page = <Reports atms={atms} cashSummary={cashSummary} />;
   if (visiblePage === "notifications") page = <NotificationCenter />;
   if (visiblePage === "agent-downloads") page = <AgentDownloads />;
   if (visiblePage === "logs") {

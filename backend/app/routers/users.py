@@ -18,6 +18,7 @@ PAGE_LABELS = {
     "packages": "تحديثات الوسائط",
     "agent-updates": "تحديثات Agent",
     "cash": "مراقبة النقد",
+    "reports": "التقارير",
     "notifications": "مركز التنبيهات",
     "agent-downloads": "Agent Downloads",
     "logs": "السجلات",

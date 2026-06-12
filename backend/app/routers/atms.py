@@ -101,7 +101,7 @@ def record_agent_config_snapshot(db: Session, atm: ATM, updated_by: str | None) 
 @router.get("", response_model=list[ATMRead])
 def list_atms(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_any_page("dashboard", "atms", "cash")),
+    current_user: User = Depends(require_any_page("dashboard", "atms", "cash", "reports")),
 ) -> list[ATM]:
     return db.query(ATM).order_by(ATM.branch, ATM.atm_id).all()
 

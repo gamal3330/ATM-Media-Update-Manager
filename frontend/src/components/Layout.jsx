@@ -1,5 +1,6 @@
 import {
   Activity,
+  BarChart3,
   Bell,
   BookOpenText,
   Boxes,
@@ -25,6 +26,7 @@ export const nav = [
   { id: "packages", label: "تحديثات الوسائط", icon: FileArchive },
   { id: "agent-updates", label: "تحديثات Agent", icon: Boxes },
   { id: "cash", label: "مراقبة النقد", icon: Landmark },
+  { id: "reports", label: "التقارير", icon: BarChart3 },
   { id: "notifications", label: "مركز التنبيهات", icon: Bell },
   { id: "agent-downloads", label: "Agent Downloads", icon: Download },
   { id: "logs", label: "السجلات", icon: ScrollText },

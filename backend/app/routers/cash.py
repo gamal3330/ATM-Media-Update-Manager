@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..auth import get_agent_atm, require_page
+from ..auth import get_agent_atm, require_any_page, require_page
 from ..cash_layout import normalized_cash_layout
 from ..database import get_db
 from ..models import ATM, AgentCommand, AgentLog, AtmCashAlert, AtmCashSnapshot, AtmCashThreshold, AtmCashUnit, AtmRejectRetractStatus, User
@@ -881,7 +881,7 @@ def submit_cash_snapshot(
 def cash_summary(
     include_details: bool = True,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_page("cash")),
+    current_user: User = Depends(require_any_page("cash", "reports")),
 ) -> CashSummary:
     open_alerts = db.query(AtmCashAlert).filter(AtmCashAlert.status == "open").all()
     low_atms = {alert.atm_id for alert in open_alerts if alert.alert_type == "CASH_LOW"}
@@ -1074,7 +1074,7 @@ def request_cash_read_now(
 @router.get("/api/cash/reports/overview", response_model=CashReportOverview)
 def cash_report_overview(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_page("cash")),
+    current_user: User = Depends(require_any_page("cash", "reports")),
 ) -> CashReportOverview:
     now = utcnow()
     report_rows: list[CashAtmReportRead] = []

@@ -75,7 +75,7 @@ def migrate_existing_schema() -> None:
                     connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {definition}"))
 
             all_pages_json = (
-                '["dashboard","atms","upload","packages","agent-updates","cash","notifications","agent-downloads","logs","journal","settings","users"]'
+                '["dashboard","atms","upload","packages","agent-updates","cash","reports","notifications","agent-downloads","logs","journal","settings","users"]'
             )
             default_pages_json = '["dashboard"]'
             if connection.dialect.name == "postgresql":
@@ -88,7 +88,7 @@ def migrate_existing_schema() -> None:
                             AND (
                                 allowed_pages IS NULL
                                 OR allowed_pages::text = '[]'
-                                OR allowed_pages::text NOT LIKE '%"journal"%'
+                                OR allowed_pages::text NOT LIKE '%"reports"%'
                             )
                         """
                     ),
@@ -111,7 +111,7 @@ def migrate_existing_schema() -> None:
                         UPDATE users
                         SET allowed_pages = :all_pages
                         WHERE role IN ('admin', 'system_admin')
-                            AND (allowed_pages IS NULL OR allowed_pages = '[]' OR allowed_pages NOT LIKE '%"journal"%')
+                            AND (allowed_pages IS NULL OR allowed_pages = '[]' OR allowed_pages NOT LIKE '%"reports"%')
                         """
                     ),
                     {"all_pages": all_pages_json},

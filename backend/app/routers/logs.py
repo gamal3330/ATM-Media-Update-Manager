@@ -3,7 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session, joinedload
 
-from ..auth import require_page
+from ..auth import require_any_page, require_page
 from ..database import get_db
 from ..models import ATM, AgentLog, AtmJournalEvent, AuditLog, User
 from ..schemas import AgentLogRead, AuditLogRead, JournalEventRead
@@ -88,7 +88,7 @@ def list_journal_events(
     page: int = Query(default=1, ge=1),
     page_size: int | None = Query(default=None, ge=1, le=300),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_page("journal")),
+    current_user: User = Depends(require_any_page("journal", "reports")),
 ) -> list[AtmJournalEvent]:
     query = db.query(AtmJournalEvent).options(joinedload(AtmJournalEvent.atm))
     if atm_id:
