@@ -4,6 +4,7 @@ import {
   BarChart3,
   CalendarDays,
   CheckCircle2,
+  ClipboardList,
   CreditCard,
   Download,
   Landmark,
@@ -291,7 +292,7 @@ export default function Reports({ atms = [], cashSummary }) {
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-slate-950 sm:text-3xl">التقارير</h1>
-          <div className="mt-1 text-sm text-slate-500">حالة الصرافات، النقد، وعمليات السحب من Journal.</div>
+          <div className="mt-1 text-sm text-slate-500">تقارير النقد وعمليات السحب من Journal.</div>
         </div>
         <button
           type="button"
