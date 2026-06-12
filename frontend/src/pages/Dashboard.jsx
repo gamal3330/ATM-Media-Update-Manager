@@ -364,7 +364,7 @@ export default function Dashboard({ atms, cashSummary, loading, onRefresh }) {
                 count={cashEmpty}
                 title={`صناديق نفد منها النقد${cashEmptyAtms ? ` في ${cashEmptyAtms} صرافات` : ""}`}
                 emptyText="لا توجد صرافات فارغة النقد حالياً."
-                pendingText="توجد صرافات فارغة، لكن تفاصيلها لم تصل بعد. حدّث البيانات أو أعد تشغيل backend."
+                pendingText="توجد صرافات فارغة , يمكن عرضها من شاشة النقد"
                 tone="rose"
               />
             </SummaryTile>
