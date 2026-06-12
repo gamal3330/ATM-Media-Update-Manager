@@ -135,7 +135,7 @@ function CashRiskDetails({
   count = 0,
   title = "صرافات على وشك الانتهاء",
   emptyText = "لا توجد صرافات منخفضة النقد حالياً.",
-  pendingText = "توجد صرافات منخفضة، لكن تفاصيلها لم تصل بعد. حدّث البيانات أو أعد تشغيل backend.",
+  pendingText = "توجد صرافات منخفضة , يمكن عرضها من شاشة النقد",
   tone = "amber",
 }) {
   const toneClasses = {
