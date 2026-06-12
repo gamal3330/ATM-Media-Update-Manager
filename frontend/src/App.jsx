@@ -298,7 +298,7 @@ export default function App() {
 
   let page = null;
   if (visiblePage === "dashboard") page = <Dashboard atms={atms} cashSummary={cashSummary} loading={loading} onRefresh={refreshCore} />;
-  if (visiblePage === "atms") page = <Atms atms={atms} onChanged={refreshCore} />;
+  if (visiblePage === "atms") page = <Atms atms={atms} onChanged={refreshCore} currentUser={user} />;
   if (visiblePage === "upload") {
     page = (
       <UploadPackage

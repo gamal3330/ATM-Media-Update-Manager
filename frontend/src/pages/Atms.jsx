@@ -240,6 +240,11 @@ function isGrgProfile(value) {
   return String(value || "").toLowerCase() === "grg";
 }
 
+function canManageAtms(user) {
+  if (user?.role === "admin" || user?.role === "system_admin") return true;
+  return Array.isArray(user?.allowed_pages) && user.allowed_pages.includes("atms-manage");
+}
+
 function buildInstallCommand(atmId, apiKey) {
   return `atm-agent.exe install --server-url="${apiBaseUrl}" --atm-id="${atmId}" --api-key="${apiKey}" --run-mode auto`;
 }
@@ -608,7 +613,7 @@ function CassetteLayoutEditor({ layout, onChange, title = "تخطيط الكاس
   );
 }
 
-function AtmCard({ atm, onOpenSettings, onDelete, onProbeSwitch, switchProbeBusyId, deletingAtmId }) {
+function AtmCard({ atm, onOpenSettings, onDelete, onProbeSwitch, switchProbeBusyId, deletingAtmId, canManage }) {
   const health = getAtmHealth(atm);
   const HealthIcon = health.icon;
   const configStatus = getConfigStatus(atm);
@@ -679,10 +684,10 @@ function AtmCard({ atm, onOpenSettings, onDelete, onProbeSwitch, switchProbeBusy
         </div>
       )}
 
-      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+      <div className={`mt-4 grid gap-2 ${canManage ? "sm:grid-cols-3" : ""}`}>
         <button
           onClick={() => onOpenSettings(atm)}
-          className="focus-ring inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
+          className={`focus-ring inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50 ${canManage ? "" : "hidden"}`}
           title="إعدادات الصراف"
         >
           <Settings2 size={16} />
@@ -700,7 +705,7 @@ function AtmCard({ atm, onOpenSettings, onDelete, onProbeSwitch, switchProbeBusy
         <button
           onClick={() => onDelete(atm)}
           disabled={deletingAtmId === atm.atm_id}
-          className="focus-ring inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-sm text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+          className={`focus-ring inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-sm text-rose-700 hover:bg-rose-50 disabled:opacity-60 ${canManage ? "" : "hidden"}`}
           title="حذف الصراف"
         >
           <Trash2 size={16} />
@@ -711,7 +716,7 @@ function AtmCard({ atm, onOpenSettings, onDelete, onProbeSwitch, switchProbeBusy
   );
 }
 
-function AtmTable({ atms, onOpenSettings, onDelete, onProbeSwitch, switchProbeBusyId, deletingAtmId }) {
+function AtmTable({ atms, onOpenSettings, onDelete, onProbeSwitch, switchProbeBusyId, deletingAtmId, canManage }) {
   return (
     <div className="hidden overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm lg:block">
       <table className="w-full table-fixed text-sm">
@@ -788,7 +793,7 @@ function AtmTable({ atms, onOpenSettings, onDelete, onProbeSwitch, switchProbeBu
                     <button
                       type="button"
                       onClick={() => onOpenSettings(atm)}
-                      className="focus-ring rounded-lg border border-slate-300 p-2 text-slate-700 hover:bg-white"
+                      className={`focus-ring rounded-lg border border-slate-300 p-2 text-slate-700 hover:bg-white ${canManage ? "" : "hidden"}`}
                       title="إعدادات الصراف"
                     >
                       <Settings2 size={16} />
@@ -806,7 +811,7 @@ function AtmTable({ atms, onOpenSettings, onDelete, onProbeSwitch, switchProbeBu
                       type="button"
                       onClick={() => onDelete(atm)}
                       disabled={deletingAtmId === atm.atm_id}
-                      className="focus-ring rounded-lg border border-rose-200 p-2 text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+                      className={`focus-ring rounded-lg border border-rose-200 p-2 text-rose-700 hover:bg-rose-50 disabled:opacity-60 ${canManage ? "" : "hidden"}`}
                       title="حذف الصراف"
                     >
                       <Trash2 size={16} />
@@ -822,7 +827,7 @@ function AtmTable({ atms, onOpenSettings, onDelete, onProbeSwitch, switchProbeBu
   );
 }
 
-export default function Atms({ atms, onChanged }) {
+export default function Atms({ atms, onChanged, currentUser }) {
   const [form, setForm] = useState(() => buildEmptyForm());
   const [selectedAtmId, setSelectedAtmId] = useState("");
   const [settingsForm, setSettingsForm] = useState({});
@@ -847,6 +852,7 @@ export default function Atms({ atms, onChanged }) {
   const [query, setQuery] = useState("");
   const [quickAtmId, setQuickAtmId] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const canManage = canManageAtms(currentUser);
 
   const selectedAtm = useMemo(
     () => atms.find((atm) => atm.atm_id === selectedAtmId) || null,
@@ -898,6 +904,11 @@ export default function Atms({ atms, onChanged }) {
     setGeneratedKeyAtm(null);
     setCopyMessage("");
 
+    if (!canManage) {
+      setError("ليست لديك صلاحية إدارة إعدادات الصرافات.");
+      return;
+    }
+
     const localErrors = validateForm(form);
     if (Object.keys(localErrors).length > 0) {
       setFieldErrors(localErrors);
@@ -941,6 +952,10 @@ export default function Atms({ atms, onChanged }) {
   }
 
   function openSettings(atm) {
+    if (!canManage) {
+      setError("ليست لديك صلاحية إدارة إعدادات الصرافات.");
+      return;
+    }
     setSelectedAtmId(atm.atm_id);
     setSettingsForm(buildSettingsForm(atm));
     setSettingsMessage("");
@@ -997,6 +1012,11 @@ export default function Atms({ atms, onChanged }) {
     setError("");
     setFieldErrors({});
 
+    if (!canManage) {
+      setError("ليست لديك صلاحية إدارة إعدادات الصرافات.");
+      return;
+    }
+
     const trimmedName = (settingsForm.name || "").trim();
     if (trimmedName.length < 2) {
       setFieldErrors({ name: "اسم الصراف يجب أن يحتوي على حرفين على الأقل." });
@@ -1044,6 +1064,11 @@ export default function Atms({ atms, onChanged }) {
   }
 
   async function deleteAtm(atm) {
+    if (!canManage) {
+      setError("ليست لديك صلاحية إدارة إعدادات الصرافات.");
+      return;
+    }
+
     const activeText =
       atm.active_update_count > 0 ? `\n\nتنبيه: يوجد ${atm.active_update_count} تحديث نشط مرتبط بهذا الصراف.` : "";
     const confirmed = window.confirm(
@@ -1085,6 +1110,10 @@ export default function Atms({ atms, onChanged }) {
 
   async function regenerateApiKey() {
     if (!selectedAtm) return;
+    if (!canManage) {
+      setError("ليست لديك صلاحية إدارة إعدادات الصرافات.");
+      return;
+    }
     const confirmed = window.confirm(
       `هل تريد توليد API Key جديد للصراف ${selectedAtm.atm_id}؟\nالمفتاح القديم سيتوقف، ويجب إعادة تثبيت أو تحديث خدمة الـ Agent على الصراف.`,
     );
@@ -1214,7 +1243,7 @@ export default function Atms({ atms, onChanged }) {
         </div>
         <button
           onClick={() => setShowCreateForm((current) => !current)}
-          className="focus-ring inline-flex min-h-11 items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800"
+          className={`focus-ring inline-flex min-h-11 items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 ${canManage ? "" : "hidden"}`}
           title="إضافة صراف"
         >
           <Plus size={18} />
@@ -1230,7 +1259,7 @@ export default function Atms({ atms, onChanged }) {
         <MetricCard label="Errors" value={metrics.errors} tone={metrics.errors ? "rose" : "emerald"} icon={ShieldAlert} />
       </div>
 
-      {(showCreateForm || generatedKey) && (
+      {canManage && (showCreateForm || generatedKey) && (
         <div className="mb-5 rounded-lg border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
             <div className="flex items-center gap-2 font-semibold text-slate-950">
@@ -1449,6 +1478,7 @@ export default function Atms({ atms, onChanged }) {
         onProbeSwitch={requestSwitchProbe}
         switchProbeBusyId={switchProbeBusyId}
         deletingAtmId={deletingAtmId}
+        canManage={canManage}
       />
 
       <div className="grid gap-3 md:grid-cols-2 lg:hidden">
@@ -1461,6 +1491,7 @@ export default function Atms({ atms, onChanged }) {
             onProbeSwitch={requestSwitchProbe}
             switchProbeBusyId={switchProbeBusyId}
             deletingAtmId={deletingAtmId}
+            canManage={canManage}
           />
         ))}
       </div>
@@ -1471,7 +1502,7 @@ export default function Atms({ atms, onChanged }) {
         </div>
       )}
 
-      {selectedAtm && (
+      {selectedAtm && canManage && (
         <div
           className="fixed inset-0 z-40 flex justify-end bg-slate-950/40"
           role="dialog"

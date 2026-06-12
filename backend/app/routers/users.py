@@ -13,6 +13,7 @@ router = APIRouter(prefix="/api/users", tags=["users"])
 PAGE_LABELS = {
     "dashboard": "لوحة المراقبة",
     "atms": "الصرافات",
+    "atms-manage": "إدارة إعدادات الصرافات",
     "upload": "رفع الحزمة",
     "packages": "تحديثات الوسائط",
     "agent-updates": "تحديثات Agent",

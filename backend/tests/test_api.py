@@ -370,6 +370,7 @@ def test_admin_can_manage_users_and_page_visibility() -> None:
         page_map = {page["id"]: page["label"] for page in pages.json()}
         assert page_map["dashboard"] == "لوحة المراقبة"
         assert page_map["atms"] == "الصرافات"
+        assert page_map["atms-manage"] == "إدارة إعدادات الصرافات"
         assert page_map["cash"] == "مراقبة النقد"
         assert page_map["notifications"] == "مركز التنبيهات"
         assert page_map["agent-updates"] == "تحديثات Agent"
@@ -423,6 +424,14 @@ def test_admin_can_manage_users_and_page_visibility() -> None:
             headers=headers,
         )
         assert atm_response.status_code == 201
+        operator_atms = client.get("/api/atms", headers=operator_headers)
+        assert operator_atms.status_code == 200
+        denied_create_atm = client.post(
+            "/api/atms",
+            json={"atm_id": "ATM-CASH-DENIED", "name": "Denied", "vpn_ip": "10.10.0.60", "branch": "HQ"},
+            headers=operator_headers,
+        )
+        assert denied_create_atm.status_code == 403
         denied_read_now = client.post("/api/cash/atms/ATM-CASH-PERM/read-now", headers=operator_headers)
         assert denied_read_now.status_code == 403
 
@@ -433,6 +442,51 @@ def test_admin_can_manage_users_and_page_visibility() -> None:
         )
         assert updated.status_code == 200
         assert updated.json()["allowed_pages"] == ["dashboard", "packages"]
+
+
+def test_atm_manage_permission_allows_atm_mutations_for_non_admin() -> None:
+    with TestClient(app) as client:
+        headers = login(client)
+        created = client.post(
+            "/api/users",
+            json={
+                "username": "atm-manager",
+                "password": "manager123",
+                "role": "operator",
+                "allowed_pages": ["dashboard", "atms", "atms-manage"],
+                "is_active": True,
+            },
+            headers=headers,
+        )
+        assert created.status_code == 201
+        assert created.json()["allowed_pages"] == ["dashboard", "atms", "atms-manage"]
+
+        manager_login = client.post("/api/auth/login", json={"username": "atm-manager", "password": "manager123"})
+        assert manager_login.status_code == 200
+        manager_headers = {"Authorization": f"Bearer {manager_login.json()['access_token']}"}
+
+        created_atm = client.post(
+            "/api/atms",
+            json={"atm_id": "ATM-MANAGE-PERM", "name": "Managed ATM", "vpn_ip": "10.10.0.61", "branch": "HQ"},
+            headers=manager_headers,
+        )
+        assert created_atm.status_code == 201
+
+        updated_atm = client.put(
+            "/api/atms/ATM-MANAGE-PERM",
+            json={"name": "Managed ATM Updated", "switch_probe_host": "172.16.25.76"},
+            headers=manager_headers,
+        )
+        assert updated_atm.status_code == 200
+        assert updated_atm.json()["name"] == "Managed ATM Updated"
+        assert updated_atm.json()["switch_probe_host"] == "172.16.25.76"
+
+        regenerated = client.post("/api/atms/ATM-MANAGE-PERM/regenerate-api-key", headers=manager_headers)
+        assert regenerated.status_code == 200
+        assert regenerated.json()["api_key"]
+
+        deleted = client.delete("/api/atms/ATM-MANAGE-PERM", headers=manager_headers)
+        assert deleted.status_code == 204
 
 
 def test_atm_diagnostics_show_never_reported_before_heartbeat() -> None:

@@ -1,6 +1,7 @@
 ALL_PAGE_IDS = [
     "dashboard",
     "atms",
+    "atms-manage",
     "upload",
     "packages",
     "agent-updates",

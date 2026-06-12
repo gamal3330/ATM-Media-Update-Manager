@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
-from ..auth import generate_api_key, hash_api_key, require_any_page, require_page
+from ..auth import generate_api_key, hash_api_key, require_any_page, require_page, user_has_page
 from ..cash_layout import normalized_cash_layout
 from ..database import get_db
 from ..models import (
@@ -110,7 +110,7 @@ def list_atms(
 def create_atm(
     payload: ATMCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_page("atms")),
+    current_user: User = Depends(require_page("atms-manage")),
 ) -> ATMCreateResponse:
     if db.query(ATM).filter(ATM.atm_id == payload.atm_id).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ATM ID already exists")
@@ -576,7 +576,7 @@ def list_atm_events(
 def regenerate_atm_api_key(
     atm_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_page("atms")),
+    current_user: User = Depends(require_page("atms-manage")),
 ) -> ATMCreateResponse:
     atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
     if not atm:
@@ -673,6 +673,8 @@ def request_switch_probe(
     port = payload.port if payload and payload.port else atm.switch_probe_port
     host_or_port_changed = host != atm.switch_probe_host or port != atm.switch_probe_port
     if host_or_port_changed:
+        if not user_has_page(current_user, "atms-manage"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ATM management permission required")
         previous = {"switch_probe_host": atm.switch_probe_host, "switch_probe_port": atm.switch_probe_port}
         atm.switch_probe_host = host
         atm.switch_probe_port = port
@@ -755,7 +757,7 @@ def request_atm_reboot(
     payload: ATMRebootRequest,
     force: bool = False,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_page("atms")),
+    current_user: User = Depends(require_page("atms-manage")),
 ) -> AgentCommand:
     raise HTTPException(status_code=status.HTTP_410_GONE, detail="Remote ATM commands are disabled for QIB ATM Manager Agent")
     atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
@@ -825,7 +827,7 @@ def delete_atm(
     atm_id: str,
     force: bool = False,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_page("atms")),
+    current_user: User = Depends(require_page("atms-manage")),
 ) -> Response:
     atm = db.query(ATM).filter(ATM.atm_id == atm_id).first()
     if not atm:
