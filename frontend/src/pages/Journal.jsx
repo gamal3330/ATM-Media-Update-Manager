@@ -129,6 +129,24 @@ function eventSearchText(event) {
   ].join(" ");
 }
 
+function atmSearchText(atm) {
+  return [
+    atm?.atm_id,
+    atm?.name,
+    atm?.branch,
+    atm?.vpn_ip,
+    atm?.xfs_vendor,
+    atm?.model,
+  ].join(" ");
+}
+
+function atmOptionLabel(atm) {
+  const name = atm?.name || `ATM ${atm?.atm_id || "-"}`;
+  const branch = atm?.branch ? ` - ${atm.branch}` : "";
+  const ip = atm?.vpn_ip ? ` - ${atm.vpn_ip}` : "";
+  return `${name} - ATM ${atm?.atm_id || "-"}${branch}${ip}`;
+}
+
 function StatBox({ label, value, icon: Icon, tone = "slate" }) {
   const tones = {
     slate: "border-slate-200 bg-white text-slate-950",
@@ -304,6 +322,7 @@ function EventRow({ event }) {
 
 export default function Journal({ atms }) {
   const [atmId, setAtmId] = useState("");
+  const [atmQuery, setAtmQuery] = useState("");
   const [fromAt, setFromAt] = useState("");
   const [toAt, setToAt] = useState("");
   const [eventType, setEventType] = useState("TRANSACTION_END");
@@ -318,6 +337,16 @@ export default function Journal({ atms }) {
   const [loadedFilterKey, setLoadedFilterKey] = useState("");
 
   const selectedAtm = useMemo(() => (Array.isArray(atms) ? atms.find((atm) => atm.atm_id === atmId) : null), [atms, atmId]);
+  const filteredAtms = useMemo(() => {
+    const list = Array.isArray(atms) ? atms : [];
+    const needle = normalizeText(atmQuery);
+    if (!needle) return list;
+    return list.filter((atm) => normalizeText(atmSearchText(atm)).includes(needle));
+  }, [atms, atmQuery]);
+  const atmOptions = useMemo(() => {
+    if (!selectedAtm || filteredAtms.some((atm) => atm.atm_id === selectedAtm.atm_id)) return filteredAtms;
+    return [selectedAtm, ...filteredAtms];
+  }, [filteredAtms, selectedAtm]);
   const currentFilterKey = useMemo(() => JSON.stringify({ atmId, eventType, fromAt, toAt, limit }), [atmId, eventType, fromAt, limit, toAt]);
   const hasLoadedCurrentFilters = Boolean(loadedAtm && loadedFilterKey === currentFilterKey);
 
@@ -411,30 +440,49 @@ export default function Journal({ atms }) {
       </div>
 
       <div className="mb-5 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-        <div className="grid gap-3 lg:grid-cols-[minmax(240px,1.4fr)_minmax(180px,1fr)_minmax(180px,1fr)_minmax(160px,0.8fr)_minmax(120px,0.6fr)]">
-          <label className="relative block">
-            <TerminalSquare className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
-            <select
-              value={atmId}
-              onChange={(event) => {
-                setAtmId(event.target.value);
-                setEvents([]);
-                setPage(1);
-                setHasMore(false);
-                setLoadedAtm("");
-                setLoadedFilterKey("");
-                setError("");
-              }}
-              className="focus-ring min-h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
-            >
-              <option value="">اختر الصراف</option>
-              {(Array.isArray(atms) ? atms : []).map((atm) => (
-                <option key={atm.atm_id} value={atm.atm_id}>
-                  {atm.name ? `${atm.name} - ATM ${atm.atm_id}` : `ATM ${atm.atm_id}`}
-                </option>
-              ))}
-            </select>
-          </label>
+        <div className="grid gap-3 lg:grid-cols-[minmax(280px,1.4fr)_minmax(180px,1fr)_minmax(180px,1fr)_minmax(160px,0.8fr)_minmax(120px,0.6fr)]">
+          <div className="grid gap-2">
+            <label className="relative block">
+              <Search className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+              <input
+                value={atmQuery}
+                onChange={(event) => setAtmQuery(event.target.value)}
+                className="focus-ring min-h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
+                placeholder="بحث عن صراف بالاسم، الرقم، الفرع أو IP"
+              />
+            </label>
+
+            <label className="relative block">
+              <TerminalSquare className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+              <select
+                value={atmId}
+                onChange={(event) => {
+                  setAtmId(event.target.value);
+                  setEvents([]);
+                  setPage(1);
+                  setHasMore(false);
+                  setLoadedAtm("");
+                  setLoadedFilterKey("");
+                  setError("");
+                }}
+                className="focus-ring min-h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
+              >
+                <option value="">اختر الصراف</option>
+                {atmOptions.map((atm) => (
+                  <option key={atm.atm_id} value={atm.atm_id}>
+                    {atmOptionLabel(atm)}
+                  </option>
+                ))}
+                {atmOptions.length === 0 && <option disabled>لا توجد صرافات مطابقة</option>}
+              </select>
+            </label>
+
+            {atmQuery && (
+              <div className="px-1 text-xs text-slate-500">
+                {filteredAtms.length} نتيجة مطابقة
+              </div>
+            )}
+          </div>
 
           <label className="relative block">
             <CalendarDays className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
