@@ -4,19 +4,16 @@ import {
   BarChart3,
   CalendarDays,
   CheckCircle2,
-  ClipboardList,
   CreditCard,
   Download,
   Landmark,
   RefreshCw,
   Search,
   TerminalSquare,
-  Wifi,
-  WifiOff,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { api } from "../api/client";
-import { formatApiDate, formatLastSeenAge, formatLocalWallDate, isRecentlyOnline } from "../api/time";
+import { formatApiDate, formatLocalWallDate } from "../api/time";
 
 const WITHDRAWAL_LIMIT = 300;
 
@@ -52,34 +49,6 @@ function eventSearchText(event) {
     event?.amount,
     event?.currency,
   ].join(" ");
-}
-
-function getModuleStatus(atm, moduleName) {
-  return (atm?.module_status_json && atm.module_status_json[moduleName]) || "-";
-}
-
-function hasAtmIssue(atm) {
-  const moduleText = normalizeText(Object.values(atm?.module_status_json || {}).join(" "));
-  return Boolean(
-    atm?.last_config_error ||
-      atm?.last_switch_probe_error ||
-      ["failed", "error", "timeout"].includes(normalizeText(atm?.last_switch_probe_status)) ||
-      moduleText.includes("error") ||
-      moduleText.includes("failed"),
-  );
-}
-
-function atmStatusMeta(atm) {
-  if (!isRecentlyOnline(atm)) {
-    return { label: "غير متصل", tone: "bg-rose-50 text-rose-700", icon: WifiOff };
-  }
-  if (hasAtmIssue(atm)) {
-    return { label: "تنبيه", tone: "bg-amber-50 text-amber-700", icon: AlertTriangle };
-  }
-  if ((atm?.applied_config_version || 0) < (atm?.config_version || 0)) {
-    return { label: "بانتظار Sync", tone: "bg-sky-50 text-sky-700", icon: RefreshCw };
-  }
-  return { label: "متصل", tone: "bg-emerald-50 text-emerald-700", icon: Wifi };
 }
 
 function riskMeta(risk) {
@@ -219,19 +188,6 @@ export default function Reports({ atms = [], cashSummary }) {
       return true;
     });
   }, [atmFilter, branchFilter, filteredAtms, query, withdrawals]);
-
-  const statusStats = useMemo(() => {
-    const online = filteredAtms.filter(isRecentlyOnline).length;
-    const issues = filteredAtms.filter(hasAtmIssue).length;
-    const pending = filteredAtms.filter((atm) => (atm.applied_config_version || 0) < (atm.config_version || 0)).length;
-    return {
-      total: filteredAtms.length,
-      online,
-      offline: filteredAtms.length - online,
-      issues,
-      pending,
-    };
-  }, [filteredAtms]);
 
   const cashStats = useMemo(() => {
     const totals = {};
@@ -436,68 +392,10 @@ export default function Reports({ atms = [], cashSummary }) {
         )}
       </div>
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <StatCard label="الصرافات" value={statusStats.total} icon={Landmark} />
-        <StatCard label="متصلة" value={statusStats.online} icon={Wifi} tone="emerald" />
-        <StatCard label="غير متصلة" value={statusStats.offline} icon={WifiOff} tone={statusStats.offline ? "rose" : "emerald"} />
+      <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <StatCard label="تنبيهات نقد" value={cashSummary?.open_alerts ?? "-"} icon={Banknote} tone={cashSummary?.open_alerts ? "amber" : "emerald"} />
         <StatCard label="عمليات السحب" value={withdrawalStats.total} icon={CreditCard} note={withdrawalTotalText || "حسب الفترة المحددة"} />
-      </div>
-
-      <div className="mb-6">
-        <SectionHeader icon={ClipboardList} title="تقرير حالة الصرافات" meta={`${filteredAtms.length} صراف`} />
-        <TableShell>
-          <div className="max-h-[460px] overflow-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="sticky top-0 bg-slate-50 text-slate-600">
-                <tr>
-                  <th className="px-3 py-2 text-right font-semibold">الصراف</th>
-                  <th className="px-3 py-2 text-right font-semibold">الحالة</th>
-                  <th className="px-3 py-2 text-right font-semibold">آخر اتصال</th>
-                  <th className="px-3 py-2 text-right font-semibold">Switch</th>
-                  <th className="px-3 py-2 text-right font-semibold">Agent</th>
-                  <th className="px-3 py-2 text-right font-semibold">Modules</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredAtms.slice(0, 120).map((atm) => {
-                  const status = atmStatusMeta(atm);
-                  const StatusIcon = status.icon;
-                  return (
-                    <tr key={atm.atm_id} className="hover:bg-slate-50">
-                      <td className="px-3 py-2">
-                        <div className="font-semibold text-slate-950">{atm.name}</div>
-                        <div className="text-xs text-slate-500">
-                          ATM {atm.atm_id} · {atm.branch || "-"} · <span dir="ltr">{atm.vpn_ip}</span>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2">
-                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${status.tone}`}>
-                          <StatusIcon size={13} />
-                          {status.label}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="font-medium text-slate-800">{formatLastSeenAge(atm)}</div>
-                        <div className="text-xs text-slate-500">{formatApiDate(atm.last_seen || atm.last_heartbeat_at)}</div>
-                      </td>
-                      <td className="px-3 py-2">
-                        <div>{atm.last_switch_probe_status || "-"}</div>
-                        <div className="text-xs text-slate-500" dir="ltr">
-                          {atm.last_switch_probe_latency_ms ? `${atm.last_switch_probe_latency_ms} ms` : ""}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 font-semibold text-slate-800">{atm.agent_version || "-"}</td>
-                      <td className="px-3 py-2 text-xs text-slate-600">
-                        Media: {getModuleStatus(atm, "media_update")} · Cash: {getModuleStatus(atm, "cash_monitoring")}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </TableShell>
+        <StatCard label="الصرافات المطابقة" value={filteredAtms.length} icon={Landmark} />
       </div>
 
       <div className="mb-6">
