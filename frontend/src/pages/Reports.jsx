@@ -349,7 +349,7 @@ export default function Reports({ atms = [], cashSummary }) {
       </div>
 
       <div className="mb-5 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-        <div className="grid items-start gap-3 lg:grid-cols-[minmax(220px,1fr)_minmax(220px,1fr)_minmax(260px,1.4fr)_minmax(180px,1fr)_minmax(180px,1fr)_auto]">
+        <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-[minmax(180px,0.9fr)_minmax(200px,1fr)_minmax(240px,1.3fr)_minmax(180px,1fr)_minmax(180px,1fr)_minmax(120px,auto)]">
           <select
             value={branchFilter}
             onChange={(event) => setBranchFilter(event.target.value)}
@@ -423,7 +423,7 @@ export default function Reports({ atms = [], cashSummary }) {
             type="button"
             onClick={loadWithdrawals}
             disabled={!canLoadWithdrawals || withdrawalsLoading}
-            className="focus-ring inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 text-sm font-medium text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
+            className="focus-ring inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 text-sm font-medium text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Search size={16} className={withdrawalsLoading ? "animate-pulse" : ""} />
             <span>{withdrawalsLoading ? "جاري العرض" : "عرض السحب"}</span>
