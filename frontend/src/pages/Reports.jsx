@@ -175,9 +175,12 @@ function downloadExcel(filename, title, rows) {
   URL.revokeObjectURL(url);
 }
 
-function printPdf(title, sections) {
+function printPdf(title, sections, metaLines = []) {
   const printable = window.open("", "_blank");
   if (!printable) return;
+  const metaHtml = metaLines.length
+    ? `<div class="meta">${metaLines.map((line) => `<div>${escapeHtml(line)}</div>`).join("")}</div>`
+    : "";
   const html = `<!doctype html>
     <html lang="ar" dir="rtl">
       <head>
@@ -186,9 +189,9 @@ function printPdf(title, sections) {
         <style>
           @page { size: A4 landscape; margin: 12mm; }
           body { direction: rtl; color: #0f172a; font-family: Arial, Tahoma, sans-serif; }
-          h1 { margin: 0 0 14px; font-size: 22px; }
+          h1 { margin: 0 0 10px; font-size: 22px; text-align: center; }
           h2 { margin: 18px 0 8px; font-size: 17px; }
-          .meta { margin-bottom: 14px; color: #64748b; font-size: 12px; }
+          .meta { margin-bottom: 14px; color: #64748b; font-size: 12px; line-height: 1.7; text-align: center; }
           table { border-collapse: collapse; width: 100%; page-break-inside: auto; }
           tr { page-break-inside: avoid; page-break-after: auto; }
           th, td { border: 1px solid #cbd5e1; padding: 6px; text-align: right; font-size: 11px; vertical-align: top; }
@@ -199,7 +202,7 @@ function printPdf(title, sections) {
       </head>
       <body>
         <h1>${escapeHtml(title)}</h1>
-        <div class="meta">QIB ATM Manager · ${escapeHtml(formatApiDate(new Date()))}</div>
+        ${metaHtml}
         ${sections.map((section) => exportTableHtml(section.title, section.rows)).join("")}
         <script>window.addEventListener("load", () => setTimeout(() => window.print(), 250));</script>
       </body>
@@ -364,12 +367,19 @@ export default function Reports({ atms = [] }) {
     return reportMode === "summary" ? "تقرير عمليات السحب - إجمالي" : "تقرير عمليات السحب - تفصيلي";
   }
 
+  function reportPeriodText() {
+    return `فترة التقرير: من ${formatLocalWallDate(fromAt)} إلى ${formatLocalWallDate(toAt)}`;
+  }
+
   function exportWithdrawalsExcel() {
     downloadExcel(reportMode === "summary" ? "withdrawal-summary-report.xls" : "withdrawal-detail-report.xls", currentReportTitle(), currentExportRows());
   }
 
   function exportWithdrawalsPdf() {
-    printPdf(currentReportTitle(), [{ title: currentReportTitle(), rows: currentExportRows() }]);
+    printPdf(currentReportTitle(), [{ title: currentReportTitle(), rows: currentExportRows() }], [
+      reportPeriodText(),
+      `تاريخ الطباعة: ${formatApiDate(new Date())}`,
+    ]);
   }
 
   const withdrawalTotalItems = Object.entries(withdrawalStats.amountByCurrency);
