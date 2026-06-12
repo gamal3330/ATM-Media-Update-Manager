@@ -388,7 +388,7 @@ def remote_payload(media_enabled=True, cash_enabled=True):
         "config_version": 2,
         "heartbeat_interval_seconds": 60,
         "config_sync_interval_seconds": 120,
-        "switch_probe_host": "172.16.25.75",
+        "switch_probe_host": "172.16.75.25",
         "switch_probe_port": 10200,
         "switch_probe_interval_seconds": 30,
         "modules": {
@@ -457,7 +457,7 @@ def test_core_parse_remote_config_modules():
     assert config.cash_monitoring.xfs_profile == "ncr_aptra"
     assert config.cash_monitoring.xfs_logical_service == "MediaDispenser1"
     assert config.cash_monitoring.cash_layout[2].currency == "USD"
-    assert config.switch_probe_host == "172.16.25.75"
+    assert config.switch_probe_host == "172.16.75.25"
     assert config.switch_probe_port == 10200
     assert config.switch_probe_interval_seconds == 30
     assert "gif" in config.media_update.allowed_extensions
@@ -941,7 +941,7 @@ def test_agent_runs_periodic_switch_probe_on_configured_interval(monkeypatch):
     )
 
     def fake_probe(host, port, timeout_seconds=5):
-        assert host == "172.16.25.75"
+        assert host == "172.16.75.25"
         assert port == 10200
         assert timeout_seconds == 5
         return SimpleNamespace(success=False, latency_ms=5000, error_message="timed out")
@@ -957,7 +957,7 @@ def test_agent_runs_periodic_switch_probe_on_configured_interval(monkeypatch):
             "status": "failed",
             "latency_ms": 5000,
             "error_message": "timed out",
-            "host": "172.16.25.75",
+            "host": "172.16.75.25",
             "port": 10200,
         }
     ]

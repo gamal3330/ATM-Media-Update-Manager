@@ -60,7 +60,7 @@ const fields = [
   ["atm_id", "ATM ID", "ATM-001", 2],
   ["name", "الاسم", "صراف الفرع الرئيسي", 2],
   ["vpn_ip", "IP عبر VPN", "192.168.2.35", 3],
-  ["branch", "الفرع", "lab1", 2],
+  ["branch", "الفرع", "الفرع", 2],
 ];
 
 function buildCashLayout(currencies = ["YER", "YER", "YER", "YER"]) {
@@ -231,7 +231,7 @@ function buildSettingsForm(atm) {
     cash_layout: normalizeCashLayout(atm?.cash_layout_json),
     cash_read_interval_seconds: String(atm?.cash_read_interval_seconds || 120),
     cash_stale_after_minutes: String(atm?.cash_stale_after_minutes || 10),
-    switch_probe_host: atm?.switch_probe_host || "172.16.25.75",
+    switch_probe_host: atm?.switch_probe_host || "172.16.75.25",
     switch_probe_port: String(atm?.switch_probe_port || 10200),
   };
 }
@@ -1745,7 +1745,7 @@ export default function Atms({ atms, onChanged, currentUser }) {
                         onChange={(event) =>
                           setSettingsForm((current) => ({ ...current, switch_probe_host: event.target.value }))
                         }
-                        placeholder="172.16.25.75"
+                        placeholder="172.16.75.25"
                       />
                       {fieldErrors.switch_probe_host && (
                         <span className="mt-1 block text-xs text-rose-700">{fieldErrors.switch_probe_host}</span>

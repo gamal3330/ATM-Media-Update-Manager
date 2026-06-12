@@ -160,7 +160,7 @@ def migrate_existing_schema() -> None:
                 "cash_low_threshold_default": "INTEGER NOT NULL DEFAULT 300",
                 "cash_critical_threshold_default": "INTEGER NOT NULL DEFAULT 100",
                 "cash_stale_after_minutes": "INTEGER NOT NULL DEFAULT 10",
-                "switch_probe_host": "VARCHAR(120) NOT NULL DEFAULT '172.16.25.75'",
+                "switch_probe_host": "VARCHAR(120) NOT NULL DEFAULT '172.16.75.25'",
                 "switch_probe_port": "INTEGER NOT NULL DEFAULT 10200",
                 "switch_probe_interval_seconds": "INTEGER NOT NULL DEFAULT 30",
                 "journal_reader_enabled": "BOOLEAN NOT NULL DEFAULT 0",

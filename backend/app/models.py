@@ -78,7 +78,7 @@ class ATM(Base):
     cash_low_threshold_default: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
     cash_critical_threshold_default: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     cash_stale_after_minutes: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
-    switch_probe_host: Mapped[str] = mapped_column(String(120), default="172.16.25.75", nullable=False)
+    switch_probe_host: Mapped[str] = mapped_column(String(120), default="172.16.75.25", nullable=False)
     switch_probe_port: Mapped[int] = mapped_column(Integer, default=10200, nullable=False)
     switch_probe_interval_seconds: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     journal_reader_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

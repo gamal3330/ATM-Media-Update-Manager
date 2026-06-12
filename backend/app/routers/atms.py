@@ -145,7 +145,7 @@ def create_atm(
         cash_low_threshold_default=payload.cash_low_threshold_default or 300,
         cash_critical_threshold_default=payload.cash_critical_threshold_default or 100,
         cash_stale_after_minutes=payload.cash_stale_after_minutes or 10,
-        switch_probe_host=payload.switch_probe_host or "172.16.25.75",
+        switch_probe_host=payload.switch_probe_host or "172.16.75.25",
         switch_probe_port=payload.switch_probe_port or 10200,
         switch_probe_interval_seconds=payload.switch_probe_interval_seconds or 30,
         config_updated_at=datetime.now(timezone.utc),

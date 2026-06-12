@@ -668,7 +668,7 @@ def test_switch_probe_request_and_agent_result() -> None:
                 "name": "Switch ATM",
                 "vpn_ip": "10.10.0.48",
                 "branch": "HQ",
-                "switch_probe_host": "172.16.25.75",
+                "switch_probe_host": "172.16.75.25",
                 "switch_probe_port": 10200,
             },
             headers=headers,
@@ -679,7 +679,7 @@ def test_switch_probe_request_and_agent_result() -> None:
         request = client.post("/api/atms/ATM-SWITCH/switch-probe", headers=headers)
         assert request.status_code == 202
         probe_id = request.json()["id"]
-        assert request.json()["host"] == "172.16.25.75"
+        assert request.json()["host"] == "172.16.75.25"
         assert request.json()["port"] == 10200
         assert request.json()["status"] == "pending"
 
@@ -744,7 +744,7 @@ def test_periodic_switch_probe_result_updates_atm_and_sends_transition_notificat
                 "name": "Auto Switch ATM",
                 "vpn_ip": "10.10.0.50",
                 "branch": "HQ",
-                "switch_probe_host": "172.16.25.75",
+                "switch_probe_host": "172.16.75.25",
                 "switch_probe_port": 10200,
                 "switch_probe_interval_seconds": 30,
             },
@@ -763,7 +763,7 @@ def test_periodic_switch_probe_result_updates_atm_and_sends_transition_notificat
                 "status": "failed",
                 "latency_ms": 5000,
                 "error_message": "timed out",
-                "host": "172.16.25.75",
+                "host": "172.16.75.25",
                 "port": 10200,
             },
             headers=agent_headers,
@@ -776,7 +776,7 @@ def test_periodic_switch_probe_result_updates_atm_and_sends_transition_notificat
                 "status": "failed",
                 "latency_ms": 5000,
                 "error_message": "timed out",
-                "host": "172.16.25.75",
+                "host": "172.16.75.25",
                 "port": 10200,
             },
             headers=agent_headers,
@@ -840,7 +840,7 @@ def test_switch_probe_disconnect_notification_can_be_disabled(monkeypatch) -> No
                 "name": "No Mail Switch ATM",
                 "vpn_ip": "10.10.0.51",
                 "branch": "HQ",
-                "switch_probe_host": "172.16.25.75",
+                "switch_probe_host": "172.16.75.25",
                 "switch_probe_port": 10200,
                 "switch_probe_interval_seconds": 30,
             },
@@ -855,7 +855,7 @@ def test_switch_probe_disconnect_notification_can_be_disabled(monkeypatch) -> No
                 "status": "failed",
                 "latency_ms": 5000,
                 "error_message": "timed out",
-                "host": "172.16.25.75",
+                "host": "172.16.75.25",
                 "port": 10200,
             },
             headers=agent_headers,
@@ -904,7 +904,7 @@ def test_switch_probe_disconnect_can_send_whatsapp_without_smtp(monkeypatch) -> 
                 "name": "WhatsApp Switch ATM",
                 "vpn_ip": "10.10.0.52",
                 "branch": "HQ",
-                "switch_probe_host": "172.16.25.75",
+                "switch_probe_host": "172.16.75.25",
                 "switch_probe_port": 10200,
                 "switch_probe_interval_seconds": 30,
             },
@@ -919,7 +919,7 @@ def test_switch_probe_disconnect_can_send_whatsapp_without_smtp(monkeypatch) -> 
                 "status": "failed",
                 "latency_ms": 5000,
                 "error_message": "timed out",
-                "host": "172.16.25.75",
+                "host": "172.16.75.25",
                 "port": 10200,
             },
             headers=agent_headers,
@@ -972,7 +972,7 @@ def test_switch_probe_disconnect_sends_whatsapp_to_default_group_and_one_atm_rec
                 "name": "WhatsApp Multi ATM",
                 "vpn_ip": "10.10.0.53",
                 "branch": "HQ",
-                "switch_probe_host": "172.16.25.75",
+                "switch_probe_host": "172.16.75.25",
                 "switch_probe_port": 10200,
                 "switch_probe_interval_seconds": 30,
             },
@@ -1005,7 +1005,7 @@ def test_switch_probe_disconnect_sends_whatsapp_to_default_group_and_one_atm_rec
                 "status": "failed",
                 "latency_ms": 5000,
                 "error_message": "timed out",
-                "host": "172.16.25.75",
+                "host": "172.16.75.25",
                 "port": 10200,
             },
             headers=agent_headers,
@@ -1144,7 +1144,7 @@ def test_switch_probe_new_target_supersedes_existing_pending_probe() -> None:
                 "name": "Switch Change ATM",
                 "vpn_ip": "10.10.0.49",
                 "branch": "HQ",
-                "switch_probe_host": "172.16.25.75",
+                "switch_probe_host": "172.16.75.25",
                 "switch_probe_port": 10200,
             },
             headers=headers,
@@ -1153,16 +1153,16 @@ def test_switch_probe_new_target_supersedes_existing_pending_probe() -> None:
 
         first = client.post("/api/atms/ATM-SWITCH-CHANGE/switch-probe", headers=headers)
         assert first.status_code == 202
-        assert first.json()["host"] == "172.16.25.75"
+        assert first.json()["host"] == "172.16.75.25"
 
         second = client.post(
             "/api/atms/ATM-SWITCH-CHANGE/switch-probe",
-            json={"host": "172.16.75.25", "port": 10200},
+            json={"host": "172.16.75.26", "port": 10200},
             headers=headers,
         )
         assert second.status_code == 202
         assert second.json()["id"] != first.json()["id"]
-        assert second.json()["host"] == "172.16.75.25"
+        assert second.json()["host"] == "172.16.75.26"
 
         history = client.get("/api/atms/ATM-SWITCH-CHANGE/switch-probes", headers=headers)
         assert history.status_code == 200
@@ -1172,7 +1172,7 @@ def test_switch_probe_new_target_supersedes_existing_pending_probe() -> None:
 
         atm = client.get("/api/atms/ATM-SWITCH-CHANGE", headers=headers)
         assert atm.status_code == 200
-        assert atm.json()["switch_probe_host"] == "172.16.75.25"
+        assert atm.json()["switch_probe_host"] == "172.16.75.26"
 
 
 def test_cash_layout_validation_allows_duplicate_denomination_but_not_duplicate_cassette() -> None:
