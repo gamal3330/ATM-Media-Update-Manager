@@ -341,6 +341,7 @@ def test_admin_can_create_atm_and_agent_can_heartbeat() -> None:
             headers=headers,
         )
         assert response.status_code == 201
+        assert response.json()["atm"]["switch_probe_interval_seconds"] == 3600
         api_key = response.json()["api_key"]
 
         agent_headers = {"X-ATM-ID": "ATM-001", "X-API-Key": api_key}

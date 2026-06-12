@@ -162,7 +162,7 @@ def migrate_existing_schema() -> None:
                 "cash_stale_after_minutes": "INTEGER NOT NULL DEFAULT 10",
                 "switch_probe_host": "VARCHAR(120) NOT NULL DEFAULT '172.16.75.25'",
                 "switch_probe_port": "INTEGER NOT NULL DEFAULT 10200",
-                "switch_probe_interval_seconds": "INTEGER NOT NULL DEFAULT 30",
+                "switch_probe_interval_seconds": "INTEGER NOT NULL DEFAULT 3600",
                 "journal_reader_enabled": "BOOLEAN NOT NULL DEFAULT 0",
                 "journal_log_glob": "VARCHAR(500) NOT NULL DEFAULT 'D:\\Program Files\\DTATMW\\Bin\\ATMAPP\\Log\\EJ*.log'",
                 "journal_read_interval_seconds": "INTEGER NOT NULL DEFAULT 60",
@@ -210,7 +210,7 @@ def migrate_existing_schema() -> None:
                 "xfs_msxfs_path": "VARCHAR(500)",
                 "xfs_version_range": "VARCHAR(20) NOT NULL DEFAULT '0x00031E03'",
                 "cash_layout_json": "JSON NOT NULL DEFAULT '[]'",
-                "switch_probe_interval_seconds": "INTEGER NOT NULL DEFAULT 30",
+                "switch_probe_interval_seconds": "INTEGER NOT NULL DEFAULT 3600",
             }
             for name, definition in config_columns.items():
                 if name not in existing_columns:

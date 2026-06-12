@@ -179,7 +179,7 @@ def parse_remote_config(payload: dict[str, Any]) -> RemoteConfig:
         config_sync_interval_seconds=int(payload.get("config_sync_interval_seconds") or 120),
         switch_probe_host=str(payload.get("switch_probe_host") or "172.16.75.25").strip(),
         switch_probe_port=int(payload.get("switch_probe_port") or 10200),
-        switch_probe_interval_seconds=int(payload.get("switch_probe_interval_seconds") or 30),
+        switch_probe_interval_seconds=int(payload.get("switch_probe_interval_seconds") or 3600),
         media_update=MediaUpdateConfig(
             enabled=bool(media_payload.get("enabled", True)),
             media_path=str(media_payload["media_path"]),

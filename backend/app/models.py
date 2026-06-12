@@ -80,7 +80,7 @@ class ATM(Base):
     cash_stale_after_minutes: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
     switch_probe_host: Mapped[str] = mapped_column(String(120), default="172.16.75.25", nullable=False)
     switch_probe_port: Mapped[int] = mapped_column(Integer, default=10200, nullable=False)
-    switch_probe_interval_seconds: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    switch_probe_interval_seconds: Mapped[int] = mapped_column(Integer, default=3600, nullable=False)
     journal_reader_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     journal_log_glob: Mapped[str] = mapped_column(
         String(500), default=r"D:\Program Files\DTATMW\Bin\ATMAPP\Log\EJ*.log", nullable=False
@@ -330,7 +330,7 @@ class AtmAgentConfig(Base):
     cash_layout_json: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
     cash_read_interval_seconds: Mapped[int] = mapped_column(Integer, default=120, nullable=False)
     cash_stale_after_minutes: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
-    switch_probe_interval_seconds: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    switch_probe_interval_seconds: Mapped[int] = mapped_column(Integer, default=3600, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
     updated_by: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)

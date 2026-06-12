@@ -770,7 +770,7 @@ class AgentConfigResponse(BaseModel):
     config_sync_interval_seconds: int = 120
     switch_probe_host: str
     switch_probe_port: int
-    switch_probe_interval_seconds: int = 30
+    switch_probe_interval_seconds: int = 3600
     modules: AgentModulesConfig
     # Legacy fields kept so older installed agents can continue to run during rollout.
     media_path: str

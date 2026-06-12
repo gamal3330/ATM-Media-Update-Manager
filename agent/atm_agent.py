@@ -502,7 +502,7 @@ class AtmAgent:
         config = self.remote_config
         if config is None:
             return
-        interval = max(30, int(config.switch_probe_interval_seconds or 30))
+        interval = max(30, int(config.switch_probe_interval_seconds or 3600))
         if now - self.last_periodic_switch_probe < interval:
             return
 

@@ -463,6 +463,15 @@ def test_core_parse_remote_config_modules():
     assert "gif" in config.media_update.allowed_extensions
 
 
+def test_core_parse_remote_config_defaults_switch_probe_interval():
+    payload = remote_payload()
+    payload.pop("switch_probe_interval_seconds")
+
+    config = parse_remote_config(payload)
+
+    assert config.switch_probe_interval_seconds == 3600
+
+
 def test_module_runner_runs_enabled_modules_only():
     logger = __import__("logging").getLogger("test")
     runner = ModuleRunner(logger)

@@ -43,7 +43,7 @@ const intervalFields = [
     unit: "ثانية",
     min: 30,
     max: 86400,
-    defaultValue: 30,
+    defaultValue: 3600,
   },
   {
     key: "cash_stale_after_minutes",
