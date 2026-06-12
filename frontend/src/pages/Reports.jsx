@@ -1,14 +1,11 @@
 import {
   AlertTriangle,
-  Banknote,
   BarChart3,
   CalendarDays,
   CheckCircle2,
   ClipboardList,
   CreditCard,
   Download,
-  Landmark,
-  RefreshCw,
   Search,
   TerminalSquare,
 } from "lucide-react";
@@ -20,11 +17,6 @@ const WITHDRAWAL_LIMIT = 300;
 
 function normalizeText(value) {
   return String(value || "").toLowerCase().trim();
-}
-
-function formatNumber(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number.toLocaleString("en-US") : "-";
 }
 
 function formatMoney(value, currency = "YER") {
@@ -50,15 +42,6 @@ function eventSearchText(event) {
     event?.amount,
     event?.currency,
   ].join(" ");
-}
-
-function riskMeta(risk) {
-  const value = normalizeText(risk).toUpperCase();
-  if (value === "CRITICAL") return { label: "حرج", tone: "bg-rose-50 text-rose-700" };
-  if (value === "LOW") return { label: "منخفض", tone: "bg-amber-50 text-amber-700" };
-  if (value === "STALE") return { label: "قديم", tone: "bg-sky-50 text-sky-700" };
-  if (value === "OK") return { label: "جيد", tone: "bg-emerald-50 text-emerald-700" };
-  return { label: "غير معروف", tone: "bg-slate-100 text-slate-600" };
 }
 
 function completedLabel(event) {
@@ -208,15 +191,12 @@ function printPdf(title, sections) {
   printable.document.close();
 }
 
-export default function Reports({ atms = [], cashSummary }) {
+export default function Reports({ atms = [] }) {
   const [branchFilter, setBranchFilter] = useState("all");
   const [atmFilter, setAtmFilter] = useState("");
   const [query, setQuery] = useState("");
   const [fromAt, setFromAt] = useState("");
   const [toAt, setToAt] = useState("");
-  const [cashReport, setCashReport] = useState(null);
-  const [cashLoading, setCashLoading] = useState(false);
-  const [cashError, setCashError] = useState("");
   const [withdrawals, setWithdrawals] = useState([]);
   const [withdrawalsLoaded, setWithdrawalsLoaded] = useState(false);
   const [withdrawalsLoading, setWithdrawalsLoading] = useState(false);
@@ -236,11 +216,6 @@ export default function Reports({ atms = [], cashSummary }) {
     });
   }, [atms, atmFilter, branchFilter, query]);
 
-  const cashRows = useMemo(() => {
-    const byAtmId = new Set(filteredAtms.map((atm) => atm.atm_id));
-    return (cashReport?.atms || []).filter((row) => byAtmId.has(row.atm_id));
-  }, [cashReport, filteredAtms]);
-
   const filteredWithdrawals = useMemo(() => {
     const atmIds = new Set(filteredAtms.map((atm) => atm.atm_id));
     const needle = normalizeText(query);
@@ -253,23 +228,6 @@ export default function Reports({ atms = [], cashSummary }) {
       return true;
     });
   }, [atmFilter, branchFilter, filteredAtms, query, withdrawals]);
-
-  const cashStats = useMemo(() => {
-    const totals = {};
-    cashRows.forEach((row) => {
-      Object.entries(row.totals_by_currency || {}).forEach(([currency, amount]) => {
-        totals[currency] = (totals[currency] || 0) + (Number(amount) || 0);
-      });
-    });
-    return {
-      totalAtms: cashRows.length,
-      stale: cashRows.filter((row) => row.is_stale).length,
-      alerts: cashRows.reduce((sum, row) => sum + (Number(row.open_alert_count) || 0), 0),
-      low: cashRows.filter((row) => row.highest_risk === "LOW").length,
-      critical: cashRows.filter((row) => row.highest_risk === "CRITICAL").length,
-      totals,
-    };
-  }, [cashRows]);
 
   const withdrawalStats = useMemo(() => {
     const completed = filteredWithdrawals.filter(isWithdrawalCompleted);
@@ -288,18 +246,6 @@ export default function Reports({ atms = [], cashSummary }) {
   }, [filteredWithdrawals]);
 
   const canLoadWithdrawals = Boolean(fromAt && toAt && new Date(fromAt).getTime() <= new Date(toAt).getTime());
-
-  async function loadCashReport() {
-    setCashLoading(true);
-    setCashError("");
-    try {
-      setCashReport(await api.getCashReport());
-    } catch (err) {
-      setCashError(err.message || "تعذر تحميل تقرير النقد");
-    } finally {
-      setCashLoading(false);
-    }
-  }
 
   async function loadWithdrawals() {
     if (!canLoadWithdrawals) return;
@@ -325,24 +271,6 @@ export default function Reports({ atms = [], cashSummary }) {
     }
   }
 
-  function cashExportRows() {
-    return [
-      ["الصراف", "ATM", "الفرع", "المخاطر", "إجمالي النقد", "الأوراق", "أقل كاسيت", "تنبيهات مفتوحة", "آخر قراءة", "قراءة قديمة"],
-      ...cashRows.map((row) => [
-        row.name || "",
-        row.atm_id || "",
-        row.branch || "",
-        riskMeta(row.highest_risk).label,
-        Object.entries(row.totals_by_currency || {}).map(([currency, amount]) => formatMoney(amount, currency)).join(" / ") || "-",
-        formatNumber(row.total_note_count),
-        row.lowest_cassette_no ? `CAS ${row.lowest_cassette_no} - ${formatNumber(row.lowest_current_count)} ورقة` : "-",
-        row.open_alert_count || 0,
-        formatApiDate(row.last_read_at),
-        row.is_stale ? "نعم" : "لا",
-      ]),
-    ];
-  }
-
   function withdrawalExportRows() {
     return [
       ["ATM", "Branch", "Occurred At", "Amount", "Currency", "RRN", "STAN", "Auth Code", "Card", "Status", "Cassettes"],
@@ -362,14 +290,6 @@ export default function Reports({ atms = [], cashSummary }) {
     ];
   }
 
-  function exportCashExcel() {
-    downloadExcel("cash-report.xls", "تقرير النقد", cashExportRows());
-  }
-
-  function exportCashPdf() {
-    printPdf("تقرير النقد", [{ title: "تقرير النقد", rows: cashExportRows() }]);
-  }
-
   function exportWithdrawalsExcel() {
     downloadExcel("withdrawal-report.xls", "تقرير عمليات السحب", withdrawalExportRows());
   }
@@ -378,9 +298,6 @@ export default function Reports({ atms = [], cashSummary }) {
     printPdf("تقرير عمليات السحب", [{ title: "تقرير عمليات السحب", rows: withdrawalExportRows() }]);
   }
 
-  const cashTotalText = Object.entries(cashStats.totals)
-    .map(([currency, amount]) => formatMoney(amount, currency))
-    .join(" / ");
   const withdrawalTotalText = Object.entries(withdrawalStats.amountByCurrency)
     .map(([currency, amount]) => formatMoney(amount, currency))
     .join(" / ");
@@ -390,17 +307,8 @@ export default function Reports({ atms = [], cashSummary }) {
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-slate-950 sm:text-3xl">التقارير</h1>
-          <div className="mt-1 text-sm text-slate-500">تقارير النقد وعمليات السحب من Journal.</div>
+          <div className="mt-1 text-sm text-slate-500">تقرير عمليات السحب من Journal.</div>
         </div>
-        <button
-          type="button"
-          onClick={loadCashReport}
-          disabled={cashLoading}
-          className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 text-sm font-semibold text-teal-800 hover:bg-teal-100 disabled:opacity-60"
-        >
-          <RefreshCw size={16} className={cashLoading ? "animate-spin" : ""} />
-          <span>{cashLoading ? "جاري تحديث النقد" : "تحديث تقرير النقد"}</span>
-        </button>
       </div>
 
       <div className="mb-5 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
@@ -488,108 +396,6 @@ export default function Reports({ atms = [], cashSummary }) {
           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
             وقت البداية يجب أن يكون قبل وقت النهاية.
           </div>
-        )}
-      </div>
-
-      <div className="mb-6">
-        <SectionHeader
-          icon={Banknote}
-          title="تقرير النقد"
-          meta={cashReport ? `آخر تحديث ${formatApiDate(cashReport.generated_at)}` : "اضغط تحديث تقرير النقد"}
-          action={
-            <div className="flex flex-wrap gap-2">
-              {cashReport && cashRows.length > 0 && (
-                <>
-                  <button
-                    type="button"
-                    onClick={exportCashExcel}
-                    className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm hover:bg-slate-50"
-                  >
-                    <Download size={16} />
-                    <span>Excel</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={exportCashPdf}
-                    className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm hover:bg-slate-50"
-                  >
-                    <Download size={16} />
-                    <span>PDF</span>
-                  </button>
-                </>
-              )}
-              <button
-                type="button"
-                onClick={loadCashReport}
-                disabled={cashLoading}
-                className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm hover:bg-slate-50 disabled:opacity-60"
-              >
-                <RefreshCw size={16} className={cashLoading ? "animate-spin" : ""} />
-                <span>تحديث</span>
-              </button>
-            </div>
-          }
-        />
-        {cashError && <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{cashError}</div>}
-        <div className="mb-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          <StatCard label="صرافات النقد" value={cashReport ? cashStats.totalAtms : cashSummary?.atm_count ?? "-"} icon={Landmark} />
-          <StatCard label="منخفض" value={cashSummary?.cash_low_units ?? cashStats.low} icon={AlertTriangle} tone={cashSummary?.cash_low_units ? "amber" : "emerald"} />
-          <StatCard label="حرج / فارغ" value={(cashSummary?.cash_critical_units || 0) + (cashSummary?.cash_empty_units || 0)} icon={AlertTriangle} tone={(cashSummary?.cash_critical_units || cashSummary?.cash_empty_units) ? "rose" : "emerald"} />
-          <StatCard label="قراءات قديمة" value={cashReport ? cashStats.stale : cashSummary?.cash_stale_atms ?? "-"} icon={RefreshCw} tone={cashStats.stale ? "amber" : "emerald"} />
-          <StatCard label="إجمالي النقد" value={cashTotalText || "-"} icon={Banknote} tone="sky" />
-        </div>
-        {!cashReport ? (
-          <EmptyPanel>اضغط تحديث تقرير النقد لعرض التفاصيل حسب الصراف والكاسيتات.</EmptyPanel>
-        ) : (
-          <TableShell>
-            <div className="max-h-[420px] overflow-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-sm">
-                <thead className="sticky top-0 bg-slate-50 text-slate-600">
-                  <tr>
-                    <th className="px-3 py-2 text-right font-semibold">الصراف</th>
-                    <th className="px-3 py-2 text-right font-semibold">المخاطر</th>
-                    <th className="px-3 py-2 text-right font-semibold">إجمالي النقد</th>
-                    <th className="px-3 py-2 text-right font-semibold">الأوراق</th>
-                    <th className="px-3 py-2 text-right font-semibold">أقل كاسيت</th>
-                    <th className="px-3 py-2 text-right font-semibold">آخر قراءة</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {cashRows.map((row) => {
-                    const risk = riskMeta(row.highest_risk);
-                    return (
-                      <tr key={row.atm_id} className="hover:bg-slate-50">
-                        <td className="px-3 py-2">
-                          <div className="font-semibold text-slate-950">{row.name}</div>
-                          <div className="text-xs text-slate-500">ATM {row.atm_id} · {row.branch || "-"}</div>
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${risk.tone}`}>{risk.label}</span>
-                          {row.open_alert_count > 0 && <div className="mt-1 text-xs text-amber-700">{row.open_alert_count} تنبيه مفتوح</div>}
-                        </td>
-                        <td className="px-3 py-2 font-semibold text-slate-900">
-                          {Object.entries(row.totals_by_currency || {}).map(([currency, amount]) => formatMoney(amount, currency)).join(" / ") || "-"}
-                        </td>
-                        <td className="px-3 py-2">{formatNumber(row.total_note_count)}</td>
-                        <td className="px-3 py-2">
-                          {row.lowest_cassette_no ? `CAS ${row.lowest_cassette_no} · ${formatNumber(row.lowest_current_count)} ورقة` : "-"}
-                        </td>
-                        <td className="px-3 py-2">
-                          <div>{formatApiDate(row.last_read_at)}</div>
-                          {row.is_stale && <div className="text-xs text-amber-700">قراءة قديمة</div>}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {cashRows.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-3 py-8 text-center text-sm text-slate-500">لا توجد نتائج نقد مطابقة.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </TableShell>
         )}
       </div>
 

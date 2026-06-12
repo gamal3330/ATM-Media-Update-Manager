@@ -327,7 +327,7 @@ export default function App() {
   if (visiblePage === "packages") page = <Packages packages={packages} atms={atms} onChanged={refreshPackages} />;
   if (visiblePage === "agent-updates") page = <AgentUpdates atms={atms} />;
   if (visiblePage === "cash") page = <CashMonitoring atms={atms} />;
-  if (visiblePage === "reports") page = <Reports atms={atms} cashSummary={cashSummary} />;
+  if (visiblePage === "reports") page = <Reports atms={atms} />;
   if (visiblePage === "notifications") page = <NotificationCenter />;
   if (visiblePage === "agent-downloads") page = <AgentDownloads />;
   if (visiblePage === "logs") {
