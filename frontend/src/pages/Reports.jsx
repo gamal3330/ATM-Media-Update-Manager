@@ -116,6 +116,14 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function exportRowCells(row) {
+  return Array.isArray(row) ? row : row.cells || [];
+}
+
+function exportRowClass(row) {
+  return Array.isArray(row) ? "" : row.className || "";
+}
+
 function exportTableHtml(title, rows) {
   const [headers = [], ...bodyRows] = rows;
   return `
@@ -126,7 +134,13 @@ function exportTableHtml(title, rows) {
           <tr>${headers.map((cell) => `<th>${escapeHtml(cell)}</th>`).join("")}</tr>
         </thead>
         <tbody>
-          ${bodyRows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}
+          ${bodyRows
+            .map((row) => {
+              const rowClass = exportRowClass(row);
+              const classAttribute = rowClass ? ` class="${escapeHtml(rowClass)}"` : "";
+              return `<tr${classAttribute}>${exportRowCells(row).map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`;
+            })
+            .join("")}
         </tbody>
       </table>
     </section>
@@ -143,7 +157,9 @@ function downloadExcel(filename, title, rows) {
           body { direction: rtl; font-family: Arial, Tahoma, sans-serif; }
           table { border-collapse: collapse; width: 100%; }
           th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: right; }
-          th { background: #f1f5f9; font-weight: 700; }
+          th { background: #e0f2fe; color: #0f172a; font-weight: 700; }
+          .row-completed td { background: #ecfdf5; color: #064e3b; }
+          .row-incomplete td { background: #fff1f2; color: #9f1239; font-weight: 700; }
         </style>
       </head>
       <body>${exportTableHtml(title, rows)}</body>
@@ -176,7 +192,9 @@ function printPdf(title, sections) {
           table { border-collapse: collapse; width: 100%; page-break-inside: auto; }
           tr { page-break-inside: avoid; page-break-after: auto; }
           th, td { border: 1px solid #cbd5e1; padding: 6px; text-align: right; font-size: 11px; vertical-align: top; }
-          th { background: #f1f5f9; font-weight: 700; }
+          th { background: #e0f2fe; color: #0f172a; font-weight: 700; }
+          .row-completed td { background: #ecfdf5; color: #064e3b; }
+          .row-incomplete td { background: #fff1f2; color: #9f1239; font-weight: 700; }
         </style>
       </head>
       <body>
@@ -274,19 +292,22 @@ export default function Reports({ atms = [] }) {
   function withdrawalExportRows() {
     return [
       ["ATM", "Branch", "Occurred At", "Amount", "Currency", "RRN", "STAN", "Auth Code", "Card", "Status", "Cassettes"],
-      ...filteredWithdrawals.map((event) => [
-        event.atm?.atm_id || "",
-        event.atm?.branch || "",
-        formatLocalWallDate(event.occurred_at),
-        event.amount || "",
-        event.currency || "",
-        event.rrn || "",
-        event.stan || "",
-        event.auth_code || "",
-        event.card_masked || "",
-        completedLabel(event),
-        cassetteText(event.cassette_outputs_json),
-      ]),
+      ...filteredWithdrawals.map((event) => ({
+        className: isWithdrawalCompleted(event) ? "row-completed" : "row-incomplete",
+        cells: [
+          event.atm?.atm_id || "",
+          event.atm?.branch || "",
+          formatLocalWallDate(event.occurred_at),
+          event.amount || "",
+          event.currency || "",
+          event.rrn || "",
+          event.stan || "",
+          event.auth_code || "",
+          event.card_masked || "",
+          completedLabel(event),
+          cassetteText(event.cassette_outputs_json),
+        ],
+      })),
     ];
   }
 
