@@ -49,6 +49,7 @@ function BackgroundLoadingNotice() {
 
 function getAllowedPages(user) {
   const pageIds = nav.map((item) => item.id);
+  if (user?.role === "admin" || user?.role === "system_admin") return pageIds;
   const pages = Array.isArray(user?.allowed_pages) ? user.allowed_pages : fallbackPages;
   const allowed = new Set(pages);
   return pageIds.filter((page) => allowed.has(page));
