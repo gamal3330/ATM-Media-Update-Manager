@@ -51,7 +51,7 @@ from ..schemas import (
 )
 from ..services.audit_service import write_audit
 from ..services.agent_update_service import mark_stale_agent_update_targets
-from ..services.notification_service import notify_journal_out_of_service, notify_switch_probe_failed
+from ..services.notification_service import notify_journal_in_service, notify_journal_out_of_service, notify_switch_probe_failed
 from ..services.package_service import ALLOWED_IMAGE_EXTENSIONS
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
@@ -983,6 +983,8 @@ def submit_journal_events(
         inserted += 1
         if item.event_type == "ENTER_OUTOFSERVICE_MODE":
             notify_journal_out_of_service(db, atm, event)
+        elif item.event_type == "ENTER_INSERVICE_MODE":
+            notify_journal_in_service(db, atm, event)
 
     if inserted or updated:
         atm.last_seen = datetime.now(timezone.utc)

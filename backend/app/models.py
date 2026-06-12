@@ -448,6 +448,7 @@ class NotificationSettings(Base):
     notify_cash_empty: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     notify_switch_disconnected: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     notify_journal_out_of_service: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notify_journal_in_service: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     notify_whatsapp_disconnected: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_whatsapp_gateway_status: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     last_whatsapp_gateway_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

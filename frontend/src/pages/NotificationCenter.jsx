@@ -42,6 +42,7 @@ const defaultForm = {
   notify_cash_empty: true,
   notify_switch_disconnected: true,
   notify_journal_out_of_service: true,
+  notify_journal_in_service: true,
   notify_whatsapp_disconnected: true,
 };
 
@@ -97,6 +98,7 @@ function buildForm(settings) {
     notify_cash_empty: Boolean(settings.notify_cash_empty),
     notify_switch_disconnected: settings.notify_switch_disconnected !== false,
     notify_journal_out_of_service: settings.notify_journal_out_of_service !== false,
+    notify_journal_in_service: settings.notify_journal_in_service !== false,
     notify_whatsapp_disconnected: settings.notify_whatsapp_disconnected !== false,
   };
 }
@@ -206,6 +208,7 @@ function buildSettingsPayload(form) {
     notify_cash_empty: form.notify_cash_empty,
     notify_switch_disconnected: form.notify_switch_disconnected,
     notify_journal_out_of_service: form.notify_journal_out_of_service,
+    notify_journal_in_service: form.notify_journal_in_service,
     notify_whatsapp_disconnected: form.notify_whatsapp_disconnected,
   };
   if (form.smtp_password.trim()) {
@@ -631,11 +634,13 @@ export default function NotificationCenter() {
         form.notify_cash_empty ? "انتهاء النقد" : null,
         form.notify_switch_disconnected ? "فصل الصراف عن السويتش" : null,
         form.notify_journal_out_of_service ? "خروج الصراف عن الخدمة" : null,
+        form.notify_journal_in_service ? "عودة الصراف للخدمة" : null,
         form.notify_whatsapp_disconnected ? "فصل جلسة WhatsApp" : null,
       ].filter(Boolean),
     [
       form.notify_cash_empty,
       form.notify_cash_low,
+      form.notify_journal_in_service,
       form.notify_journal_out_of_service,
       form.notify_switch_disconnected,
       form.notify_whatsapp_disconnected,
@@ -927,6 +932,11 @@ export default function NotificationCenter() {
                   checked={form.notify_journal_out_of_service}
                   onChange={(value) => updateField("notify_journal_out_of_service", value)}
                   label="تنبيه خروج الصراف عن الخدمة"
+                />
+                <ToggleField
+                  checked={form.notify_journal_in_service}
+                  onChange={(value) => updateField("notify_journal_in_service", value)}
+                  label="تنبيه عودة الصراف للخدمة"
                 />
                 <ToggleField
                   checked={form.notify_whatsapp_disconnected}

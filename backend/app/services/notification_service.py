@@ -308,6 +308,23 @@ def build_journal_out_of_service_whatsapp(atm: ATM, event: AtmJournalEvent) -> t
     return subject, body
 
 
+def build_journal_in_service_whatsapp(atm: ATM, event: AtmJournalEvent) -> tuple[str, str]:
+    title = "عودة الصراف للخدمة"
+    subject = f"{BRAND_NAME} - {title} - {atm.name} ({atm.atm_id})"
+    body = whatsapp_template(
+        title=title,
+        subtitle=f"{atm.name} - {atm.atm_id}",
+        rows=[
+            ("الصراف", f"{atm.name} ({atm.atm_id})"),
+            ("الفرع", atm.branch or "-"),
+            ("الوقت", email_datetime(event.occurred_at)),
+            ("المصدر", event.source or "journal"),
+        ],
+        note=event.message or "تم تسجيل عودة الصراف للخدمة من الجورنال.",
+    )
+    return subject, body
+
+
 def build_whatsapp_gateway_disconnected_email(
     settings: NotificationSettings,
     status_value: str,
@@ -931,6 +948,31 @@ def notify_journal_out_of_service(db: Session, atm: ATM, event: AtmJournalEvent)
                 db,
                 settings,
                 event_type="JOURNAL_OUT_OF_SERVICE",
+                subject=subject,
+                body=body,
+                recipient=whatsapp_recipient,
+                atm=atm,
+            )
+        )
+
+    return deliveries[0] if deliveries else None
+
+
+def notify_journal_in_service(db: Session, atm: ATM, event: AtmJournalEvent) -> NotificationDelivery | None:
+    settings = get_notification_settings(db)
+    if not settings.is_whatsapp_configured:
+        return None
+    if not settings.notify_journal_in_service:
+        return None
+
+    subject, body = build_journal_in_service_whatsapp(atm, event)
+    deliveries = []
+    for whatsapp_recipient in whatsapp_recipients_for_atm(db, settings, atm):
+        deliveries.append(
+            create_whatsapp_delivery(
+                db,
+                settings,
+                event_type="JOURNAL_IN_SERVICE",
                 subject=subject,
                 body=body,
                 recipient=whatsapp_recipient,
