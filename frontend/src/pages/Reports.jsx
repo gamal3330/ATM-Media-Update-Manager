@@ -393,12 +393,6 @@ export default function Reports({ atms = [], cashSummary }) {
         )}
       </div>
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        <StatCard label="تنبيهات نقد" value={cashSummary?.open_alerts ?? "-"} icon={Banknote} tone={cashSummary?.open_alerts ? "amber" : "emerald"} />
-        <StatCard label="عمليات السحب" value={withdrawalStats.total} icon={CreditCard} note={withdrawalTotalText || "حسب الفترة المحددة"} />
-        <StatCard label="الصرافات المطابقة" value={filteredAtms.length} icon={Landmark} />
-      </div>
-
       <div className="mb-6">
         <SectionHeader
           icon={Banknote}
