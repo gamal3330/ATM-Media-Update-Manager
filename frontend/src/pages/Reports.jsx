@@ -60,7 +60,7 @@ function cassetteText(items) {
   return items.map((item) => `CAS ${item.cassette_no}: ${item.out}`).join(" | ");
 }
 
-function StatCard({ label, value, icon: Icon, tone = "slate", note }) {
+function StatCard({ label, value, icon: Icon, tone = "slate", note, valueClassName = "mt-2 text-2xl font-semibold leading-none" }) {
   const tones = {
     slate: "border-slate-200 bg-white text-slate-950",
     emerald: "border-emerald-200 bg-emerald-50 text-emerald-950",
@@ -76,7 +76,7 @@ function StatCard({ label, value, icon: Icon, tone = "slate", note }) {
         <span className="text-sm font-medium text-slate-600">{label}</span>
         <Icon size={18} className="opacity-70" />
       </div>
-      <div className="mt-2 text-2xl font-semibold leading-none">{value}</div>
+      <div className={valueClassName}>{value}</div>
       {note && <div className="mt-1 text-xs text-slate-500">{note}</div>}
     </div>
   );
@@ -372,7 +372,8 @@ export default function Reports({ atms = [] }) {
     printPdf(currentReportTitle(), [{ title: currentReportTitle(), rows: currentExportRows() }]);
   }
 
-  const withdrawalTotalText = Object.entries(withdrawalStats.amountByCurrency)
+  const withdrawalTotalItems = Object.entries(withdrawalStats.amountByCurrency);
+  const withdrawalTotalText = withdrawalTotalItems
     .map(([currency, amount]) => formatMoney(amount, currency))
     .join(" / ");
 
@@ -541,7 +542,26 @@ export default function Reports({ atms = [] }) {
           <StatCard label="إجمالي العمليات" value={withdrawalStats.total} icon={ClipboardList} />
           <StatCard label="ناجحة" value={withdrawalStats.completed} icon={CheckCircle2} tone="emerald" />
           <StatCard label="غير ناجحة" value={withdrawalStats.incomplete} icon={AlertTriangle} tone={withdrawalStats.incomplete ? "amber" : "emerald"} />
-          <StatCard label="إجمالي السحب" value={withdrawalTotalText || "-"} icon={BarChart3} tone="sky" />
+          <StatCard
+            label="إجمالي السحب"
+            value={
+              withdrawalTotalItems.length ? (
+                <div className="space-y-1">
+                  {withdrawalTotalItems.map(([currency, amount]) => (
+                    <div key={currency} className="flex items-baseline justify-between gap-3">
+                      <span className="text-sm font-semibold text-sky-800">{currency}</span>
+                      <span className="text-lg font-semibold tabular-nums text-slate-950">{Number(amount || 0).toLocaleString("en-US")}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                "-"
+              )
+            }
+            icon={BarChart3}
+            tone="sky"
+            valueClassName="mt-2 text-base font-semibold leading-tight"
+          />
         </div>
         {!withdrawalsLoaded ? (
           <EmptyPanel>لن يتم تحميل عمليات السحب قبل تحديد الفترة والضغط على عرض السحب.</EmptyPanel>
