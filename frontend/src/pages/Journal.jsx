@@ -440,14 +440,14 @@ export default function Journal({ atms }) {
       </div>
 
       <div className="mb-5 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-        <div className="grid gap-3 lg:grid-cols-[minmax(280px,1.4fr)_minmax(180px,1fr)_minmax(180px,1fr)_minmax(160px,0.8fr)_minmax(120px,0.6fr)]">
+        <div className="grid items-start gap-3 lg:grid-cols-[minmax(280px,1.4fr)_minmax(180px,1fr)_minmax(180px,1fr)_minmax(160px,0.8fr)_minmax(120px,0.6fr)]">
           <div className="grid gap-2">
             <label className="relative block">
               <Search className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
               <input
                 value={atmQuery}
                 onChange={(event) => setAtmQuery(event.target.value)}
-                className="focus-ring min-h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
+                className="focus-ring h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
                 placeholder="بحث عن صراف بالاسم، الرقم، الفرع أو IP"
               />
             </label>
@@ -465,7 +465,7 @@ export default function Journal({ atms }) {
                   setLoadedFilterKey("");
                   setError("");
                 }}
-                className="focus-ring min-h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
+                className="focus-ring h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
               >
                 <option value="">اختر الصراف</option>
                 {atmOptions.map((atm) => (
@@ -490,7 +490,7 @@ export default function Journal({ atms }) {
               type="datetime-local"
               value={fromAt}
               onChange={(event) => setFromAt(event.target.value)}
-              className="focus-ring min-h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
+              className="focus-ring h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
               title="From"
             />
           </label>
@@ -501,7 +501,7 @@ export default function Journal({ atms }) {
               type="datetime-local"
               value={toAt}
               onChange={(event) => setToAt(event.target.value)}
-              className="focus-ring min-h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
+              className="focus-ring h-11 w-full rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-10 text-sm"
               title="To"
             />
           </label>
@@ -509,7 +509,7 @@ export default function Journal({ atms }) {
           <select
             value={eventType}
             onChange={(event) => setEventType(event.target.value)}
-            className="focus-ring min-h-11 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+            className="focus-ring h-11 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
           >
             {eventTypeOptions.map(([value, label]) => (
               <option key={value} value={value}>
@@ -528,7 +528,7 @@ export default function Journal({ atms }) {
               setLoadedAtm("");
               setLoadedFilterKey("");
             }}
-            className="focus-ring min-h-11 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+            className="focus-ring h-11 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
           >
             {limitOptions.map((value) => (
               <option key={value} value={value}>
