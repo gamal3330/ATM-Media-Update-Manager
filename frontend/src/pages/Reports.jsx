@@ -124,16 +124,48 @@ function TableShell({ children }) {
   return <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">{children}</div>;
 }
 
-function downloadCsv(filename, rows) {
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function exportTableHtml(title, rows) {
+  const [headers = [], ...bodyRows] = rows;
+  return `
+    <section>
+      <h2>${escapeHtml(title)}</h2>
+      <table>
+        <thead>
+          <tr>${headers.map((cell) => `<th>${escapeHtml(cell)}</th>`).join("")}</tr>
+        </thead>
+        <tbody>
+          ${bodyRows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}
+        </tbody>
+      </table>
+    </section>
+  `;
+}
+
+function downloadExcel(filename, title, rows) {
   if (!rows.length) return;
-  const csv = rows
-    .map((row) =>
-      row
-        .map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`)
-        .join(","),
-    )
-    .join("\n");
-  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+  const html = `<!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <style>
+          body { direction: rtl; font-family: Arial, Tahoma, sans-serif; }
+          table { border-collapse: collapse; width: 100%; }
+          th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: right; }
+          th { background: #f1f5f9; font-weight: 700; }
+        </style>
+      </head>
+      <body>${exportTableHtml(title, rows)}</body>
+    </html>`;
+  const blob = new Blob([`\uFEFF${html}`], { type: "application/vnd.ms-excel;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -142,6 +174,38 @@ function downloadCsv(filename, rows) {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+function printPdf(title, sections) {
+  const printable = window.open("", "_blank");
+  if (!printable) return;
+  const html = `<!doctype html>
+    <html lang="ar" dir="rtl">
+      <head>
+        <meta charset="utf-8" />
+        <title>${escapeHtml(title)}</title>
+        <style>
+          @page { size: A4 landscape; margin: 12mm; }
+          body { direction: rtl; color: #0f172a; font-family: Arial, Tahoma, sans-serif; }
+          h1 { margin: 0 0 14px; font-size: 22px; }
+          h2 { margin: 18px 0 8px; font-size: 17px; }
+          .meta { margin-bottom: 14px; color: #64748b; font-size: 12px; }
+          table { border-collapse: collapse; width: 100%; page-break-inside: auto; }
+          tr { page-break-inside: avoid; page-break-after: auto; }
+          th, td { border: 1px solid #cbd5e1; padding: 6px; text-align: right; font-size: 11px; vertical-align: top; }
+          th { background: #f1f5f9; font-weight: 700; }
+        </style>
+      </head>
+      <body>
+        <h1>${escapeHtml(title)}</h1>
+        <div class="meta">QIB ATM Manager · ${escapeHtml(formatApiDate(new Date()))}</div>
+        ${sections.map((section) => exportTableHtml(section.title, section.rows)).join("")}
+        <script>window.addEventListener("load", () => setTimeout(() => window.print(), 250));</script>
+      </body>
+    </html>`;
+  printable.document.open();
+  printable.document.write(html);
+  printable.document.close();
 }
 
 export default function Reports({ atms = [], cashSummary }) {
@@ -261,8 +325,26 @@ export default function Reports({ atms = [], cashSummary }) {
     }
   }
 
-  function exportWithdrawals() {
-    downloadCsv("withdrawal-report.csv", [
+  function cashExportRows() {
+    return [
+      ["الصراف", "ATM", "الفرع", "المخاطر", "إجمالي النقد", "الأوراق", "أقل كاسيت", "تنبيهات مفتوحة", "آخر قراءة", "قراءة قديمة"],
+      ...cashRows.map((row) => [
+        row.name || "",
+        row.atm_id || "",
+        row.branch || "",
+        riskMeta(row.highest_risk).label,
+        Object.entries(row.totals_by_currency || {}).map(([currency, amount]) => formatMoney(amount, currency)).join(" / ") || "-",
+        formatNumber(row.total_note_count),
+        row.lowest_cassette_no ? `CAS ${row.lowest_cassette_no} - ${formatNumber(row.lowest_current_count)} ورقة` : "-",
+        row.open_alert_count || 0,
+        formatApiDate(row.last_read_at),
+        row.is_stale ? "نعم" : "لا",
+      ]),
+    ];
+  }
+
+  function withdrawalExportRows() {
+    return [
       ["ATM", "Branch", "Occurred At", "Amount", "Currency", "RRN", "STAN", "Auth Code", "Card", "Status", "Cassettes"],
       ...filteredWithdrawals.map((event) => [
         event.atm?.atm_id || "",
@@ -277,7 +359,23 @@ export default function Reports({ atms = [], cashSummary }) {
         completedLabel(event),
         cassetteText(event.cassette_outputs_json),
       ]),
-    ]);
+    ];
+  }
+
+  function exportCashExcel() {
+    downloadExcel("cash-report.xls", "تقرير النقد", cashExportRows());
+  }
+
+  function exportCashPdf() {
+    printPdf("تقرير النقد", [{ title: "تقرير النقد", rows: cashExportRows() }]);
+  }
+
+  function exportWithdrawalsExcel() {
+    downloadExcel("withdrawal-report.xls", "تقرير عمليات السحب", withdrawalExportRows());
+  }
+
+  function exportWithdrawalsPdf() {
+    printPdf("تقرير عمليات السحب", [{ title: "تقرير عمليات السحب", rows: withdrawalExportRows() }]);
   }
 
   const cashTotalText = Object.entries(cashStats.totals)
@@ -399,15 +497,37 @@ export default function Reports({ atms = [], cashSummary }) {
           title="تقرير النقد"
           meta={cashReport ? `آخر تحديث ${formatApiDate(cashReport.generated_at)}` : "اضغط تحديث تقرير النقد"}
           action={
-            <button
-              type="button"
-              onClick={loadCashReport}
-              disabled={cashLoading}
-              className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm hover:bg-slate-50 disabled:opacity-60"
-            >
-              <RefreshCw size={16} className={cashLoading ? "animate-spin" : ""} />
-              <span>تحديث</span>
-            </button>
+            <div className="flex flex-wrap gap-2">
+              {cashReport && cashRows.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={exportCashExcel}
+                    className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm hover:bg-slate-50"
+                  >
+                    <Download size={16} />
+                    <span>Excel</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={exportCashPdf}
+                    className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm hover:bg-slate-50"
+                  >
+                    <Download size={16} />
+                    <span>PDF</span>
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={loadCashReport}
+                disabled={cashLoading}
+                className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm hover:bg-slate-50 disabled:opacity-60"
+              >
+                <RefreshCw size={16} className={cashLoading ? "animate-spin" : ""} />
+                <span>تحديث</span>
+              </button>
+            </div>
           }
         />
         {cashError && <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{cashError}</div>}
@@ -480,14 +600,24 @@ export default function Reports({ atms = [], cashSummary }) {
           meta={withdrawalsLoaded ? `${filteredWithdrawals.length} عملية` : "حدد الفترة ثم اضغط عرض السحب"}
           action={
             withdrawalsLoaded && filteredWithdrawals.length > 0 ? (
-              <button
-                type="button"
-                onClick={exportWithdrawals}
-                className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm hover:bg-slate-50"
-              >
-                <Download size={16} />
-                <span>CSV</span>
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={exportWithdrawalsExcel}
+                  className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm hover:bg-slate-50"
+                >
+                  <Download size={16} />
+                  <span>Excel</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={exportWithdrawalsPdf}
+                  className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm hover:bg-slate-50"
+                >
+                  <Download size={16} />
+                  <span>PDF</span>
+                </button>
+              </div>
             ) : null
           }
         />
